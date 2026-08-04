@@ -22,14 +22,14 @@ param(
     [string] $DraftModel = '',
     [string] $Prompt = "Write a complete, well-documented Python implementation of an LRU cache class with get, put, and eviction. Then write 8 unit tests for it."
 )
-$bin = "$PSScriptRoot\bin\llama-cli.exe"
+$bin = "$(Split-Path $PSScriptRoot -Parent)\bin\llama-cli.exe"
 # Write prompt to a file so no spaced argument gets split by Start-Process.
-$pf = "$PSScriptRoot\_prompt.txt"
+$pf = "$(Split-Path $PSScriptRoot -Parent)\_prompt.txt"
 Set-Content -Path $pf -Value $Prompt -Encoding UTF8 -NoNewline
 function RunOne($extra,$label){
     $a = @('-m',$Model,'-ngl','99','-fa','1','-n',"$NPredict",'-f',$pf,'--no-warmup','-no-cnv','--simple-io','-st','--seed','42') + $extra
-    $err = "$PSScriptRoot\spec_$label.err"
-    $out = "$PSScriptRoot\spec_$label.out"
+    $err = "$(Split-Path $PSScriptRoot -Parent)\spec_$label.err"
+    $out = "$(Split-Path $PSScriptRoot -Parent)\spec_$label.out"
     Start-Process $bin -ArgumentList $a -NoNewWindow -Wait -RedirectStandardError $err -RedirectStandardOutput $out
     # --simple-io prints "[ Prompt: X t/s | Generation: Y t/s ]" to stdout
     $genline = (Get-Content $out -EA SilentlyContinue | Select-String 'Generation:\s*([\d\.]+)\s*t/s' | Select-Object -Last 1) -join ''

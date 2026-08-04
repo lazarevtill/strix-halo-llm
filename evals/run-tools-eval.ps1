@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Native tool-calling eval for local GGUFs. Measures whether a model picks the right tool, fills the
   right arguments, chains multiple calls, and — critically — knows when NOT to call a tool.

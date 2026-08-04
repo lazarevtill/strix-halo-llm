@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Launch llama.cpp llama-server (Vulkan backend) on the Radeon 8060S with an
   OpenAI-compatible API + built-in web UI. Strix-Halo-tuned defaults.
@@ -15,7 +15,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Model = "$PSScriptRoot\models\gpt-oss-20b-mxfp4.gguf",
+    [string] $Model = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\models\gpt-oss-20b-mxfp4.gguf",
     [int]    $Ctx   = 131072,       # 128K — fits big files/repos; KV still fits 96GB VRAM
     [int]    $Port  = 8080,
     [int]    $Batch  = 2048,        # logical batch (MEASURED 2026-06-29: 2048 > 256 for pp; old 256 was over-cautious)
@@ -36,7 +36,7 @@ param(
 # partition and BLOCKS the Vulkan backend from uploading them to the 96GB VRAM carve-out
 # (measured: -ngl 999 silently runs from host RAM, GPU dedicated ~0, RAM ~1GB free).
 # Permanent VRAM residency is already provided by --no-mmap alone.
-$bin = "$PSScriptRoot\bin\llama-server.exe"
+$bin = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\bin\llama-server.exe"
 if (-not (Test-Path $bin))   { Write-Error "llama-server.exe not found in bin\"; exit 1 }
 if (-not (Test-Path $Model)) { Write-Error "Model not found: $Model"; exit 1 }
 

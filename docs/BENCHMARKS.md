@@ -4,7 +4,7 @@ Two different questions, two different tools. Do not mix them up:
 
 | question | tool | unit |
 |---|---|---|
-| **How fast is it?** | `bench-big.ps1`, `bench-spec.ps1` | tokens/sec (pp and tg, separately) |
+| **How fast is it?** | `scripts\bench-big.ps1`, `scripts\bench-spec.ps1` | tokens/sec (pp and tg, separately) |
 | **How good is it?** | `evals\run-guarded.ps1` | pass rate on private suites |
 
 Speed is cheap to measure and easy to trust. Quality is expensive to measure and *very* easy to get
@@ -29,11 +29,11 @@ A result is only meaningful with four attributes: **context depth, quant, backen
 ### Depth matters more than anything
 
 `llama-bench` defaults to depth 0 — an empty KV cache. That number is a fiction for agentic work.
-`bench-big.ps1` uses `-d` to measure at real depths, because tg degrades as the cache fills.
+`scripts\bench-big.ps1` uses `-d` to measure at real depths, because tg degrades as the cache fills.
 
 ```powershell
-.\bench-big.ps1                      # sweep the models it finds, at real depths
-.\bench-spec.ps1 -Model .\models\X.gguf -Spec draft-mtp    # A/B speculative decoding
+.\scripts\bench-big.ps1                      # sweep the models it finds, at real depths
+.\scripts\bench-spec.ps1 -Model .\models\X.gguf -Spec draft-mtp    # A/B speculative decoding
 ```
 
 ### How to read it
@@ -64,6 +64,50 @@ A result is only meaningful with four attributes: **context depth, quant, backen
 Two private suites in `evals\`, written for this fleet and published nowhere — so no model has
 trained on them. That matters: decontaminated **SWE-rebench scores A3B-class models ~4x below**
 their self-reported SWE-bench numbers.
+
+The **cases themselves are withheld** (see `docs\PUBLISHING.md`), so here is exactly what they
+consist of — the numbers should be interpretable without handing over the answers.
+
+#### Tool-calling suite — 29 cases over 10 tools
+
+The tool schemas ARE public: `evals\tools\tools.json` defines a fleet-operations API —
+`list_hosts`, `get_host_metrics`, `restart_service`, `deploy_model`, `search_logs`,
+`create_snapshot`, `set_power_profile`, `list_models`, `benchmark_model`, `cordon_host`. Every case
+is a natural-language request against that API; scoring compares emitted `tool_calls` against an
+expected list (names, multiplicity, order for chains, and every expected argument).
+
+| category | n | expected calls | what it isolates |
+|---|---|---|---|
+| `select` | 5 | 1 | picks the right tool for an unambiguous request, and does not invent one |
+| `args` | 8 | 1 | extracts required + optional arguments: hostnames, ports, ints, floats, booleans, ISO dates |
+| `enum` | 3 | 1 | enum params match the schema exactly — a power profile must be `powersave`/`balanced`/`performance`, not "low power" |
+| `multi` | 3 | 2 | two *independent* actions in one request, **including the same tool twice with different arguments** |
+| `chain` | 2 | 2 | two *ordered, dependent* actions ("snapshot X, then restart it") — order is scored |
+| `abstain` | 5 | **0** | chat, out-of-scope and impossible requests where the correct answer is **no tool call at all** |
+| `hard` | 3 | 1 | relative dates ("since the start of last month"), implied fields, under-specified asks needing discovery first |
+
+**`abstain` is weighted equally on purpose.** A model that fires a tool at "thanks, that's all"
+thrashes in an agent loop, and it is the category most models fail.
+
+#### Agentic coding suite — 4 tasks × 3 turns, 70 hidden tests
+
+Each task is a small self-contained Python API with no famous name — deliberately *not* LRU-cache or
+two-sum, which are memorised (the superseded `archive\coding-eval` used exactly such a classic).
+Turn 1 specifies it, turn 2 adds features, turn 3 reports a failing case to fix. Each turn is scored
+only against the tests for features requested **so far**.
+
+| task | entry point | what it is | turn-1 | turn-2 | total |
+|---|---|---|---|---|---|
+| `token_budget` | `BudgetTracker` | meter an agent's token spend per step, with a held-back reserve and validation | 12¹ | 8 | **20** |
+| `shard_planner` | `plan_placement` | place model shards across hosts under capacity constraints | 8 | 6 | **14** |
+| `window_merge` | `merge_windows` | merge overlapping time windows with precedence rules | 14 | 4 | **18** |
+| `quant_pick` | `pick_quant` | choose a quantisation rung that fits a memory budget from a ladder | 11 | 7 | **18** |
+
+¹ 10 `def test_` but **12 tests** — two are parametrized. Exactly why denominators are *calibrated*
+by running the reference solution rather than counted statically.
+
+Tests run in a locked-down Docker sandbox: no network, 512 MB, 1 CPU, `--pids-limit 128`,
+read-only mount. Model-written code is untrusted.
 
 **Tool calling** (29 cases) — a real OpenAI `tools` array → `message.tool_calls`, in a multi-turn
 agent loop with tool results fed back. Categories: `select`, `args`, `enum`, `multi`, `chain`,

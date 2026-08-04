@@ -71,7 +71,7 @@ was committed by two *idle, trimmed* servers. **Committed is what the allocator 
 # per process:
 (Get-Counter '\GPU Process Memory(*)\Total Committed').CounterSamples | Where-Object { $_.CookedValue -gt 500MB }
 ```
-`run-solo.ps1` and `bench-big.ps1` now both key on Total Committed.
+`scripts\run-solo.ps1` and `bench-big.ps1` now both key on Total Committed.
 
 ### ⚠️ The dirty-baseline OOM trap (cost me 3 false negatives)
 `ErrorOutOfDeviceMemory` **usually means something else is still holding VRAM**, not that the config
@@ -237,7 +237,7 @@ The production 35B logs, at every startup:
 srv load_model: cache_reuse is not supported by this context, it will be disabled
 ```
 It requires KV shifting (`llama_memory_can_shift`), false for this MoE context. **Not** caused by
-q8_0 KV or `kv_unified` — both were tested and fail the same way. Removed from `run-solo.ps1`;
+q8_0 KV or `kv_unified` — both were tested and fail the same way. Removed from `scripts\run-solo.ps1`;
 `run-server.ps1` and `ornith-router\serve-model.ps1` still pass it and should be cleaned up too.
 
 **You don't need it.** Plain **prefix caching** already prevents re-prefill on append-only
@@ -302,7 +302,7 @@ comparison below) and did not survive:
 4. **Max raw capability, accepting 2-bit and slow:** DeepSeek-V4-Flash UD-IQ2_M — never benched;
    the only untested member of the shortlist.
 
-**Current recommendation: `run-solo.ps1` with its default, Ornith-1.0-35B Q5_K_M.** The two big
+**Current recommendation: `scripts\run-solo.ps1` with its default, Ornith-1.0-35B Q5_K_M.** The two big
 models buy nothing measurable on tool calling or agentic coding, and cost 3-4x the memory and
 2-4x the wall-clock. Reach for Qwen3.5-122B only when you specifically need its 262K context or
 `draft-mtp`, and for Laguna only if you need >262K context.
@@ -332,9 +332,9 @@ trying: **GLM-4.7-Flash UD-Q8_K_XL (35.62 GB)** — 31B/~A3.5B, 202K ctx, MIT, a
 afford a **near-lossless Q8** here, which is unusual. Your Qwen3-Coder-30B (Dec 2025) is the most
 dated item in the lineup.
 
-## ⭐ ONE MODEL AT A TIME → use `run-solo.ps1` (measured 2026-07-30)
+## ⭐ ONE MODEL AT A TIME → use `scripts\run-solo.ps1` (measured 2026-07-30)
 
-Chosen mode as of 2026-07-30: **single model, whole 109 GB budget**. `run-solo.ps1` implements it —
+Chosen mode as of 2026-07-30: **single model, whole 109 GB budget**. `scripts\run-solo.ps1` implements it —
 solo occupancy enforcement, `--parallel 1`, max context, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`.
 
 **Two models cannot co-reside at the top of the range.** Measured: Ornith Q5_K_M (24.19 GB resident)
@@ -455,7 +455,7 @@ that assume batching will see more round-trips from Laguna.
 
 tg climbs sharply on later turns (13.5 → 43–52 t/s) because the prompt prefix is already cached.
 
-**Settings that are actually applied** (`run-solo.ps1`):
+**Settings that are actually applied** (`scripts\run-solo.ps1`):
 
 | applied | why |
 |---|---|

@@ -27,7 +27,7 @@ param(
     [switch] $Force                 # restart even if a slot is busy (otherwise respect Pi-idle rule)
 )
 $ErrorActionPreference = 'Stop'
-$root   = $PSScriptRoot
+$root   = $($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)
 $model  = Join-Path $root 'models\MTP-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
 $mmproj = Join-Path $root 'models\mmproj-F16.gguf'
 $runner = Join-Path $root 'run-server.ps1'

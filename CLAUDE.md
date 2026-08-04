@@ -24,7 +24,7 @@ bench.ps1           measure pp/tg t/s for a model
 bench-spec.ps1      A/B a model baseline vs speculative (--spec-type)
 download-model.ps1  fetch a GGUF from Hugging Face into models\
 README.md           full reference (quick start, MTP, vision, bench table, troubleshooting)
-OPTIMIZATION.md     tuning playbook (RAM XMP, sleep, --fit, mmap/mlock, expert offload)
+docs/OPTIMIZATION.md     tuning playbook (RAM XMP, sleep, --fit, mmap/mlock, expert offload)
 vbench_*.txt        raw llama-bench outputs per model (source of the README table)
 *-proof.txt         MTP / speculative speedup evidence
 ```
@@ -61,7 +61,7 @@ goes to `reasoning_content` — a small `max_tokens` can return empty `content` 
   235B Q2_K_XL: 99.3 GB→16.71 t/s, 105.6 GB→17.04, **109.0 GB→16.77**, 113 GB→OOM. So ~26 GB more
   headroom than the docs assumed — enough to run a **Q3-class 235B (~104 GB) instead of Q2_K_XL**.
   Past ~105 GB the binding constraint is **RAM free** (9.7 GB at the 109 GB point), not VRAM.
-  Full table + caveats in OPTIMIZATION.md.
+  Full table + caveats in docs/OPTIMIZATION.md.
 - **`--fit on` / `llama-fit-params` are useless on this box.** `-ngl 999` aborts the fit
   (`n_gpu_layers already set by user to 999, abort`), and llama.cpp's reported free VRAM is a
   **constant** (`108782 MiB` whether 0 or 42 GB is in use), so the fit sizes against a fiction.
@@ -110,12 +110,12 @@ gemma-4-26B-A4B MoE **49.2** · dense coder 27B **7.3→16.2 (MTP)** ·
 **Qwen3-235B-A22B Q2_K_XL 17.3** (82.7 GB; re-measured 2026-07-30: **16.7–17.0 t/s flat at
 32K–224K ctx**, up to 109 GB total — no offload, no shared-memory penalty).
 
-## SOLO MODE is the current setup (2026-07-30) — `run-solo.ps1`
-User chose **one model at a time**. `run-solo.ps1` serves a single model with the whole ~109 GB
+## SOLO MODE is the current setup (2026-07-30) — `scripts/run-solo.ps1`
+User chose **one model at a time**. `scripts/run-solo.ps1` serves a single model with the whole ~109 GB
 budget: solo-occupancy enforcement, `--parallel 1`, max context, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`.
 **VERIFIED RUNNING:** Ornith-1.0-35B Q5_K_M at **262144 ctx** (8× the old 32768), 29.94 GB total
 GPU, **63.3 t/s** (empty-cache solo verification, 2026-07-30; expect **~58 t/s** under eval load at
-depth — see BENCHMARKS.md), RAM free 22.3 GB. Two big models genuinely cannot co-reside (Ornith 24 GB + 235B
+depth — see docs/BENCHMARKS.md), RAM free 22.3 GB. Two big models genuinely cannot co-reside (Ornith 24 GB + 235B
 83 GB = ~107 GB of weights → the newcomer OOMs; WDDM does NOT trim the incumbent to make room).
 ⚠️ **"Next quality step = a bigger quant/model" was TESTED AND DISPROVED (2026-08-04).** Do not
 re-suggest it:
@@ -127,7 +127,7 @@ re-suggest it:
   reproduce.
 - Reach for a bigger model only for a **capability**: `draft-mtp` (Qwen) or >262K ctx (Laguna).
 
-Read **BENCHMARKS.md before quoting any eval number** — five harness bugs produced five believable
+Read **docs/BENCHMARKS.md before quoting any eval number** — five harness bugs produced five believable
 wrong figures on 2026-08-03/04, and `evals\code\smoke.py` now gates every run. The multi-model
 section below is retained for reference only.
 

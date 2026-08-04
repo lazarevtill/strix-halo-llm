@@ -14,12 +14,20 @@ SWE-rebench scores A3B-class models roughly 4x below their self-reported SWE-ben
 python code\run-code-eval.py --endpoint http://127.0.0.1:8080/v1 --label laguna-q4
 ```
 
-The coding sandbox image is built from `code\Dockerfile.sandbox` (base image and pip both via the
-internal Harbor/Nexus mirrors):
+The coding sandbox image is built from `code\Dockerfile.sandbox`. Registry and package index are
+build ARGs, public by default, so it builds anywhere:
 
 ```powershell
 docker build -f code\Dockerfile.sandbox -t llm-eval-sandbox code
 ```
+
+Behind a private mirror, add
+`--build-arg BASE_IMAGE=<registry>/proxy/python:3.12-slim --build-arg PIP_INDEX_URL=<index-url>`.
+
+**Run `python code\smoke.py` before trusting any number** — it gates every run via
+`run-guarded.ps1` and refuses to start a multi-hour sweep on a harness that cannot score itself.
+What exactly the suites contain (category counts, what each isolates, what each coding task is) is
+documented in `..\docs\BENCHMARKS.md`; the cases themselves are withheld — see `..\docs\PUBLISHING.md`.
 
 ## Harness bugs found on 2026-08-03, and why they matter
 

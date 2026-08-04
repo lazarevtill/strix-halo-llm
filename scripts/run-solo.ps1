@@ -64,7 +64,7 @@ param(
     [switch] $Force                 # stop other servers even if they have a request in flight
 )
 $ErrorActionPreference = 'Stop'
-$bin = "$PSScriptRoot\bin\llama-server.exe"
+$bin = "$(Split-Path $PSScriptRoot -Parent)\bin\llama-server.exe"
 $gpu = 'luid_0x00000000_0x01c3ed4a_phys_0'
 if (-not (Test-Path $bin))   { Write-Error "llama-server.exe not found: $bin"; exit 1 }
 if (-not (Test-Path $Model)) { Write-Error "Model not found: $Model"; exit 1 }

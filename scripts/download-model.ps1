@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Download a GGUF model from Hugging Face into .\models\ (standard GGUF — loads in stock llama.cpp).
 .EXAMPLE
@@ -15,7 +15,7 @@ param(
     [Parameter(Mandatory)] [string] $File,
     [string] $Branch = 'main'
 )
-$out = "$PSScriptRoot\models\$([System.IO.Path]::GetFileName($File))"
+$out = "$(Split-Path $PSScriptRoot -Parent)\models\$([System.IO.Path]::GetFileName($File))"
 $url = "https://huggingface.co/$Repo/resolve/$Branch/$File"
 Write-Host "Downloading $url" -ForegroundColor Green
 $ProgressPreference='SilentlyContinue'

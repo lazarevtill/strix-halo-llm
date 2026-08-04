@@ -17,11 +17,11 @@ param(
     [int]    $Port = 8081,
     [int]    $Ctx  = 131072,
     [string] $Spec = 'ngram-mod',   # coding model: ngram-mod is a free win; 'none' or 'draft-mtp' (needs MTP head)
-    [string] $Mmproj = "$PSScriptRoot\models\mmproj-deepreinforce-ai_Ornith-1.0-35B-f16.gguf",  # vision; '' to disable
+    [string] $Mmproj = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\models\mmproj-deepreinforce-ai_Ornith-1.0-35B-f16.gguf",  # vision; '' to disable
     [switch] $Force
 )
 $ErrorActionPreference = 'Stop'
-$root   = $PSScriptRoot
+$root   = $($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)
 $model  = Join-Path $root 'models\ornith-1.0-35b-Q4_K_M.gguf'
 $runner = Join-Path $root 'run-server.ps1'
 foreach ($f in @($model, $runner)) { if (-not (Test-Path $f)) { Write-Error "missing: $f"; exit 1 } }

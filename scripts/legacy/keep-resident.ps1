@@ -21,7 +21,7 @@ param(
     [int] $IntervalSec = 45,
     [int] $Ctx         = 131072
 )
-$root   = $PSScriptRoot
+$root   = $($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)
 $runner = Join-Path $root 'run-server.ps1'
 $daemonLog = Join-Path $root 'keep-resident.log'
 
