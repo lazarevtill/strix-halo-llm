@@ -1,0 +1,100 @@
+# =============================================================================
+#  PUBLIC-REPO SAFETY. Read PUBLISHING.md before relaxing anything here.
+#  Two categories below are NOT ordinary "big/generated file" ignores:
+#    (1) the private eval content  -- publishing it DESTROYS its value
+#    (2) private working logs      -- session history, not project content
+# =============================================================================
+
+# ---- (1) PRIVATE EVAL CONTENT -- NEVER COMMIT --------------------------------
+# The whole point of these suites is that they exist nowhere public, so no model
+# has trained on them. Decontaminated SWE-rebench scores A3B-class models ~4x
+# below their self-reported SWE-bench numbers -- that gap IS benchmark leakage.
+# Committing these turns a clean measurement into another contaminated one, for
+# every model released after the push date. The HARNESS is public; the ANSWERS
+# are not. See PUBLISHING.md for how to author your own.
+evals/tools/cases.jsonl
+evals/code/tasks.json
+evals/code/tests/
+evals/code/reference/
+
+# ---- (2) PRIVATE WORKING LOGS ------------------------------------------------
+.remember/
+
+# ---- (3) NESTED PRIVATE REPO -------------------------------------------------
+# ornith-router is its OWN git repo with a remote on the internal GitLab (the URL
+# includes an internal group/org path). Two reasons it is excluded here:
+#   - as a bare gitlink with no .gitmodules it would clone as an EMPTY directory
+#     in a public repo -- broken for anyone who clones;
+#   - wiring it as a real submodule would publish that internal remote URL.
+# Keep it as its own internal repo. To fold it in for real, delete its .git and
+# un-ignore this line -- but re-run the secret scan afterwards, because its
+# history and config reference internal infrastructure.
+ornith-router/
+
+# ---- Model weights (hundreds of GB) ------------------------------------------
+models/
+*.gguf
+*.safetensors
+*.bin
+
+# ---- Vendored binaries -------------------------------------------------------
+bin/
+bin-b9771/
+bin-b10182/
+bin-poolside/
+*.exe
+*.dll
+
+# ---- Dependency trees --------------------------------------------------------
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ---- Eval + bench outputs (regenerate them; do not diff them) ----------------
+evals/results-tools.jsonl
+evals/results-tools.csv
+evals/results-code.jsonl
+evals/percase-tools-*.csv
+coding-eval/out/
+evals/code/results-code.jsonl
+evals/code/transcripts/
+evals/code/transcripts-*/
+evals/code/_work*/
+evals/code/_smoke/
+evals/code/_verify/
+*.pre-fix-*.bak
+*.pre-turnscope.bak
+
+# ---- Raw benchmark dumps -----------------------------------------------------
+vbench_*.txt
+vbench_*.err
+bench-*.txt
+bench-*.err
+bench-big.csv
+sweep-*.csv
+spec_*.out
+spec_*.err
+*-proof.txt
+specproof-console.txt
+longctx/
+
+# ---- Logs / scratch ----------------------------------------------------------
+*.log
+*.err
+server.log
+keep-resident.log
+_prompt.txt
+
+# ---- Secrets / local config --------------------------------------------------
+# Nothing here should ever be committed. Credentials belong in a secret manager,
+# never in a file in this tree -- not even in a permissions allowlist.
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+secrets.*
+**/settings.local.json

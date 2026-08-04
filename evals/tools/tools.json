@@ -1,0 +1,160 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "list_hosts",
+      "description": "List machines in the fleet, optionally filtered. Returns hostnames and status.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string", "enum": ["inference", "database", "batch", "gateway", "any"], "description": "Filter by assigned role." },
+          "only_online": { "type": "boolean", "description": "If true, exclude hosts that are unreachable." }
+        },
+        "required": ["role"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_host_metrics",
+      "description": "Read current CPU, RAM and GPU utilisation for one host.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string", "description": "Exact hostname, e.g. 'box-3'." },
+          "window_minutes": { "type": "integer", "description": "Averaging window in minutes. Defaults to 5 if omitted." }
+        },
+        "required": ["hostname"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "restart_service",
+      "description": "Restart a named systemd/Windows service on a host. Disruptive.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "service": { "type": "string" },
+          "force": { "type": "boolean", "description": "Kill the process if graceful restart fails." }
+        },
+        "required": ["hostname", "service"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "deploy_model",
+      "description": "Load a GGUF model onto a host and serve it on a port.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "model_file": { "type": "string", "description": "GGUF filename." },
+          "port": { "type": "integer" },
+          "context_size": { "type": "integer", "description": "Context window in tokens." }
+        },
+        "required": ["hostname", "model_file", "port"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_logs",
+      "description": "Full-text search over a host's logs within a time range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "query": { "type": "string" },
+          "since": { "type": "string", "description": "ISO-8601 date, e.g. '2026-07-01'." },
+          "until": { "type": "string", "description": "ISO-8601 date, inclusive." },
+          "severity": { "type": "string", "enum": ["debug", "info", "warn", "error"] }
+        },
+        "required": ["hostname", "query"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_snapshot",
+      "description": "Take a filesystem snapshot of a dataset on a host.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "dataset": { "type": "string" },
+          "label": { "type": "string" }
+        },
+        "required": ["hostname", "dataset"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_power_profile",
+      "description": "Change a host's power/performance profile.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "profile": { "type": "string", "enum": ["powersave", "balanced", "performance"] }
+        },
+        "required": ["hostname", "profile"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_models",
+      "description": "List GGUF model files available on a host's disk.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "min_size_gib": { "type": "number", "description": "Only models at least this large." }
+        },
+        "required": ["hostname"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "benchmark_model",
+      "description": "Run a throughput benchmark against an already-deployed model endpoint.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "port": { "type": "integer" },
+          "depth": { "type": "integer", "description": "Context depth to benchmark at." }
+        },
+        "required": ["hostname", "port"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "cordon_host",
+      "description": "Mark a host as unavailable for new work without stopping running jobs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["hostname"]
+      }
+    }
+  }
+]

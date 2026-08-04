@@ -1,0 +1,19 @@
+# Test sandbox for run-code-eval.py. Model-written code is UNTRUSTED, so the container it runs in
+# gets no network, 512 MB, 1 CPU, a read-only mount and a pids cap (see score_in_sandbox()).
+#
+# Registry and package index are build ARGs so this builds anywhere. Defaults are the public ones.
+# Behind a private mirror, point them at it -- which also avoids docker.io/pypi.org rate limits when
+# the image is rebuilt on a new box:
+#
+#   docker build -f Dockerfile.sandbox -t llm-eval-sandbox . \
+#     --build-arg BASE_IMAGE=<registry>/proxy/python:3.12-slim \
+#     --build-arg PIP_INDEX_URL=https://<nexus-host>/repository/pypi-proxy/simple
+#
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} pytest==8.3.4
+
+# The runner mounts the work dir at /work and invokes pytest itself; nothing to copy in.
+WORKDIR /work

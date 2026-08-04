@@ -1,0 +1,6 @@
+[
+  "Implement an `LRUCache` class in Python. Requirements: `LRUCache(capacity)` where capacity >= 0; `get(key) -> int` returns the value or -1 if absent and marks the key most-recently-used; `put(key, value)` inserts or updates, evicting the least-recently-used key when a NEW key would exceed capacity (updating an existing key never evicts); a cache with capacity 0 stores nothing. Aim for O(1) average get and put. Return ONLY the complete class in one Python code block.",
+  "Add a `peek(key) -> int` method that returns the value for key (or -1 if absent) WITHOUT changing the recency / eviction order at all. Return the COMPLETE updated class in one Python code block.",
+  "Add two methods: `__len__()` returning the current number of cached items, and `clear()` which empties the cache. Return the COMPLETE updated class in one Python code block.",
+  "Add hit/miss tracking. Add a `stats()` method returning a dict like {'hits': H, 'misses': M}. Every call to `get` increments hits if the key is present, otherwise misses. `peek` must NOT change these counters. Counters start at 0 and `clear()` does NOT reset them. Return the COMPLETE updated class in one Python code block."
+]

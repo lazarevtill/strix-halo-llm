@@ -1,0 +1,2 @@
+model,status,tests_passed_of_12,avg_gen_tok_s
+Qwen3.6-35B-A3B-UD-Q4_K_M,ok,9,51.8
