@@ -6,13 +6,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D6?logo=windows&logoColor=white)](#requirements)
-[![Linux](https://img.shields.io/badge/Linux-planned-FCC624?logo=linux&logoColor=black)](#platform-support)
+[![Linux](https://img.shields.io/badge/Linux-drafts%20(unproven)-FCC624?logo=linux&logoColor=black)](#linux-drafts)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b10182%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
-[![GPU](https://img.shields.io/badge/GPU-Radeon%208060S%20gfx1151-ED1C24?logo=amd&logoColor=white)](#the-hardware)
+[![GPU](https://img.shields.io/badge/GPU-Radeon%208060S%20gfx1151-ED1C24?logo=amd&logoColor=white)](#requirements)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#requirements)
 
-[Quick start](#quick-start) · [Findings](#what-we-found) · [Benchmarking](docs/BENCHMARKS.md) · [Tuning playbook](docs/OPTIMIZATION.md)
+[Quick start](#quick-start) · [Findings](#what-we-found) · [Benchmarking](docs/BENCHMARKS.md) · [Tuning playbook](docs/OPTIMIZATION.md) · [Linux drafts](#linux-drafts)
 
 </div>
 
@@ -165,7 +165,11 @@ strix-halo-llm/
 │   │   ├── bench-spec.ps1      A/B baseline vs speculative decoding
 │   │   ├── build-poolside.ps1  build poolside's llama.cpp fork (DFlash drafting)
 │   │   └── legacy/             superseded multi-model launchers
-│   └── linux/              bash (planned) -- porting notes in its README
+│   └── linux/              bash DRAFTS -- unproven, see its README
+│       ├── run-solo.sh         serve one model (has --dry-run)
+│       ├── fetch-models.sh     download + byte-verify
+│       ├── bench-big.sh        depth-aware benchmark
+│       └── bench-spec.sh       A/B speculative decoding
 │
 ├── evals/                  ⭐ the evaluation harness
 │   ├── run-guarded.ps1     run suites across models: smoke-gated, respawn-proof
@@ -217,27 +221,51 @@ Today's scripts are PowerShell 5.1, and several findings are genuinely Windows-s
 shared-heap ceiling, `Total Committed` accounting, modern-standby dropping VRAM, and the commit-charge
 limit. Those need re-measuring on Linux rather than assuming they carry over.
 
-**Portable already:** `evals/code/run-code-eval.py`, `evals/code/smoke.py` and the Docker sandbox are
-plain Python and run anywhere. The tuning findings that are about *llama.cpp and the GPU* rather
-than about Windows — batch sizes, KV quantisation, MoE-over-dense, speculative decoding, the
-bf16 trap — should transfer directly.
+**Portable already:** [`evals/code/run-code-eval.py`](evals/code/run-code-eval.py),
+[`evals/code/smoke.py`](evals/code/smoke.py) and the
+[Docker sandbox](evals/code/Dockerfile.sandbox) are plain Python and run anywhere.
 
-**Linux is bash, in its own tree** at [`scripts/linux/`](scripts/linux/) — not `.sh` interleaved with
-`.ps1`, and no PowerShell-on-Linux dependency. Draft ports of `run-solo`, `fetch-models`,
-`bench-big` and `bench-spec` are already there.
+### Linux drafts
 
-> 📝 **Those drafts are unproven.** They are syntax-checked and their argument handling works, but
-> **none has served a model or benchmarked anything on Linux.** They will be updated and proven
-> once there is a box to run them on. Until then treat them as a starting point, not a reference —
-> and don't trust a number they produce without checking it by hand.
+Bash ports live in their own tree at **[`scripts/linux/`](scripts/linux/)** — not `.sh` interleaved
+with `.ps1`, and no PowerShell-on-Linux dependency.
 
-The directory carries the porting rules: which findings transfer (batch sizes, KV quant, the bf16
-trap), which must be **re-measured** (the ~109 GB ceiling, GPU-memory accounting, whether `--mlock`
-is harmful or helpful), and what the amdgpu equivalents of the Windows perf-counter guards are.
+| script | mirrors | what it does | state |
+|---|---|---|---|
+| [`run-solo.sh`](scripts/linux/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve ONE model with the whole memory budget; has `--dry-run` | flags ported 1:1; **GPU accounting unverified** |
+| [`fetch-models.sh`](scripts/linux/fetch-models.sh) | [`windows/fetch-models.ps1`](scripts/windows/fetch-models.ps1) | resume-capable download + byte verification | most portable; byte counts verified |
+| [`bench-big.sh`](scripts/linux/bench-big.sh) | [`windows/bench-big.ps1`](scripts/windows/bench-big.ps1) | depth-aware benchmark sweep | **dirty-GPU guard only warns, doesn't block** |
+| [`bench-spec.sh`](scripts/linux/bench-spec.sh) | [`windows/bench-spec.ps1`](scripts/windows/bench-spec.ps1) | A/B speculative decoding, classifies WIN/NEUTRAL/NEGATIVE | **output parsing is version-sensitive** |
 
-One thing worth re-testing there: **ROCm may beat Vulkan on Linux** at long context and prompt
-processing. The 1.79× Vulkan win recorded here is against *Ollama's* ROCm on Windows — not the same
-comparison as llama.cpp's own ROCm backend.
+> ### 📝 These drafts are unproven
+>
+> They are syntax-checked (`bash -n`) and their argument handling works, but **none has served a
+> model or benchmarked anything on Linux.** **All of this will be updated and proven** once there is
+> a box to run it on. Until then treat them as a starting point, not a reference — and don't trust a
+> number they produce without checking it by hand.
+
+```bash
+chmod +x scripts/linux/*.sh          # exec bits are set in git, so usually not needed
+scripts/linux/fetch-models.sh --list
+scripts/linux/run-solo.sh --dry-run  # prints the exact llama-server invocation, launches nothing
+```
+
+**What transfers, and what must be re-measured** — the full table is in
+[`scripts/linux/README.md`](scripts/linux/README.md). The short version:
+
+| | |
+|---|---|
+| ✅ **likely transfers** | `-b 2048 -ub 1024` batch sweet spot · `q8_0` KV + flash attention · MoE-over-dense · the bf16 trap · `draft-mtp` wins where generic drafts don't |
+| ❌ **must be re-measured** | the ~109 GB ceiling (that's 96 GB carve-out **+ WDDM shared heap**) · `Total Committed` vs `Dedicated Usage` (a Windows perf-counter distinction; Linux uses `amdgpu_top` / `rocm-smi` / sysfs) · whether `--mlock` is harmful (it is on WDDM — may be *correct* on Linux) · sleep dropping VRAM · pagefile commit limits |
+
+**Port the method, not the numbers.** Anything measured on Linux belongs in its own column in
+[`docs/OPTIMIZATION.md`](docs/OPTIMIZATION.md), not merged into the Windows figures.
+
+Also worth testing there: **ROCm may beat Vulkan on Linux** at long context and prompt processing.
+The 1.79× Vulkan win recorded here is against *Ollama's* ROCm on Windows — not the same comparison
+as llama.cpp's own ROCm backend.
+
+**Contributions from a Linux box are the single most useful thing anyone could send.**
 
 ## Requirements
 
