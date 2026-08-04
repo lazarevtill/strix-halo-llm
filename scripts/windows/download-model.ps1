@@ -15,7 +15,7 @@ param(
     [Parameter(Mandatory)] [string] $File,
     [string] $Branch = 'main'
 )
-$out = "$(Split-Path $PSScriptRoot -Parent)\models\$([System.IO.Path]::GetFileName($File))"
+$out = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\models\$([System.IO.Path]::GetFileName($File))"
 $url = "https://huggingface.co/$Repo/resolve/$Branch/$File"
 Write-Host "Downloading $url" -ForegroundColor Green
 $ProgressPreference='SilentlyContinue'

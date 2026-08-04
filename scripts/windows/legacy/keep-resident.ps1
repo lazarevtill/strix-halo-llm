@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Keep BOTH production models loaded + resident in VRAM forever, until you stop this daemon:
     :8080  MTP Qwen3.6-35B-A3B  (speculative draft-mtp + vision)
@@ -21,7 +21,7 @@ param(
     [int] $IntervalSec = 45,
     [int] $Ctx         = 131072
 )
-$root   = $($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)
+$root   = $($PSScriptRoot | Split-Path -Parent | Split-Path -Parent | Split-Path -Parent)
 $runner = Join-Path $root 'run-server.ps1'
 $daemonLog = Join-Path $root 'keep-resident.log'
 

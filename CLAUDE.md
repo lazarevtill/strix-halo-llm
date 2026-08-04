@@ -110,8 +110,8 @@ gemma-4-26B-A4B MoE **49.2** · dense coder 27B **7.3→16.2 (MTP)** ·
 **Qwen3-235B-A22B Q2_K_XL 17.3** (82.7 GB; re-measured 2026-07-30: **16.7–17.0 t/s flat at
 32K–224K ctx**, up to 109 GB total — no offload, no shared-memory penalty).
 
-## SOLO MODE is the current setup (2026-07-30) — `scripts/run-solo.ps1`
-User chose **one model at a time**. `scripts/run-solo.ps1` serves a single model with the whole ~109 GB
+## SOLO MODE is the current setup (2026-07-30) — `scripts/windows/run-solo.ps1`
+User chose **one model at a time**. `scripts/windows/run-solo.ps1` serves a single model with the whole ~109 GB
 budget: solo-occupancy enforcement, `--parallel 1`, max context, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`.
 **VERIFIED RUNNING:** Ornith-1.0-35B Q5_K_M at **262144 ctx** (8× the old 32768), 29.94 GB total
 GPU, **63.3 t/s** (empty-cache solo verification, 2026-07-30; expect **~58 t/s** under eval load at

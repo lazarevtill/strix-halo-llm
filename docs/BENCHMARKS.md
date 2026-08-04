@@ -4,7 +4,7 @@ Two different questions, two different tools. Do not mix them up:
 
 | question | tool | unit |
 |---|---|---|
-| **How fast is it?** | `scripts\bench-big.ps1`, `scripts\bench-spec.ps1` | tokens/sec (pp and tg, separately) |
+| **How fast is it?** | `scripts\windows\bench-big.ps1`, `scripts\windows\bench-spec.ps1` | tokens/sec (pp and tg, separately) |
 | **How good is it?** | `evals\run-guarded.ps1` | pass rate on private suites |
 
 Speed is cheap to measure and easy to trust. Quality is expensive to measure and *very* easy to get
@@ -29,11 +29,11 @@ A result is only meaningful with four attributes: **context depth, quant, backen
 ### Depth matters more than anything
 
 `llama-bench` defaults to depth 0 — an empty KV cache. That number is a fiction for agentic work.
-`scripts\bench-big.ps1` uses `-d` to measure at real depths, because tg degrades as the cache fills.
+`scripts\windows\bench-big.ps1` uses `-d` to measure at real depths, because tg degrades as the cache fills.
 
 ```powershell
-.\scripts\bench-big.ps1                      # sweep the models it finds, at real depths
-.\scripts\bench-spec.ps1 -Model .\models\X.gguf -Spec draft-mtp    # A/B speculative decoding
+.\scripts\windows\bench-big.ps1                      # sweep the models it finds, at real depths
+.\scripts\windows\bench-spec.ps1 -Model .\models\X.gguf -Spec draft-mtp    # A/B speculative decoding
 ```
 
 ### How to read it
