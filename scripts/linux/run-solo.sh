@@ -27,7 +27,7 @@ SPEC=""
 SPEC_NMAX=3
 REASONING="auto"
 KV_QUANT=1
-HOST="127.0.0.1"
+HOST="0.0.0.0"      # LAN/overlay-reachable by default, matching the Windows launcher
 DRY_RUN=0
 FORCE=0
 

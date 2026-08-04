@@ -55,7 +55,7 @@ if ($held.Count) {
 # ---- serve --------------------------------------------------------------------------------------
 $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
 $a = @('-m',$Model,'-ngl','999','--ctx-size',"$Ctx",'--batch-size','2048','--ubatch-size','1024',
-       '-fa','on','-lm','none','--jinja','--parallel','1','--host','127.0.0.1','--port',"$Port",
+       '-fa','on','-lm','none','--jinja','--parallel','1','--host','0.0.0.0','--port',"$Port",
        '--no-warmup','--cache-type-k','q8_0','--cache-type-v','q8_0',
        '--reasoning',$Reasoning,'--reasoning-preserve')
 if ($Spec) { $a += @('--spec-type',$Spec,'--spec-draft-n-max',"$SpecNMax") }

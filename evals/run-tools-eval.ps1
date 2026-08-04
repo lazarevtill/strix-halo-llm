@@ -420,7 +420,7 @@ if ($Endpoint) {
 
         $a = @('-m',$t.m,'-ngl',999,'--ctx-size',$Ctx,'--batch-size',2048,'--ubatch-size',1024,
                '-fa','on','--cache-type-k','q8_0','--cache-type-v','q8_0','--no-mmap','--jinja',
-               '--parallel',1,'--host','127.0.0.1','--port',$Port,'--no-warmup')
+               '--parallel',1,'--host','0.0.0.0','--port',$Port,'--no-warmup')
         $p = Start-Process $Bin -ArgumentList $a -PassThru -WindowStyle Minimized `
                 -RedirectStandardError "$env:TEMP\toolsev-$($t.l).err" -RedirectStandardOutput "$env:TEMP\toolsev-$($t.l).out"
         $up=$false
