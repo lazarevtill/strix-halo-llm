@@ -211,7 +211,7 @@ prose isn't mistaken for code, and that **every task prompt is satisfiable by a 
 | | status | notes |
 |---|---|---|
 | **Windows 11** | ✅ supported | Everything here is measured on Windows 11 + PowerShell 5.1 |
-| **Linux** | 🚧 planned | See below |
+| **Linux** | 📝 **unproven drafts** | Bash ports exist in [`scripts/linux/`](scripts/linux/) — syntax-checked, never run on Linux. **They will be updated and proven** once there's a box to run them on |
 
 Today's scripts are PowerShell 5.1, and several findings are genuinely Windows-specific — the WDDM
 shared-heap ceiling, `Total Committed` accounting, modern-standby dropping VRAM, and the commit-charge
@@ -222,10 +222,18 @@ plain Python and run anywhere. The tuning findings that are about *llama.cpp and
 than about Windows — batch sizes, KV quantisation, MoE-over-dense, speculative decoding, the
 bf16 trap — should transfer directly.
 
-**Linux will be bash, in its own tree** at [`scripts/linux/`](scripts/linux/) — not `.sh` interleaved
-with `.ps1`, and no PowerShell-on-Linux dependency. The directory already carries porting notes:
-which findings transfer, which must be re-measured, and the Linux equivalents of the Windows
-perf-counter guards. Nothing that works today will move when it lands.
+**Linux is bash, in its own tree** at [`scripts/linux/`](scripts/linux/) — not `.sh` interleaved with
+`.ps1`, and no PowerShell-on-Linux dependency. Draft ports of `run-solo`, `fetch-models`,
+`bench-big` and `bench-spec` are already there.
+
+> 📝 **Those drafts are unproven.** They are syntax-checked and their argument handling works, but
+> **none has served a model or benchmarked anything on Linux.** They will be updated and proven
+> once there is a box to run them on. Until then treat them as a starting point, not a reference —
+> and don't trust a number they produce without checking it by hand.
+
+The directory carries the porting rules: which findings transfer (batch sizes, KV quant, the bf16
+trap), which must be **re-measured** (the ~109 GB ceiling, GPU-memory accounting, whether `--mlock`
+is harmful or helpful), and what the amdgpu equivalents of the Windows perf-counter guards are.
 
 One thing worth re-testing there: **ROCm may beat Vulkan on Linux** at long context and prompt
 processing. The 1.79× Vulkan win recorded here is against *Ollama's* ROCm on Windows — not the same
