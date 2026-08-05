@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Keep the daily-driver model serving 24/7: boot autostart (no login) + watchdog, as a SYSTEM task.
 
@@ -31,7 +31,20 @@
 [CmdletBinding()]
 param(
     [string] $Model = 'D:\llamacpp-vulkan\models\ornith-1.0-35b-Q5_K_M.gguf',
-    [int]    $Ctx   = 262144,
+    # MEASURED 2026-08-05 (scripts\windows\bench-parallel.ps1): concurrency pays here even though
+    # token generation is bandwidth-bound, because one decode pass reads the weights once and emits
+    # a token for EVERY active sequence.
+    #     concurrent   aggregate    per-request
+    #         1         50.2 t/s      61.3 t/s
+    #         2         69.8 t/s      43.0 t/s     1.39x aggregate
+    #         3         77.9 t/s      33.5 t/s     1.55x aggregate
+    # So 3 slots serve ~1.55x more total tokens/sec, and nobody queues. One user alone still gets
+    # the full ~61 t/s -- idle slots cost nothing. -Parallel 1 is the right choice ONLY for a
+    # single user who wants maximum single-stream speed under load.
+    [int]    $Parallel = 3,
+    # -c is the TOTAL context and is SPLIT across slots: 393216 / 3 = 131072 per slot.
+    # Raising Parallel without raising Ctx silently shrinks everyone's context.
+    [int]    $Ctx   = 393216,
     [int]    $Port  = 8080,
     [string] $Reasoning = 'auto',
     [switch] $Install,
@@ -124,7 +137,7 @@ if ($Install) {
     Log "NOTE: :$Port is open to ANY address and llama-server has NO AUTH. Keep this box on a trusted LAN/overlay." WARN
 
     $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $args  = "-NoProfile -ExecutionPolicy Bypass -File `"$Self`" -Model `"$Model`" -Ctx $Ctx -Port $Port -Reasoning $Reasoning -FromTask"
+    $args  = "-NoProfile -ExecutionPolicy Bypass -File `"$Self`" -Model `"$Model`" -Ctx $Ctx -Parallel $Parallel -Port $Port -Reasoning $Reasoning -FromTask"
     $action = New-ScheduledTaskAction -Execute $psExe -Argument $args
     $trigBoot = New-ScheduledTaskTrigger -AtStartup
     $trigBoot.Delay = 'PT45S'          # let the GPU driver settle before loading ~23 GB
@@ -182,9 +195,9 @@ try {
     # Measured-optimal flags for gfx1151 -- see docs/OPTIMIZATION.md. -lm none replaces the
     # DEPRECATED --no-mmap (--load-mode defaults to mmap, so the old flag silently did nothing).
     $argline = "-m `"$Model`" -ngl 999 --ctx-size $Ctx --batch-size 2048 --ubatch-size 1024 " +
-               "-fa on --cache-type-k q8_0 --cache-type-v q8_0 -lm none --jinja --parallel 1 " +
+               "-fa on --cache-type-k q8_0 --cache-type-v q8_0 -lm none --jinja --parallel $Parallel " +
                "--host 0.0.0.0 --port $Port --no-warmup --reasoning $Reasoning --reasoning-preserve"
-    Log "starting llama-server on :$Port ($(Split-Path $Model -Leaf), ctx=$Ctx)" STEP
+    Log "starting llama-server on :$Port ($(Split-Path $Model -Leaf), ctx=$Ctx, parallel=$Parallel -> $([int]($Ctx/$Parallel)) per slot)" STEP
     $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
     $p = Start-Process -FilePath $Bin -ArgumentList $argline -RedirectStandardOutput $OutLog `
              -RedirectStandardError $ErrLog -WindowStyle Minimized -PassThru

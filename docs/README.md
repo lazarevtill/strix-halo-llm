@@ -1,12 +1,13 @@
 # Documentation
 
-Four documents. Start with whichever matches what you're trying to do.
+Five documents. Start with whichever matches what you're trying to do.
 
 | doc | read it when | length |
 |---|---|---|
 | **[OPTIMIZATION.md](OPTIMIZATION.md)** | You want the box to go faster, or you're choosing a model/quant | long — it's a reference, skim the ⭐ sections |
 | **[BENCHMARKS.md](BENCHMARKS.md)** | You want to measure something, or you're reading numbers someone else produced | medium |
 | **[FLEET.md](FLEET.md)** | You have more than one machine, or you're wiring up retrieval / memory layers | medium |
+| **[MULTI-USER.md](MULTI-USER.md)** | Real people are using the endpoint: saved chats, capacity, what a restart costs them | medium |
 | **[PUBLISHING.md](PUBLISHING.md)** | You're about to push this (or a fork) somewhere public | short |
 
 ## If you only read one page
