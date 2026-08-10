@@ -138,6 +138,64 @@ is now answered, and the answer is **don't bother switching**. Two independent r
 driver choice to make: AMDVLK was discontinued 2025-09-15, RADV is Mesa/Linux-only, and Windows
 exposes exactly one ICD (`amdvlk64.dll` inside your Adrenalin 32.0.31035.1003).
 
+## ✅ DONE 2026-08-10: upgraded to b10338 (`bin\`), b10182 preserved (`bin-b10182\`)
+
+156 builds in one step. `bin\` was byte-identical to `bin-b10182\` beforehand (SHA256 verified), so
+the rollback was already staged before anything was touched. Downtime **26 s** (13:52:50 stop →
+13:53:16 healthy), taken in a window where no slot was generating and the largest cached context was
+3,557 tokens — a restart when a user is holding 60K costs them ~90 s of re-prefill, so wait for a
+quiet window rather than taking one.
+
+**Restart via `schtasks /run /tn llama-ornith-daily`, NOT by launching the server yourself** — the
+daily server must stay SYSTEM-owned or it dies with your session.
+
+Measured after: Ornith Q5_K_M, 3 slots x 131072, 28.58 GiB, **60.2 t/s** (vs ~63 on b10182, with a
+17 MB/s download running concurrently — no regression). New in the `--spec-type` enum: `draft-dspark`
+alongside `draft-dflash`, i.e. Meta's drafters are being wired in.
+
+### ⚠️ Muse Glimmer 30B: downloaded, CANNOT LOAD YET (checked 2026-08-10)
+
+Meta Superintelligence Labs, Apache-2.0, and it does **not** run on any tagged release:
+
+```
+llama_model_load: error loading model: unknown model architecture: 'muse-glimmer'
+```
+
+Note the arch string is **`muse-glimmer` with a HYPHEN**. Absent from b10182 AND b10338. Support
+merged in PR #26841 at **2026-08-10 11:07Z**, which is **4.5 h after b10338 was tagged** (tip commit
+06:32Z) — so it needs the next release or a master build. PR #26842 (drafter optimisation) is still
+open/draft, so dFlash perf for it is not final.
+
+**It is DENSE, and that is the whole story on this box.** ~29.6B params (incl. 1.8B vision encoder),
+52 layers, hidden 6656 — every token reads *all* weights, so tg is set by the quant size, not by an
+active-param count:
+
+| model | bytes read per token | tg |
+|---|---|---|
+| Ornith-1.0-35B **A3B MoE** Q5 | ~2 GB | **63 t/s** |
+| Qwen3.5-122B **A10B MoE** Q4 | ~5.6 GB | 34 t/s |
+| **Muse Glimmer 30B dense** Q4 | **~15 GB** | ~8 t/s bare, **24 t/s with dFlash** |
+
+**AMD measured 24 t/s on a Ryzen AI Max+ 395** — this exact chip, Windows, llama.cpp, Vulkan, dFlash
+enabled ([blog](https://www.amd.com/en/blogs/2026/run-meta-muse-glimmer-30b-on-amd-ryzen-ai-max-and-radeon-gpus.html)),
+flagged "preliminary". That cross-checks against the card's own RTX 5090 figures (233 t/s with
+dFlash / 74.9 without → 3.1x), giving ~8 t/s unaccelerated here. **So the drafter is not optional**:
+`dflash-kquant.gguf` is what separates 24 t/s from 8, and AMD notes the draft-token count needs
+tuning.
+
+Downloaded and byte-verified (`fetch-models.ps1 -Only glimmer`, 17.61 GiB):
+`Muse-Glimmer-30B-UD-Q4_K_XL.gguf` (14.79 GB) + `dflash-kquant.gguf` (1.52 GB) +
+`mmproj-kquant.gguf` (1.30 GB, vision). **Q4 chosen over Q5 on purpose** — the opposite of the Ornith
+call — because memory is not the constraint here (109 GiB) but bandwidth is, and on a dense model the
+quant size *is* the per-token cost.
+
+Why it is still worth testing at 24 t/s (2.6x slower than Ornith, but ~1.7x *faster* than Laguna,
+which was usable): **MCP Atlas 75.5 vs Qwen3.6's 62.5.** Its other claims are far weaker —
+SWE-Bench Pro 51.2 vs 50.2 is noise, and it *loses* SWE-Bench Verified 76.0 vs 77.2. Also note the
+published comparison is against Qwen3.6-35B and Gemma4-31B, **not** against anything we actually run.
+Given Laguna's published +5.8 TB2.1 lead produced zero measurable advantage here, run it through
+`evals\` before believing the +13.
+
 ## ✅ DONE 2026-07-30: upgraded to b10182 (`bin\`), b9771 preserved (`bin-b9771\`)
 
 `bin\` is now **b10182 (afeebe103, 2026-07-29)**. The old build is intact at **`bin-b9771\`** —

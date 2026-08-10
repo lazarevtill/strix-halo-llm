@@ -43,6 +43,27 @@ $REG = [ordered]@{
         files = @(@{ p='ornith-1.0-35b-Q8_0.gguf'; b=36903138880 })
         note  = '35B/A3B near-lossless, half the size of bf16.'
     }
+    'glimmer' = @{
+        repo  = 'unsloth/Muse-Glimmer-30B-GGUF'
+        files = @(
+            @{ p='Muse-Glimmer-30B-UD-Q4_K_XL.gguf'; b=15878222368 },
+            @{ p='dflash-kquant.gguf';               b=1631205312  },
+            @{ p='mmproj-kquant.gguf';               b=1400328928  }
+        )
+        # 30B DENSE (not MoE) + 1.8B vision encoder, 131K ctx, Apache-2.0, Meta Superintelligence Labs.
+        # DENSE IS THE CATCH ON THIS BOX: every token reads ALL weights, so tg is set by the quant
+        # size, not by an active-param count. Q4_K_XL (14.79 GB) is chosen over Q5_K_M (17.88 GB)
+        # deliberately -- memory is not the constraint here (109 GiB), BANDWIDTH is, so the smaller
+        # quant is the faster one.
+        #   AMD measured 24 t/s on a Ryzen AI Max+ 395 (this exact chip), Windows + llama.cpp +
+        #   Vulkan, WITH dFlash. Card's own baseline without speculation is ~75 t/s on an RTX 5090
+        #   (~7x our bandwidth), so expect roughly 8 t/s here unqualified -> dflash-kquant.gguf is
+        #   NOT optional if you want it usable. Pass it via --spec-type draft-dflash.
+        # ⚠️ arch `muse_glimmer` is ABSENT from b10182 AND b10338. Support merged to master in
+        # PR #26841 at 2026-08-10 11:07Z, which is 4.5 h AFTER b10338 was tagged -- so it needs the
+        # next release or a master build. PR #26842 (drafter optimisation) is still open/draft.
+        note  = '30B DENSE +vision, 131K, Apache-2.0. MCP Atlas 75.5 vs Qwen3.6 62.5. Needs > b10338.'
+    }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
         files = @(

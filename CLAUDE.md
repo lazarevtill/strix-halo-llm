@@ -5,7 +5,7 @@ Production local-inference stack for **AMD Ryzen AI MAX+ 395 "Strix Halo" / Rade
 the `..\Documents\ollama-strixhalo-bench\` folder is the research that led here.
 
 ## What this is
-llama.cpp **Vulkan** backend (build **b9771**, win-vulkan-x64) serving an OpenAI-compatible API +
+llama.cpp **Vulkan** backend (build **b10338** as of 2026-08-10, win-vulkan-x64) serving an OpenAI-compatible API +
 web UI on `:8080`. Vulkan was chosen after measuring **1.79× faster token-gen than _Ollama's_ ROCm**
 (gpt-oss-20b: 71.7 vs 40.2 t/s). **Nuance (2026 community data):** vs **llama.cpp's own ROCm** it's
 only ~1.2× short-context, and **ROCm wins at long context (8K+) and prompt-processing** — re-test at

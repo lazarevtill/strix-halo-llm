@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D6?logo=windows&logoColor=white)](#requirements)
 [![Linux](https://img.shields.io/badge/Linux-drafts%20(unproven)-FCC624?logo=linux&logoColor=black)](#linux-drafts)
-[![llama.cpp](https://img.shields.io/badge/llama.cpp-b10182%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
+[![llama.cpp](https://img.shields.io/badge/llama.cpp-b10338%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
 [![GPU](https://img.shields.io/badge/GPU-Radeon%208060S%20gfx1151-ED1C24?logo=amd&logoColor=white)](#requirements)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#requirements)
@@ -272,7 +272,7 @@ as llama.cpp's own ROCm backend.
 - **AMD Strix Halo** (Ryzen AI MAX+ 395 / Radeon 8060S, gfx1151) — most of it applies to other
   unified-memory AMD parts, but the numbers are from this chip
 - **Windows 11** + PowerShell 5.1 (scripts are 5.1-compatible throughout — no PS7 required)
-- **llama.cpp Vulkan build** in `bin\` (b10182 or newer for the `laguna` / `deepseek4` architectures)
+- **llama.cpp Vulkan build** in `bin\` (currently b10338; b10182+ for `laguna`/`deepseek4`, and `muse-glimmer` needs a build newer than b10338)
 - **Docker Desktop** — only for the coding-eval sandbox
 - **Python 3.12** — only for the coding eval
 
