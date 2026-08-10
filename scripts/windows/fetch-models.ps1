@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Download the July-2026 "biggest that fits" model set for this box, with resume + size verification.
 
@@ -56,9 +56,12 @@ $REG = [ordered]@{
         # deliberately -- memory is not the constraint here (109 GiB), BANDWIDTH is, so the smaller
         # quant is the faster one.
         #   AMD measured 24 t/s on a Ryzen AI Max+ 395 (this exact chip), Windows + llama.cpp +
-        #   Vulkan, WITH dFlash. Card's own baseline without speculation is ~75 t/s on an RTX 5090
-        #   (~7x our bandwidth), so expect roughly 8 t/s here unqualified -> dflash-kquant.gguf is
-        #   NOT optional if you want it usable. Pass it via --spec-type draft-dflash.
+        #   Vulkan, WITH dFlash -> dflash-kquant.gguf is NOT optional. Pass via --spec-type draft-dflash.
+        #   Do NOT back out the baseline using the 5090's 3.1x: Meta's card gives only 1.5-1.8x on
+        #   Apple silicon, which is bandwidth-bound like this box (verifying a draft batch still
+        #   re-reads all ~15 GB). At 1.5-1.8x, 24 t/s implies a ~14 t/s baseline, not ~8. Honest
+        #   range unaccelerated: 8-15 t/s, likely nearer 14 -- Laguna territory, i.e. usable.
+        #   SAMPLING per Meta: --temp 1.0 --top-p 0.95 --top-k 64  (NOT our 0.6/0.95/20 default).
         # ⚠️ arch `muse_glimmer` is ABSENT from b10182 AND b10338. Support merged to master in
         # PR #26841 at 2026-08-10 11:07Z, which is 4.5 h AFTER b10338 was tagged -- so it needs the
         # next release or a master build. PR #26842 (drafter optimisation) is still open/draft.

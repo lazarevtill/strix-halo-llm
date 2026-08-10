@@ -178,10 +178,28 @@ active-param count:
 
 **AMD measured 24 t/s on a Ryzen AI Max+ 395** — this exact chip, Windows, llama.cpp, Vulkan, dFlash
 enabled ([blog](https://www.amd.com/en/blogs/2026/run-meta-muse-glimmer-30b-on-amd-ryzen-ai-max-and-radeon-gpus.html)),
-flagged "preliminary". That cross-checks against the card's own RTX 5090 figures (233 t/s with
-dFlash / 74.9 without → 3.1x), giving ~8 t/s unaccelerated here. **So the drafter is not optional**:
-`dflash-kquant.gguf` is what separates 24 t/s from 8, and AMD notes the draft-token count needs
-tuning.
+flagged "preliminary". AMD notes the draft-token count needs tuning to get it.
+
+⚠️ **Do NOT use the 5090's 3.1x to back out the baseline.** Meta's own GGUF card gives **3.1x on an
+RTX 5090 but only 1.5–1.8x on Apple silicon** — and Apple silicon is bandwidth-bound like this box,
+which is exactly the regime where a drafter helps *least* (you still re-read all 15 GB to verify a
+batch of draft tokens). Taking 1.5–1.8x, AMD's 24 t/s implies a **~14 t/s baseline**, not the ~8 t/s
+that dividing by 3.1 suggests. So the honest range unaccelerated is **8–15 t/s**, most likely nearer
+14 — which is Laguna territory, i.e. usable. Measure it here; do not import either number.
+
+Official guidance from the GGUF card, worth having ready:
+
+| | |
+|---|---|
+| sampling | **`--temp 1.0 --top-p 0.95 --top-k 64`** — note this is NOT our Qwen/Ornith default (0.6/0.95/20) |
+| file choice | `kquant-17gb` (15.61 GB) for **24 GB** VRAM; `kquant-dynamic` (18.30 GB) for 32 GB |
+| llama.cpp flags for the drafter / mmproj | **not documented** — Meta says to consult llama.cpp itself |
+| dFlash speedup | 3.1x RTX 5090 · 1.5–1.8x Apple silicon |
+
+The spec-decoding head also ships standalone as
+[`Muse-Glimmer-30B-assistant`](https://huggingface.co/meta-models/Muse-Glimmer-30B-assistant) —
+that is the safetensors form (4.76 GB) of the same thing as `dflash-kquant.gguf` (1.52 GB), so for
+llama.cpp the GGUF is all you need. An ExecuTorch PTE build exists too; not our path.
 
 Downloaded and byte-verified (`fetch-models.ps1 -Only glimmer`, 17.61 GiB):
 `Muse-Glimmer-30B-UD-Q4_K_XL.gguf` (14.79 GB) + `dflash-kquant.gguf` (1.52 GB) +
