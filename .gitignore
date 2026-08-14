@@ -82,11 +82,21 @@ specproof-console.txt
 longctx/
 
 # ---- Logs / scratch ----------------------------------------------------------
+# NB: *.log and *.err alone are NOT enough -- llama-server's stdout redirect is *.out,
+# and the bench harness writes *.raw.txt model dumps. Both are per-run working files.
 *.log
 *.err
+*.out
+*.raw.txt
+logs/
 server.log
 keep-resident.log
 _prompt.txt
+
+# ---- Bench result data -------------------------------------------------------
+# Same rule as the other eval outputs: regenerate, do not diff. The FINDINGS belong in
+# docs/BENCHMARKS.md, where they are explained; the raw JSONL is a working artifact.
+evals/results/
 
 # ---- Secrets / local config --------------------------------------------------
 # Nothing here should ever be committed. Credentials belong in a secret manager,

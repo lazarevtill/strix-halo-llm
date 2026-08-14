@@ -54,6 +54,73 @@ A result is only meaningful with four attributes: **context depth, quant, backen
 | tg from 89 GB → 109 GB of weights | **flat** — spilling past the carve-out costs nothing on this UMA APU |
 | `--cache-reuse` | **no-op** on these MoEs; prefix caching already works |
 | speculative decoding | `draft-mtp` helps Qwen; `ngram-mod` measured **neutral** (14.34/14.07 vs 14.17 baseline) |
+| draft depth is NOT monotonic | on a dense model, `--spec-draft-n-max 5` is **worse than no speculation** — see below |
+
+### Speculative decoding on a DENSE model (Qwen3.8-27B, 2026-08-14, b10431)
+
+MEASURED with `scripts\windows\bench-qwen38.ps1`, solo occupancy, greedy sampling pinned
+(`--temp 0`) so every row generates identical text — speculative acceptance is
+content-dependent, so a varying sampler would make the depth rows incomparable.
+
+| config | tg t/s | vs base | accept | mean len |
+|---|---:|---:|---:|---:|
+| no speculation | 11.33 | 1.00x | — | — |
+| `draft-mtp` n=1 | 17.18 | 1.52x | 0.805 | 1.81 |
+| `draft-mtp` n=2 | 19.11 | 1.69x | 0.671 | 2.34 |
+| **`draft-mtp` n=3** | **20.27** | **1.79x** | 0.603 | 2.78 |
+| `draft-mtp` n=3, `-ctk/-ctv q8_0` | 20.23 | 1.79x | 0.593 | 2.78 |
+| `draft-mtp` n=3, `-c 262144` | 19.67 | 1.74x | 0.603 | 2.78 |
+| `draft-mtp,ngram-mod` n=3 | 17.97 | 1.59x | 0.451 | 3.16 |
+| `draft-mtp` n=4 | 16.53 | 1.46x | 0.515 | 3.04 |
+| `draft-mtp` n=5 | **7.73** | **0.68x** | 0.450 | 3.22 |
+
+Four results worth not re-deriving:
+
+- **Depth peaks at n=3 and then collapses.** Mean accepted length keeps rising (1.81 → 3.22)
+  while acceptance falls (0.805 → 0.450); the product is what matters. Past the peak, every
+  rejected draft token costs a full-weight-read verify pass that yields nothing. n=5 ends up
+  32% BELOW the unaccelerated baseline. llama.cpp's default of 3 happens to be optimal here,
+  so the trap only bites someone who "tunes" it upward.
+- **Stacking speculators loses.** `draft-mtp,ngram-mod` is worse than `draft-mtp` alone.
+- **KV quantisation is speed-neutral** (20.23 vs 20.27) while halving the cache. On this model
+  that is 64 KiB/token → ~32 KiB, which is what makes 3 slots at full context affordable.
+- **Full 262144 context costs ~3%.** Only 16 of 64 layers are full-attention (the rest are
+  Gated DeltaNet and hold no KV), so long context is cheap here in a way it is not for a
+  conventional dense model.
+
+**Speculation and batching COMPETE, they do not compose.** Every draft token is verified in
+the same forward pass, so MTP is already using the batch dimension:
+
+| | MTP off | MTP on |
+|---|---:|---:|
+| 1 user | 11.33 | **20.27** (+79%) |
+| 3 users, aggregate | **23.82** | 20.85 (-14%) |
+
+A 79% gain on the common case beats a 14% loss on the rare one, so MTP stays on by default —
+but do not assume a config tuned single-stream is optimal under load.
+
+**Prefill, not generation, is the real long-context cost.** MEASURED on a long prompt
+(the sweep's own pp column is unusable — it reused one prompt, so after warmup the server
+re-evaluated only 4 tokens at `f_sim_best = 1.000`).
+
+**Read the two rows carefully — they answer different questions.** llama.cpp's progress lines
+report the *cumulative average to reach depth N*, which is the number most people quote and the
+wrong one for planning. The instantaneous rate is what the next 2k tokens will actually cost:
+
+| depth reached | 4k | 8k | 16k | 32k | 44k |
+|---|---:|---:|---:|---:|---:|
+| cumulative avg t/s | 169 | 150 | 133 | 110 | 97 |
+| **instantaneous t/s** | **144** | **132** | **112** | **81** | **64** |
+
+A 44,000-token prompt takes **~7.5 min to ingest** (452.67 s, cumulative — that part is exact).
+But prefill at the 44k mark is running at ~64 t/s, not 97, so budgeting a 100k prompt off the
+cumulative figure will underestimate it badly. Generating at 262k is nearly free; *filling* that
+context is not. Set expectations on prefill, not on tg.
+
+⚠️ Caveat on these two numbers: single run, and the second prompt was prefilled into a slot that
+already held ~19k tokens (`f_sim_best = 0.306, f_keep = 0.999`), so it was not a cold cache. A
+separate cold run at the same depth gave 164.7 t/s cumulative vs 129.6 here — a 29% spread.
+Treat the curve as indicative of the *shape*, not as a calibrated constant.
 
 ---
 
@@ -194,6 +261,13 @@ count, median turns used.
 **A three-way tie.** All models: 4/4 tasks, zero regressions, perfect turn 1. So **choose on cost** —
 Ornith gives the same measured quality at a quarter the size and 4x the speed. The only durable
 difference is verbosity: Qwen truncated 3 turns to the others' 1.
+
+**Qwen3.8-27B is deliberately ABSENT from this table.** Its speed is measured (20.27 t/s, see §1)
+and it is staged and verified working, but **no quality suite has been run on it**. Adding a model
+to a quality table on the strength of its vendor's benchmark card is exactly the error this
+document exists to prevent — especially here, where Qwen's own card shows it losing Terminal Bench
+2.1 (73.0 vs 78.2) and NL2Repo (42.3 vs 47.6) to Opus 4.6 while winning on QwenSWEBench, a
+benchmark Qwen authored. Run `run-model-suite.ps1` against it before it earns a row.
 
 ---
 

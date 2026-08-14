@@ -67,6 +67,72 @@ $REG = [ordered]@{
         # next release or a master build. PR #26842 (drafter optimisation) is still open/draft.
         note  = '30B DENSE +vision, 131K, Apache-2.0. MCP Atlas 75.5 vs Qwen3.6 62.5. Needs > b10338.'
     }
+    'qwen38' = @{
+        repo  = 'unsloth/Qwen3.8-27B-GGUF'
+        files = @(
+            @{ p='Qwen3.8-27B-UD-Q4_K_XL.gguf'; b=17923394624 },
+            @{ p='mmproj-F16.gguf';             b=927607488   }
+        )
+        # 27B DENSE + vision, 262K ctx (1M via YaRN), Apache-2.0, Qwen. Sizes verified 2026-08-14.
+        # HYBRID ATTENTION IS THE POINT: layout is 16 x (3 x GatedDeltaNet -> FFN | 1 x GatedAttn -> FFN),
+        # so only 16 of 64 layers hold a KV cache. KV/token = 16 layers * 4 kv-heads * 256 head_dim
+        # * 2 (K+V) * 2 B = 64 KiB. That is 8 GiB at 131072 and 16 GiB at 262144 -- roughly a quarter
+        # of what a non-hybrid dense model of this shape would cost. 3 slots x FULL 262144 comes to
+        # ~66 GiB all-in (16.7 weights + 48 KV + 0.9 mmproj), which fits the 109 GiB ceiling.
+        # DENSE, so tg is set by quant size, not active params. MEASURED 2026-08-14 on b10431,
+        # solo occupancy, greedy sampling (scripts\windows\bench-qwen38.ps1):
+        #     no spec 11.33 t/s | draft-mtp n=3 20.27 t/s (1.79x) | at -c 262144 19.67 t/s
+        # The pre-measurement estimate was 11-12 t/s raw; the raw figure landed at 11.33, but MTP
+        # lifts the usable number to ~20. Do not quote the unaccelerated number as this model's speed.
+        #   MTP IS EMBEDDED IN THE GGUF -- there is NO separate draft file, unlike laguna/glimmer.
+        #   It appears in the load log as blk.64.nextn.* "unused tensor ... ignoring" until enabled.
+        #   Enable with: --spec-type draft-mtp --spec-draft-n-max 3   <-- 3, NOT higher.
+        #   n=4 drops to 16.53 and n=5 to 7.73, i.e. WORSE THAN NO SPECULATION. Depth is not
+        #   monotonic: accepted length rises but acceptance falls, and rejected drafts cost a full
+        #   verify pass. Stacking (draft-mtp,ngram-mod) is also a loss: 17.97.
+        #   MTP and batching COMPETE (both use the batch dim): 1 user 20.27 vs 11.33 (MTP wins big),
+        #   3 users aggregate 20.85 vs 23.82 (MTP loses mildly). Default stays MTP-on.
+        #   -ctk/-ctv q8_0 is SPEED-NEUTRAL (20.23) and halves KV -- take it for context headroom.
+        #   PREFILL is the long-context cost, not tg: 203 t/s @2k -> 97 t/s @44k, so a 44k prompt
+        #   takes ~7.5 MINUTES to ingest. Generating at 262k is nearly free; filling it is not.
+        #   (A third party on llama.cpp issue #27076 reported acceptance 0.735 / mean len 1.74 on a
+        #   16 GB RX 6900 XT; we measure 0.603 / 2.78 at n=3 with everything resident.)
+        #   SAMPLING per Qwen: thinking  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0
+        #                      instruct  --temp 0.7 --top-p 0.80 --top-k 20 --presence-penalty 1.5
+        # arch string is `qwen3_5`, ALREADY PRESENT in b10338 via qwen122b, so the grep-the-DLL trick
+        # used for glimmer WOULD FALSE-POSITIVE here -- it rides the existing qwen3_5 loader and there
+        # is no dedicated Qwen3.8 PR. LOAD TEST on b10431: loads clean and answers SHORT prompts
+        # correctly (17*24=408, Canberra, 64). That check mattered -- a bad mapping can load and emit
+        # FLUENT NONSENSE at a perfectly respectable t/s, which no speed number would ever reveal.
+        # BUT THAT IS NOT A PROOF OF LONG-CONTEXT CORRECTNESS. partial_rotary_factor 0.25 and
+        # mrope_interleaved are exactly the parameters that fail at DEPTH, not at ten tokens, and no
+        # output from the 44k-prefill or 262k-context runs was ever read -- those were timed, not
+        # inspected. Before trusting this model on long documents, bury a fact ~30k tokens deep and
+        # ask for it back.
+        # Vulkan risk NOT observed here: issue #27076 reports a `device lost` crash on multi-turn with
+        # LCP slot reuse, but that is RADV/Linux/RDNA2. ~50 min of sweeping on Windows gfx1151 produced
+        # zero device-lost events. Still worth watching under sustained multi-user load.
+        # QUALITY IS UNMEASURED -- speed only. Run evals before trusting the vendor's benchmark card.
+        note  = '27B DENSE +vision, hybrid KV (64 KiB/tok), 262K, Apache-2.0. 20.27 t/s w/ MTP n=3. Quality untested.'
+    }
+    'qwen38-quants' = @{
+        repo  = 'unsloth/Qwen3.8-27B-GGUF'
+        files = @(
+            @{ p='Qwen3.8-27B-IQ4_XS.gguf';      b=15705861088 },
+            @{ p='Qwen3.8-27B-UD-Q3_K_XL.gguf';  b=13441059904 }
+        )
+        # Smaller quants of qwen38, for the SPEED axis. This model is DENSE: every token reads
+        # every weight, so tg scales ~1/filesize -- unlike the MoE models here, where shrinking the
+        # quant mostly buys memory rather than speed. Projected from the MEASURED 20.27 t/s at
+        # UD-Q4_K_XL (16.69 GiB): IQ4_XS (14.63 GiB) ~23 t/s, UD-Q3_K_XL (12.52 GiB) ~27 t/s.
+        # Memory is NOT the constraint at these sizes (109 GiB ceiling) -- BANDWIDTH is, which is
+        # why the smaller quant is the faster one and why it is worth testing at all.
+        # Q5_K_XL (18.83 GiB) is deliberately NOT here: it is bigger, therefore SLOWER (~18 t/s),
+        # and the whole point of this entry is the speed axis.
+        # QUALITY COST IS UNMEASURED. Q3 on a 27B dense model is a real risk -- run the eval suites
+        # before serving one of these, or the speed win is bought with silent quality loss.
+        note  = 'qwen38 speed quants: IQ4_XS + UD-Q3_K_XL. Dense => tg ~ 1/size. Quality untested.'
+    }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
         files = @(
