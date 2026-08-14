@@ -29,7 +29,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('A','B','C','all')] [string] $Phase = 'all',
+    [ValidateSet('A','B','C','D','all')] [string] $Phase = 'all',
     [int] $Port = 8099,
     [int] $Reps = 3
 )
@@ -227,6 +227,39 @@ if ($Phase -in 'C','all') {
         $r = Get-TG $n 1
         Say ("    tg={0} t/s  accept={1}" -f $r.tg,$r.acc) Green
         Emit ([pscustomobject]@{ phase='C'; name=$n; tg=$r.tg; accept=$r.acc; samples=$r.n })
+    }
+}
+
+# =================================================================== PHASE D: reasoning_effort
+if ($Phase -in 'D','all') {
+    Say "`n=== PHASE D: what does reasoning_effort actually cost? ===" Cyan
+    Say "For a waiting user, latency = (thinking + answer tokens) / tg. If xhigh triples the" DarkGray
+    Say "token count it outweighs every flag above -- and it is free and per-request." DarkGray
+    $n = 'effort'
+    $p = Start-Srv $n $Q4 @{ ctx=32768; ctk='f16'; ctv='f16'; fa='on'; b=2048; ub=1024; spec='draft-mtp'; nmax=3 }
+    if ($p) {
+        $qs = @(
+            @{ id='easy'; q='What is the capital of France? Answer briefly.' },
+            @{ id='mid';  q='A train leaves at 14:05 and arrives at 17:40, stopping twice for 12 minutes each. What is its moving time?' },
+            @{ id='hard'; q='Write a Python function that merges overlapping intervals, and explain its complexity.' }
+        )
+        foreach ($t in $qs) {
+            foreach ($eff in @('low','medium','xhigh')) {
+                $b = @{ messages=@(@{role='user';content=$t.q}); max_tokens=6000; chat_template_kwargs=@{reasoning_effort=$eff} } | ConvertTo-Json -Depth 5 -Compress
+                $sw=[Diagnostics.Stopwatch]::StartNew()
+                try {
+                    $r = Invoke-RestMethod "http://127.0.0.1:$Port/v1/chat/completions" -Method Post -Body $b -ContentType 'application/json' -TimeoutSec 900
+                    $sw.Stop()
+                    $think = ([string]$r.choices[0].message.reasoning_content).Length
+                    $ans   = ([string]$r.choices[0].message.content).Length
+                    Say ("  {0,-5} {1,-7} {2,5} tok  {3,6:N1}s  think_chars={4,6} answer_chars={5,5}  finish={6}" -f `
+                        $t.id,$eff,$r.usage.completion_tokens,$sw.Elapsed.TotalSeconds,$think,$ans,$r.choices[0].finish_reason) Green
+                    Emit ([pscustomobject]@{ phase='D'; task=$t.id; effort=$eff; tokens=$r.usage.completion_tokens
+                                             seconds=[math]::Round($sw.Elapsed.TotalSeconds,2); think_chars=$think; answer_chars=$ans
+                                             finish=$r.choices[0].finish_reason })
+                } catch { $sw.Stop(); Say ("  {0,-5} {1,-7} FAILED" -f $t.id,$eff) Red }
+            }
+        }
     }
 }
 

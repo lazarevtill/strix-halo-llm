@@ -99,6 +99,69 @@ the same forward pass, so MTP is already using the batch dimension:
 A 79% gain on the common case beats a 14% loss on the rare one, so MTP stays on by default —
 but do not assume a config tuned single-stream is optimal under load.
 
+### Round 2 (2026-08-14, b10431): the flags that actually matter
+
+MEASURED with `scripts\windows\bench-qwen38-opt.ps1`, solo occupancy, greedy.
+
+**`-ub` is the prefill knob. `-b` is nearly irrelevant.** ~31k-token cold prompt:
+
+| `-b` | `-ub` | prefill t/s |
+|---:|---:|---:|
+| 2048 | **512** (llama.cpp default) | **159.0** |
+| 2048 | 1024 | 129.5 |
+| 4096 | 1024 | 129.8 |
+| 4096 | 2048 | 107.8 |
+| 8192 | 2048 | 112.4 |
+
+At matched `-ub`, doubling `-b` changes nothing (129.5 vs 129.8; 107.8 vs 112.4). Every step comes
+from `-ub` alone. ⚠️ **This contradicts the `-b 2048 -ub 1024` sweet spot recorded in §1 of this
+document** — that figure was measured on **MoE** models and costs **23% of prefill** on this dense
+hybrid. Neither is wrong; the optimum is architecture-dependent, so re-measure per model class.
+
+**Quant: speed runs BACKWARDS from size** (all sanity-gated 3/3):
+
+| quant | GiB | tg t/s |
+|---|---:|---:|
+| **UD-Q4_K_XL** | 16.69 | **20.06** |
+| IQ4_XS | 14.63 | 19.63 |
+| UD-Q3_K_XL | 12.52 | 18.17 |
+
+Dequantisation ALU cost outweighs the bandwidth saved: `Q4_K` unpacks cheaply, `IQ4_XS`/`Q3_K` do
+not. Below ~Q4_K you spend compute to save bandwidth you were not short of. **Do not shrink the
+quant for speed on this box.**
+
+**Other flags** (baseline = UD-Q4_K_XL, `draft-mtp` n=3, f16 KV, 20.06 t/s):
+
+| change | tg | verdict |
+|---|---:|---|
+| `-ctk/-ctv q8_0` | 20.23 | **free** — take it, halves KV |
+| `-ctk/-ctv q4_0` | 18.99 | −5%, no reason to go below q8_0 |
+| `-fa off` | 17.62 | −14%, keep flash attention on |
+
+**`reasoning_effort`: the default is optimal and the intuition is inverted.**
+
+| task | `low` | `medium` | **`xhigh`** (default) |
+|---|---|---|---|
+| easy | 19 tok / 2.9 s | 30 / 3.3 s | 27 / 4.0 s |
+| mid | 249 / 11.7 s | 234 / 10.8 s | **158 / 8.9 s** |
+| hard | 1132 / 46.7 s | 1370 / 55.8 s | **577 / 26.9 s** |
+
+`xhigh` is **1.7x faster** than `low` on the hard task. The setting swaps instruction text, not a
+token budget, and it governs ANSWER length more than thinking length — on the hard task `low` emitted
+623 chars of thinking but 3045 of answer, `xhigh` 723 and only 1384. Setting `low` to save time makes
+hard requests **74% slower**. n=1 per cell; quality unmeasured.
+
+### Recommended serving config for Qwen3.8-27B (all MEASURED)
+
+```
+--model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
+--spec-type draft-mtp --spec-draft-n-max 3     # 1.79x; 4 and 5 are WORSE than no speculation
+-b 2048 -ub 512                                # -ub is the knob; 1024 costs 23% of prefill
+-ctk q8_0 -ctv q8_0                            # free, halves KV to ~32 KiB/token
+-c 262144                                      # full context costs only ~3%
+```
+Leave `reasoning_effort` alone.
+
 **Prefill, not generation, is the real long-context cost.** MEASURED on a long prompt
 (the sweep's own pp column is unusable — it reused one prompt, so after warmup the server
 re-evaluated only 4 tokens at `f_sim_best = 1.000`).
