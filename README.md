@@ -7,14 +7,49 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D6?logo=windows&logoColor=white)](#requirements)
 [![Linux](https://img.shields.io/badge/Linux-drafts%20(unproven)-FCC624?logo=linux&logoColor=black)](#linux-drafts)
-[![llama.cpp](https://img.shields.io/badge/llama.cpp-b10338%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
+[![llama.cpp](https://img.shields.io/badge/llama.cpp-b10431%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
 [![GPU](https://img.shields.io/badge/GPU-Radeon%208060S%20gfx1151-ED1C24?logo=amd&logoColor=white)](#requirements)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#requirements)
 
-[Quick start](#quick-start) · [Findings](#what-we-found) · [Benchmarking](docs/BENCHMARKS.md) · [Tuning playbook](docs/OPTIMIZATION.md) · [Linux drafts](#linux-drafts)
+[**Start here →**](docs/EXPLAIN.md) · [Results](docs/RESULTS.md) · [Quick start](#quick-start) · [Go faster](docs/GOING-FASTER.md) · [Benchmarking](docs/BENCHMARKS.md) · [Linux drafts](#linux-drafts)
 
 </div>
+
+---
+
+## In one screen
+
+Never tuned a local model before? **[docs/EXPLAIN.md](docs/EXPLAIN.md)** explains every term below
+in plain English, with diagrams. No GPU or ML background needed.
+
+**The settings that matter**, all measured on this box (llama.cpp b10431, Vulkan):
+
+```
+--model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
+--spec-type draft-mtp --spec-draft-n-max 3     # +79%
+-b 2048 -ub 256                                # +29% prefill vs the usual 1024
+-ctk q8_0 -ctv q8_0                            # free, halves the KV cache
+-c 262144                                      # full context costs only 3%
+```
+
+| | measured |
+|---|---|
+| generation | **20.3 t/s** (~38 t/s on code) |
+| prefill | **167 t/s** — a 44k prompt is ~4.5 min before the first word |
+| tool calling | **29/29 = 100%** on a private, uncontaminated suite |
+| model size | 16.7 GB — matches a 125B model's score at a quarter the size |
+
+**Five "obvious" optimisations that measurement killed** — full detail in
+[GOING-FASTER.md](docs/GOING-FASTER.md):
+
+| idea | why it sounded right | reality |
+|---|---|---|
+| rewrite the slow GPU kernel | the code really is serial | **1.1%** of prefill |
+| use a smaller quant | fewer bytes to read | **slower** |
+| bigger batches | fewer, larger operations | **29% slower** |
+| deeper speculation | more tokens per pass | **worse than off** |
+| lower "reasoning effort" | less thinking = faster | **74% slower** |
 
 ---
 

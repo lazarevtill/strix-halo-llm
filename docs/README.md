@@ -1,27 +1,36 @@
 # Documentation
 
-Five documents. Start with whichever matches what you're trying to do.
+## New here? → **[EXPLAIN.md](EXPLAIN.md)**
+
+Plain-language primer: what prefill and generation are, why this hardware is fast at some things
+and slow at others, what quantisation and speculative decoding actually do, and a glossary. No GPU
+or ML background assumed. Everything else on this page assumes the terms it defines.
+
+## Then pick by what you're doing
 
 | doc | read it when | length |
 |---|---|---|
-| **[OPTIMIZATION.md](OPTIMIZATION.md)** | You want the box to go faster, or you're choosing a model/quant | long — it's a reference, skim the ⭐ sections |
+| **[EXPLAIN.md](EXPLAIN.md)** | You want the concepts, in plain English, with diagrams | short |
+| **[GOING-FASTER.md](GOING-FASTER.md)** | You want the settings to copy, and what NOT to try | short |
+| **[OPTIMIZATION.md](OPTIMIZATION.md)** | You're choosing a model or quant, or hunting the memory ceiling | long — a reference, skim the ⭐ sections |
 | **[BENCHMARKS.md](BENCHMARKS.md)** | You want to measure something, or you're reading numbers someone else produced | medium |
 | **[FLEET.md](FLEET.md)** | You have more than one machine, or you're wiring up retrieval / memory layers | medium |
 | **[MULTI-USER.md](MULTI-USER.md)** | Real people are using the endpoint: saved chats, capacity, what a restart costs them | medium |
 | **[PUBLISHING.md](PUBLISHING.md)** | You're about to push this (or a fork) somewhere public | short |
 
-## If you only read one page
+## If you only read two pages
 
-**[OPTIMIZATION.md](OPTIMIZATION.md)** — the memory ceiling, the flags that matter, and the model
-comparison. It's the highest-value page for a new owner.
+**[EXPLAIN.md](EXPLAIN.md)** for what the numbers mean, then
+**[GOING-FASTER.md](GOING-FASTER.md)** for the settings worth copying.
 
 ## Conventions used across these docs
 
 - **MEASURED** means it was run on this box and the number is real. Anything else is marked as an
   estimate, a vendor claim, or research.
-- **Struck-through predictions are kept on purpose.** Where a published benchmark or a plausible
-  assumption was later refuted by measurement, both are shown. Deleting the wrong prediction would
-  hide the more useful lesson: which kinds of claims don't survive testing.
+- **Refuted ideas are listed, not narrated.** Where a plausible optimisation was disproved by
+  measurement, it appears as one row in a "do not do this" table with the number that killed it —
+  enough to stop you repeating it, without the history of how it was found. The pattern itself is
+  summarised once, in [EXPLAIN.md §7](EXPLAIN.md).
 - Paths are Windows-style (`docs\BENCHMARKS.md`) because the scripts are PowerShell today. See
   [Platform support](../README.md#platform-support) for what changes on Linux.
 - Dates are ISO (`2026-08-04`). Findings are dated because llama.cpp builds and drivers move.

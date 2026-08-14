@@ -103,20 +103,31 @@ but do not assume a config tuned single-stream is optimal under load.
 
 MEASURED with `scripts\windows\bench-qwen38-opt.ps1`, solo occupancy, greedy.
 
-**`-ub` is the prefill knob. `-b` is nearly irrelevant.** ~31k-token cold prompt:
+**`-ub` is the prefill knob. `-b` is nearly irrelevant.** ~31k-token cold prompt, fresh server and
+unique prompt per row so every prefill is genuinely cold:
 
 | `-b` | `-ub` | prefill t/s |
 |---:|---:|---:|
-| 2048 | **512** (llama.cpp default) | **159.0** |
+| 8192 | 2048 | 112.4 |
+| 4096 | 2048 | 107.8 |
 | 2048 | 1024 | 129.5 |
 | 4096 | 1024 | 129.8 |
-| 4096 | 2048 | 107.8 |
-| 8192 | 2048 | 112.4 |
+| 2048 | 512 (llama.cpp default) | 159.0 |
+| 2048 | 512 *(control, separate run)* | 159.2 |
+| 2048 | **256** | **167.4** |
+| 2048 | 128 | 169.0 |
+| 1024 | 256 | 168.9 |
 
-At matched `-ub`, doubling `-b` changes nothing (129.5 vs 129.8; 107.8 vs 112.4). Every step comes
-from `-ub` alone. ⚠️ **This contradicts the `-b 2048 -ub 1024` sweet spot recorded in §1 of this
-document** — that figure was measured on **MoE** models and costs **23% of prefill** on this dense
-hybrid. Neither is wrong; the optimum is architecture-dependent, so re-measure per model class.
+**Optimum is `-ub 256`.** Going to 128 buys 0.9% — inside the noise floor and not worth the extra
+dispatch overhead. **`-ub 256` is +29% over the `-b 2048 -ub 1024` recorded in §1 of this document**,
+which was measured on **MoE** models. Neither figure is wrong; the optimum is architecture-dependent,
+so re-measure per model class rather than inheriting it.
+
+`-b` genuinely does not matter: at matched `-ub` it moves nothing (129.5 vs 129.8 at 1024;
+107.8 vs 112.4 at 2048; 167.4 / 168.9 / 169.0 across three configs at 256 or below).
+
+The 512 control was run in a separate invocation specifically to check that the differences were the
+flag and not thermal or driver drift: 159.02 vs 159.16, a 0.1% spread. The sweep is reproducible.
 
 **Quant: speed runs BACKWARDS from size** (all sanity-gated 3/3):
 
@@ -156,11 +167,31 @@ hard requests **74% slower**. n=1 per cell; quality unmeasured.
 ```
 --model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
 --spec-type draft-mtp --spec-draft-n-max 3     # 1.79x; 4 and 5 are WORSE than no speculation
--b 2048 -ub 512                                # -ub is the knob; 1024 costs 23% of prefill
+-b 2048 -ub 256                                # -ub is the knob; 1024 costs 29% of prefill
 -ctk q8_0 -ctv q8_0                            # free, halves KV to ~32 KiB/token
 -c 262144                                      # full context costs only ~3%
 ```
 Leave `reasoning_effort` alone.
+
+```mermaid
+xychart-beta
+    title "Prefill throughput vs --ubatch-size (higher is better)"
+    x-axis "--ubatch-size" [2048, 1024, 512, 256, 128]
+    y-axis "tokens/sec" 0 --> 190
+    bar [107.8, 129.5, 159.0, 167.4, 169.0]
+```
+
+```mermaid
+xychart-beta
+    title "Generation t/s vs speculative draft depth (--spec-draft-n-max)"
+    x-axis "draft depth" ["off", 1, 2, 3, 4, 5]
+    y-axis "tokens/sec" 0 --> 22
+    bar [11.33, 17.18, 19.11, 20.27, 16.53, 7.73]
+```
+
+Read the second chart carefully: depth **3** is the peak, and depth **5 is worse than turning
+speculation off entirely**. This is the single easiest setting to get wrong by assuming "more is
+better".
 
 **Prefill, not generation, is the real long-context cost.** MEASURED on a long prompt
 (the sweep's own pp column is unusable — it reused one prompt, so after warmup the server
