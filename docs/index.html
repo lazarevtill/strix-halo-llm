@@ -3,222 +3,324 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Strix Halo LLM — measured, not guessed</title>
-<meta name="description" content="Every setting that matters for local LLM inference on an AMD Ryzen AI MAX+ 395, measured on the hardware.">
+<title>Strix Halo LLM — a measurement report</title>
+<meta name="description" content="Tuning local LLM inference on an AMD Ryzen AI MAX+ 395. Every number measured on the hardware, including five well-reasoned optimisations that measurement killed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#0f1115; --panel:#171a21; --panel2:#1d212a; --line:#2a2f3a;
-    --fg:#e6e9ef; --dim:#9aa4b2; --accent:#4ea1ff; --good:#3ddc84; --bad:#ff6b6b; --warn:#ffc857;
-    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  }
-  @media (prefers-color-scheme: light){
-    :root{ --bg:#f7f8fa; --panel:#fff; --panel2:#f0f2f6; --line:#dfe3ea;
-           --fg:#1a1d23; --dim:#5b6472; --accent:#0b63c5; --good:#127a3d; --bad:#c0392b; --warn:#9a6b00; }
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--fg);
-       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-  .wrap{max-width:920px;margin:0 auto;padding:0 20px 80px}
-  header{padding:56px 0 28px;border-bottom:1px solid var(--line);margin-bottom:36px}
-  h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:0 0 10px;letter-spacing:-.02em}
-  .sub{color:var(--dim);font-size:18px;margin:0}
-  .chips{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px}
-  .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;
-        padding:5px 12px;font-size:13px;color:var(--dim)}
-  h2{font-size:26px;margin:52px 0 6px;letter-spacing:-.01em}
-  h3{font-size:18px;margin:32px 0 8px}
-  .lede{color:var(--dim);margin:0 0 20px}
-  p{margin:0 0 14px}
-  a{color:var(--accent)}
-  code,pre{font-family:var(--mono);font-size:14px}
-  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-      padding:16px;overflow-x:auto;margin:0 0 18px}
-  pre .c{color:var(--dim)}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:22px 0 8px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
-  .card .n{font-size:30px;font-weight:650;letter-spacing:-.02em;line-height:1.1}
-  .card .l{color:var(--dim);font-size:13px;margin-top:4px}
-  table{width:100%;border-collapse:collapse;margin:0 0 18px;font-size:15px;display:block;overflow-x:auto}
-  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
-  th{color:var(--dim);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
-  tbody tr:hover{background:var(--panel2)}
-  .num{text-align:right;font-family:var(--mono)}
-  .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin:0 0 20px}
-  .chart .t{font-weight:600;margin-bottom:2px}
-  .chart .s{color:var(--dim);font-size:13px;margin-bottom:14px}
-  .row{display:grid;grid-template-columns:132px 1fr 84px;align-items:center;gap:10px;margin:7px 0}
-  .row .k{color:var(--dim);font-size:13px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bar{height:22px;background:var(--panel2);border-radius:5px;overflow:hidden}
-  .bar > i{display:block;height:100%;background:var(--accent);border-radius:5px}
-  .bar > i.best{background:var(--good)}
-  .bar > i.bad{background:var(--bad)}
-  .row .v{text-align:right;font-family:var(--mono);font-size:14px}
-  .note{border-left:3px solid var(--warn);background:var(--panel);padding:12px 16px;
-        border-radius:0 8px 8px 0;margin:0 0 18px;color:var(--dim);font-size:15px}
-  .note b{color:var(--fg)}
-  .kill{border-left:3px solid var(--bad)}
-  .ok{border-left:3px solid var(--good)}
-  footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--line);color:var(--dim);font-size:14px}
-  .tag{font-family:var(--mono);font-size:12px;padding:2px 7px;border-radius:5px;background:var(--panel2);color:var(--dim)}
+/* ============================================================
+   Lazarev Cloud Design System — tokens
+   Monochrome core, single hot-red signal. Black & white do the
+   heavy lifting; red is the signal.
+   ============================================================ */
+:root{
+  --lz-red:#f81a2c; --lz-red-ink:#c70f1e;
+  --lz-black:#000; --lz-white:#fff;
+  --lz-ink-900:#0a0a0b; --lz-ink-800:#161618; --lz-ink-700:#232327; --lz-ink-600:#3a3a40;
+  --lz-ink-500:#5b5b63; --lz-ink-400:#8a8a92; --lz-ink-300:#b6b6bd; --lz-ink-200:#d9d9de;
+  --lz-ink-100:#ececef; --lz-ink-50:#f6f6f7;
+
+  --surface-page:var(--lz-white); --surface-sunken:var(--lz-ink-50); --surface-muted:var(--lz-ink-100);
+  --text-strong:var(--lz-black); --text-body:var(--lz-ink-800);
+  --text-muted:var(--lz-ink-500); --text-subtle:var(--lz-ink-400);
+  --border-subtle:var(--lz-ink-200); --border-strong:var(--lz-black);
+  --accent:var(--lz-red); --accent-soft:#fde7e9; --focus-ring:var(--lz-red);
+
+  --font-display:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-body:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-mono:"Spline Sans Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --tracking-tight:-0.02em; --tracking-wide:0.04em; --tracking-mono:0.02em;
+}
+/* Light only, by design. The Lazarev Cloud dark theme is an opt-in
+   [data-theme="dark"] scope; this page never opts in, so the semantic
+   aliases above stay light and the red signal keeps its intended contrast
+   against white. color-scheme pins form controls and scrollbars to light
+   so the browser cannot dark-shift them underneath us. */
+:root{color-scheme:light}
+
+/* ---- page ---- */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--surface-page);color:var(--text-body);
+     font-family:var(--font-body);font-size:1rem;line-height:1.65;
+     -webkit-font-smoothing:antialiased}
+.wrap{max-width:800px;margin:0 auto;padding:0 24px 96px}
+
+/* ---- masthead ---- */
+.mast{padding:72px 0 0}
+.meta{font-family:var(--font-mono);font-size:.75rem;font-weight:var(--fw-medium);
+      letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-subtle);
+      display:flex;flex-wrap:wrap;gap:6px 20px;margin-bottom:32px}
+h1{font-family:var(--font-display);font-weight:var(--fw-bold);
+   font-size:clamp(2.25rem,6.4vw,3.5rem);line-height:1.05;letter-spacing:var(--tracking-tight);
+   color:var(--text-strong);margin:0 0 20px}
+h1 em{font-style:normal;color:var(--accent)}
+.abstract{font-size:1.125rem;line-height:1.6;margin:0 0 32px;max-width:62ch;color:var(--text-body)}
+.rule{height:2px;background:var(--border-strong);margin:36px 0}
+
+/* ---- sections ---- */
+.eyebrow{font-family:var(--font-mono);font-size:.75rem;font-weight:var(--fw-bold);
+   letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--accent);
+   margin:0 0 6px;padding-top:56px}
+h2{font-family:var(--font-display);font-weight:var(--fw-semibold);
+   font-size:clamp(1.375rem,3.4vw,1.75rem);letter-spacing:var(--tracking-tight);
+   line-height:1.2;margin:0 0 16px;color:var(--text-strong)}
+p{margin:0 0 16px;max-width:64ch}
+a{color:var(--accent);text-underline-offset:3px}
+strong{font-weight:var(--fw-semibold);color:var(--text-strong)}
+code{font-family:var(--font-mono);font-size:.875em;letter-spacing:var(--tracking-mono)}
+
+pre{font-family:var(--font-mono);font-size:.8125rem;line-height:1.8;
+    background:var(--surface-sunken);border-left:2px solid var(--accent);
+    padding:18px 20px;margin:0 0 24px;overflow-x:auto;color:var(--text-body)}
+pre .c{color:var(--text-subtle)}
+
+/* ---- tables ---- */
+table{width:100%;border-collapse:collapse;margin:4px 0 24px;display:block;overflow-x:auto}
+th,td{padding:9px 16px 9px 0;border-bottom:1px solid var(--border-subtle);
+      vertical-align:baseline;text-align:left;white-space:nowrap}
+th{font-family:var(--font-mono);font-size:.6875rem;font-weight:var(--fw-bold);
+   letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-subtle);
+   border-bottom:1px solid var(--border-strong)}
+td{font-size:.9375rem}
+td.n,th.n{font-family:var(--font-mono);text-align:right;font-size:.875rem;font-variant-numeric:tabular-nums}
+td.lab{font-family:var(--font-mono);font-size:.8125rem;color:var(--text-strong)}
+tr.pick td{font-weight:var(--fw-semibold)}
+tr.pick td.lab{color:var(--accent)}
+
+/* ---- SIGNATURE: the prediction gap ---- */
+.gap{border-top:1px solid var(--border-subtle);padding-top:24px;margin-bottom:8px}
+.gaprow{margin:0 0 26px}
+.gaplab{font-family:var(--font-mono);font-size:.8125rem;color:var(--text-muted);
+        margin-bottom:10px;display:flex;justify-content:space-between;gap:16px}
+.gaplab b{color:var(--text-strong);font-weight:var(--fw-semibold)}
+.gaplab .miss{color:var(--accent)}
+.track{position:relative;height:28px}
+.track::before{content:"";position:absolute;left:0;right:0;top:13px;height:1px;background:var(--border-subtle)}
+.err{position:absolute;top:12.5px;height:3px;background:var(--lz-ink-300);
+     background-image:repeating-linear-gradient(90deg,var(--lz-ink-400) 0 4px,transparent 4px 8px)}
+.pt{position:absolute;top:6px;width:16px;height:16px;border-radius:50%;transform:translateX(-8px)}
+.pt.pred{border:2px solid var(--lz-ink-400);background:var(--surface-page)}
+.pt.meas{background:var(--accent)}
+.cap{font-family:var(--font-mono);font-size:.6875rem;font-weight:var(--fw-semibold);
+     color:var(--accent);position:absolute;top:-4px;transform:translateX(-50%);white-space:nowrap}
+.axis{position:relative;height:18px;font-family:var(--font-mono);font-size:.6875rem;
+      color:var(--text-subtle);border-top:1px solid var(--border-subtle);margin-top:2px}
+.axis span{position:absolute;transform:translateX(-50%);padding-top:4px}
+.key{font-family:var(--font-mono);font-size:.75rem;color:var(--text-muted);
+     display:flex;gap:22px;flex-wrap:wrap;margin-top:18px}
+.key i{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:7px}
+.key i.p{border:2px solid var(--lz-ink-400);background:var(--surface-page)}
+.key i.m{background:var(--accent)}
+
+/* ---- ranked bars ---- */
+.bars{margin:4px 0 24px}
+.b{display:grid;grid-template-columns:124px 1fr 64px;gap:14px;align-items:center;margin:7px 0}
+.b .k{font-family:var(--font-mono);font-size:.8125rem;color:var(--text-muted);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.b .t{height:16px;background:var(--surface-muted)}
+.b .t i{display:block;height:100%;background:var(--lz-ink-300)}
+.b .t i.on{background:var(--accent)}
+.b .v{font-family:var(--font-mono);font-size:.8125rem;text-align:right;
+      font-variant-numeric:tabular-nums;color:var(--text-body)}
+.b.pick .k{color:var(--accent);font-weight:var(--fw-semibold)}
+
+.aside{border-left:2px solid var(--border-subtle);padding:2px 0 2px 20px;margin:0 0 24px;
+       color:var(--text-muted);font-size:.9375rem}
+.aside b{color:var(--text-strong);font-weight:var(--fw-semibold)}
+
+footer{margin-top:80px;border-top:2px solid var(--border-strong);padding-top:22px;
+       font-family:var(--font-mono);font-size:.8125rem;color:var(--text-muted);line-height:2}
+footer a{color:var(--text-muted)}
+footer a:hover{color:var(--accent)}
+
+@media (max-width:560px){ .b{grid-template-columns:98px 1fr 56px} }
+@media (prefers-reduced-motion:no-preference){
+  .pt.meas{animation:settle .45s cubic-bezier(.2,.8,.3,1) both}
+  @keyframes settle{from{transform:translateX(-8px) scale(.3);opacity:0}
+                    to{transform:translateX(-8px) scale(1);opacity:1}}
+}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<header>
-  <h1>Strix Halo LLM</h1>
-  <p class="sub">Every setting that matters for local inference on an AMD Ryzen AI MAX+ 395 — measured on the hardware, including the five “obvious” optimisations that turned out to be wrong.</p>
-  <div class="chips">
-    <span class="chip">Ryzen AI MAX+ 395 · Radeon 8060S · gfx1151</span>
-    <span class="chip">128 GB unified (32/96)</span>
-    <span class="chip">llama.cpp b10431 · Vulkan</span>
-    <span class="chip">Qwen3.8-27B UD-Q4_K_XL</span>
+<div class="mast">
+  <div class="meta">
+    <span>Ryzen AI MAX+ 395 · gfx1151</span>
+    <span>128 GB unified</span>
+    <span>llama.cpp b10431 · Vulkan</span>
+    <span>2026-08-15</span>
   </div>
-</header>
+  <h1>Every number here was measured.<br><em>Five of my best guesses were wrong.</em></h1>
+  <p class="abstract">Tuning local LLM inference on an AMD Strix Halo box. The settings below are
+  worth copying. The more useful part is the record of what <strong>sounded</strong> right and
+  wasn't — each took one command to disprove, and one would have cost weeks.</p>
+</div>
 
-<section>
-  <h2>The answer, if you’re in a hurry</h2>
-  <div class="cards">
-    <div class="card"><div class="n">20.3<span style="font-size:16px;color:var(--dim)"> t/s</span></div><div class="l">writing (~38 on code)</div></div>
-    <div class="card"><div class="n">167<span style="font-size:16px;color:var(--dim)"> t/s</span></div><div class="l">reading your prompt</div></div>
-    <div class="card"><div class="n">100<span style="font-size:16px;color:var(--dim)">%</span></div><div class="l">tool calling, 29/29</div></div>
-    <div class="card"><div class="n">16.7<span style="font-size:16px;color:var(--dim)"> GB</span></div><div class="l">model on disk</div></div>
+<div class="rule"></div>
+
+<p class="eyebrow">Result</p>
+<h2>The configuration</h2>
+<pre>--model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
+--spec-type draft-mtp --spec-draft-n-max 3     <span class="c">+79%  generation</span>
+-b 2048 -ub 256                                <span class="c">+29%  prefill, vs the usual 1024</span>
+-ctk q8_0 -ctv q8_0                            <span class="c">free, halves the KV cache</span>
+-c 262144                                      <span class="c">full context costs 3%</span></pre>
+
+<table>
+  <thead><tr><th>reading</th><th class="n">value</th><th>note</th></tr></thead>
+  <tbody>
+    <tr><td class="lab">generation</td><td class="n">20.3 t/s</td><td>~38 t/s on code, where drafts land better</td></tr>
+    <tr><td class="lab">prefill</td><td class="n">167 t/s</td><td>a 44k prompt waits ~4.5 min before word one</td></tr>
+    <tr><td class="lab">tool calling</td><td class="n">29/29</td><td>private suite · CI [88.3, 100.0]</td></tr>
+    <tr><td class="lab">weights</td><td class="n">16.7 GB</td><td>matches a 125B model's score at a quarter the size</td></tr>
+  </tbody>
+</table>
+
+<div class="aside"><b>Two speeds, and they behave nothing alike.</b> Prefill is the model reading
+your prompt — parallel, compute-bound. Generation is it writing the reply — sequential,
+memory-bound. Paste a long document and the wait before the first word is prefill; no amount of
+generation tuning touches it.</div>
+
+<p class="eyebrow">Signature finding</p>
+<h2>The prediction gap</h2>
+<p>Before each experiment I wrote down what I expected. Hollow marker: the prediction. Solid
+marker: what the hardware actually did. The dashed span between them is the error.</p>
+
+<div class="gap">
+  <div class="gaprow">
+    <div class="gaplab"><span>Quant <b>IQ4_XS</b> — smaller file, so faster</span><span class="miss">off by 15%</span></div>
+    <div class="track">
+      <div class="err" style="left:65.4%;width:11.3%"></div>
+      <div class="pt pred" style="left:76.7%"></div>
+      <div class="pt meas" style="left:65.4%"></div>
+      <div class="cap" style="left:65.4%">19.63</div>
+    </div>
   </div>
-  <pre><span class="c"># everything below was measured, not inherited from a blog post</span>
---model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
---spec-type draft-mtp --spec-draft-n-max 3     <span class="c"># +79%</span>
--b 2048 -ub 256                                <span class="c"># +29% prefill vs the usual 1024</span>
--ctk q8_0 -ctv q8_0                            <span class="c"># free, halves the KV cache</span>
--c 262144                                      <span class="c"># full context costs only 3%</span></pre>
-  <div class="note"><b>New to this?</b> Two speeds matter and they behave nothing alike.
-  <b>Prefill</b> is the model reading your prompt — parallel, compute-bound, ~167 t/s here.
-  <b>Generation</b> is it writing the reply — sequential, memory-bound, ~20 t/s. Paste a
-  44,000-token document and you wait ~4.5 minutes before the first word appears. That’s prefill,
-  and no amount of generation tuning fixes it.</div>
-</section>
 
-<section>
-  <h2>Speculative decoding — the single biggest win</h2>
-  <p class="lede">A fast built-in mechanism guesses the next few tokens; the real model verifies them all in one pass. Correct guesses are free.</p>
-  <div class="chart">
-    <div class="t">Generation speed by draft depth</div>
-    <div class="s"><code>--spec-draft-n-max</code> · higher bar is better</div>
-    <div class="row"><span class="k">off</span><span class="bar"><i style="width:55.9%"></i></span><span class="v">11.33</span></div>
-    <div class="row"><span class="k">1</span><span class="bar"><i style="width:84.8%"></i></span><span class="v">17.18</span></div>
-    <div class="row"><span class="k">2</span><span class="bar"><i style="width:94.3%"></i></span><span class="v">19.11</span></div>
-    <div class="row"><span class="k">3 ← best</span><span class="bar"><i class="best" style="width:100%"></i></span><span class="v">20.27</span></div>
-    <div class="row"><span class="k">4</span><span class="bar"><i style="width:81.6%"></i></span><span class="v">16.53</span></div>
-    <div class="row"><span class="k">5</span><span class="bar"><i class="bad" style="width:38.1%"></i></span><span class="v">7.73</span></div>
+  <div class="gaprow">
+    <div class="gaplab"><span>Quant <b>Q3_K_XL</b> — smaller still, faster still</span><span class="miss">off by 33%</span></div>
+    <div class="track">
+      <div class="err" style="left:60.6%;width:29.4%"></div>
+      <div class="pt pred" style="left:90%"></div>
+      <div class="pt meas" style="left:60.6%"></div>
+      <div class="cap" style="left:60.6%">18.17</div>
+    </div>
   </div>
-  <div class="note kill"><b>Depth 5 is worse than switching speculation off.</b> Guess too far ahead and most guesses are rejected — and every rejected token still costs a full verification pass that produces nothing. “More is better” is wrong here, and the default (3) happens to be optimal.</div>
-</section>
 
-<section>
-  <h2>Batch size — everyone gets this backwards</h2>
-  <div class="chart">
-    <div class="t">Prefill speed by <code>--ubatch-size</code></div>
-    <div class="s">~31,000-token cold prompt · higher is better</div>
-    <div class="row"><span class="k">2048</span><span class="bar"><i style="width:63.8%"></i></span><span class="v">107.8</span></div>
-    <div class="row"><span class="k">1024</span><span class="bar"><i style="width:76.6%"></i></span><span class="v">129.5</span></div>
-    <div class="row"><span class="k">512 (default)</span><span class="bar"><i style="width:94.1%"></i></span><span class="v">159.0</span></div>
-    <div class="row"><span class="k">256 ← best</span><span class="bar"><i class="best" style="width:99.1%"></i></span><span class="v">167.4</span></div>
-    <div class="row"><span class="k">128</span><span class="bar"><i style="width:100%"></i></span><span class="v">169.0</span></div>
+  <div class="gaprow">
+    <div class="gaplab"><span>Quant <b>Q4_K_XL</b> — the biggest file, the control</span><span>fastest of the three</span></div>
+    <div class="track">
+      <div class="pt meas" style="left:66.9%"></div>
+      <div class="cap" style="left:66.9%">20.06</div>
+    </div>
+    <div class="axis"><span style="left:0">0</span><span style="left:33.3%">10</span><span style="left:66.6%">20</span><span style="left:100%">30 t/s</span></div>
   </div>
-  <p>Smaller is faster, flattening below 256. <b><code>-ub 256</code> is 29% faster than the commonly recommended 1024.</b> <code>-b</code> makes no measurable difference at matched <code>-ub</code>. Re-running the 512 case in a separate session landed within 0.1% — this is the flag, not thermal drift.</p>
-</section>
 
-<section>
-  <h2>Quantisation — the bigger file is the faster one</h2>
-  <div class="chart">
-    <div class="t">Generation speed by quant</div>
-    <div class="s">all three passed an arithmetic/recall sanity gate</div>
-    <div class="row"><span class="k">Q3_K_XL 12.5 GB</span><span class="bar"><i style="width:90.6%"></i></span><span class="v">18.17</span></div>
-    <div class="row"><span class="k">IQ4_XS 14.6 GB</span><span class="bar"><i style="width:97.9%"></i></span><span class="v">19.63</span></div>
-    <div class="row"><span class="k">Q4_K_XL 16.7 GB</span><span class="bar"><i class="best" style="width:100%"></i></span><span class="v">20.06</span></div>
-  </div>
-  <p>Speed runs <em>backwards</em> from file size. Generation looks memory-bound, so a smaller model “should” be faster — but unpacking the more aggressively compressed formats costs more arithmetic than the bandwidth it saves. Below roughly Q4_K you spend compute to save bandwidth you weren’t short of.</p>
-</section>
+  <div class="key"><span><i class="p"></i>predicted</span><span><i class="m"></i>measured</span></div>
+</div>
 
-<section>
-  <h2>Everything else worth setting</h2>
-  <table>
-    <thead><tr><th>change</th><th class="num">t/s</th><th>verdict</th></tr></thead>
-    <tbody>
-      <tr><td><code>-ctk/-ctv q8_0</code></td><td class="num">20.23</td><td>free — and halves the KV cache</td></tr>
-      <tr><td><code>-c 262144</code> (full context)</td><td class="num">19.67</td><td>full context costs only 3%</td></tr>
-      <tr><td><code>-ctk/-ctv q4_0</code></td><td class="num">18.99</td><td>−5%, no reason to go below q8_0</td></tr>
-      <tr><td><code>draft-mtp,ngram-mod</code></td><td class="num">17.97</td><td>stacking speculators loses</td></tr>
-      <tr><td><code>-fa off</code></td><td class="num">17.62</td><td>−14%, keep flash attention on</td></tr>
-    </tbody>
-  </table>
+<p>Generation is memory-bound, so a smaller model <strong>should</strong> read fewer bytes and run
+faster. It doesn't: unpacking the more compressed formats costs more arithmetic than the bandwidth
+it saves. <strong>Speed runs backwards from file size.</strong> Below roughly Q4_K you spend compute
+to save bandwidth you were never short of.</p>
 
-  <h3>“Reasoning effort” — the default is already best</h3>
-  <table>
-    <thead><tr><th>task</th><th class="num">low</th><th class="num">medium</th><th class="num">xhigh (default)</th></tr></thead>
-    <tbody>
-      <tr><td>easy</td><td class="num">19 tok / 2.9 s</td><td class="num">30 / 3.3 s</td><td class="num">27 / 4.0 s</td></tr>
-      <tr><td>mid</td><td class="num">249 / 11.7 s</td><td class="num">234 / 10.8 s</td><td class="num"><b>158 / 8.9 s</b></td></tr>
-      <tr><td>hard</td><td class="num">1132 / 46.7 s</td><td class="num">1370 / 55.8 s</td><td class="num"><b>577 / 26.9 s</b></td></tr>
-    </tbody>
-  </table>
-  <div class="note kill"><b>Setting it to “low” to save time makes hard requests 74% slower.</b> The setting swaps instruction text into the prompt rather than capping a budget — and it governs <em>answer</em> length more than thinking length. On the hard task “low” produced 623 characters of thinking but 3,045 of answer; “xhigh” produced 723 and just 1,384. <span class="tag">n=1 per cell · quality not assessed</span></div>
-</section>
+<p class="eyebrow">Measured</p>
+<h2>Draft depth peaks at three, then falls off a cliff</h2>
+<div class="bars">
+  <div class="b"><span class="k">off</span><span class="t"><i style="width:55.9%"></i></span><span class="v">11.33</span></div>
+  <div class="b"><span class="k">depth 1</span><span class="t"><i style="width:84.8%"></i></span><span class="v">17.18</span></div>
+  <div class="b"><span class="k">depth 2</span><span class="t"><i style="width:94.3%"></i></span><span class="v">19.11</span></div>
+  <div class="b pick"><span class="k">depth 3</span><span class="t"><i class="on" style="width:100%"></i></span><span class="v">20.27</span></div>
+  <div class="b"><span class="k">depth 4</span><span class="t"><i style="width:81.6%"></i></span><span class="v">16.53</span></div>
+  <div class="b"><span class="k">depth 5</span><span class="t"><i style="width:38.1%"></i></span><span class="v">7.73</span></div>
+</div>
+<p>A built-in draft head guesses the next few tokens; the model verifies them in one pass. Correct
+guesses are free — but <strong>depth 5 is slower than switching speculation off entirely</strong>,
+because every rejected token still costs a full verification pass that yields nothing.</p>
 
-<section>
-  <h2>Quality</h2>
-  <p class="lede">Scored on two private suites that exist nowhere public, so no model has trained on them. The harness is open; the answers are not.</p>
-  <table>
-    <thead><tr><th>model</th><th class="num">tool calling</th><th class="num">95% CI</th><th class="num">size</th></tr></thead>
-    <tbody>
-      <tr><td><b>Qwen3.8-27B Q4_K_XL</b></td><td class="num"><b>29/29 · 100%</b></td><td class="num">[88.3, 100.0]</td><td class="num">16.7 GB</td></tr>
-      <tr><td>Ornith-1.0-35B Q5_K_M</td><td class="num">28/29 · 96.6%</td><td class="num">[82.8, 99.4]</td><td class="num">23.0 GB</td></tr>
-      <tr><td>Qwen3.5-122B-A10B Q4_K_XL</td><td class="num">28/29 · 96.6%</td><td class="num">[82.8, 99.4]</td><td class="num">73.3 GB</td></tr>
-      <tr><td>Laguna-S-2.1 Q4_K_M</td><td class="num">27/29 · 93.1%</td><td class="num">[78.0, 98.1]</td><td class="num">89.4 GB</td></tr>
-    </tbody>
-  </table>
-  <div class="note"><b>This is not a ranking.</b> The gap to second place is one case out of 29 and the confidence intervals overlap almost completely. What it does support: the 27B model is <em>not worse</em> than the others, and it matches a 125B model’s score at a quarter of the size.</div>
-  <p>Agentic coding (70 hidden tests, multi-turn) is <b>being re-run for every model on identical infrastructure</b> so the comparison isn’t against a fortnight-old baseline.</p>
-</section>
+<h2>Smaller batches prefill faster</h2>
+<div class="bars">
+  <div class="b"><span class="k">ubatch 2048</span><span class="t"><i style="width:63.8%"></i></span><span class="v">107.8</span></div>
+  <div class="b"><span class="k">1024</span><span class="t"><i style="width:76.6%"></i></span><span class="v">129.5</span></div>
+  <div class="b"><span class="k">512 default</span><span class="t"><i style="width:94.1%"></i></span><span class="v">159.0</span></div>
+  <div class="b pick"><span class="k">256</span><span class="t"><i class="on" style="width:99.1%"></i></span><span class="v">167.4</span></div>
+  <div class="b"><span class="k">128</span><span class="t"><i style="width:100%"></i></span><span class="v">169.0</span></div>
+</div>
+<p><code>-ub 256</code> is 29% faster than the 1024 commonly recommended — including by an earlier
+version of this repo, which measured it on a different model architecture. <code>-b</code> makes no
+measurable difference at matched <code>-ub</code>. Re-running the 512 case in a separate session
+landed within 0.1%, so this is the flag and not thermal drift.</p>
 
-<section>
-  <h2>Where the time actually goes</h2>
-  <div class="chart">
-    <div class="t">Share of a real prefill, per operation</div>
-    <div class="s">measured with llama.cpp’s Vulkan per-op profiler</div>
-    <div class="row"><span class="k">MUL_MAT</span><span class="bar"><i style="width:93%"></i></span><span class="v">~93%</span></div>
-    <div class="row"><span class="k">CONCAT</span><span class="bar"><i style="width:1.7%"></i></span><span class="v">1.7%</span></div>
-    <div class="row"><span class="k">GATED_DELTA_NET</span><span class="bar"><i style="width:1.1%"></i></span><span class="v">1.1%</span></div>
-    <div class="row"><span class="k">GLU</span><span class="bar"><i style="width:1.0%"></i></span><span class="v">1.0%</span></div>
-    <div class="row"><span class="k">everything else</span><span class="bar"><i style="width:3.2%"></i></span><span class="v">~3%</span></div>
-  </div>
-  <p>A 27.8B dense model needs about <b>2.45 PFLOP</b> to read a 44k-token prompt, and the weight matmuls measure <b>10.83 TFLOPS</b> — close to what this hardware can do. <b>Roughly half of prefill is irreducible arithmetic.</b> No flag, fork or kernel rewrite changes that.</p>
-</section>
+<h2>The rest</h2>
+<table>
+  <thead><tr><th>change</th><th class="n">t/s</th><th>verdict</th></tr></thead>
+  <tbody>
+    <tr class="pick"><td class="lab">-ctk/-ctv q8_0</td><td class="n">20.23</td><td>free — and halves the KV cache</td></tr>
+    <tr><td class="lab">-c 262144</td><td class="n">19.67</td><td>full context costs 3%</td></tr>
+    <tr><td class="lab">-ctk/-ctv q4_0</td><td class="n">18.99</td><td>−5%, no reason to go below q8_0</td></tr>
+    <tr><td class="lab">draft-mtp,ngram-mod</td><td class="n">17.97</td><td>stacking speculators loses</td></tr>
+    <tr><td class="lab">-fa off</td><td class="n">17.62</td><td>−14%, keep flash attention on</td></tr>
+  </tbody>
+</table>
 
-<section>
-  <h2>Five ideas that measurement killed</h2>
-  <p class="lede">Each was a sound inference from real evidence. Each took one command to disprove — and one would have cost weeks of work.</p>
-  <table>
-    <thead><tr><th>the idea</th><th>why it sounded right</th><th>what happened</th></tr></thead>
-    <tbody>
-      <tr><td>Rewrite the serial GPU kernel</td><td>the code really is token-by-token, and upstream fixed it for NVIDIA only</td><td><b>1.1% of prefill</b></td></tr>
-      <tr><td>Flash attention collapses at long context</td><td>a 3.3× throughput cliff in the profiler</td><td><b>that data was decode, not prefill</b></td></tr>
-      <tr><td>Smaller quant is faster</td><td>dense model, memory-bound</td><td><b>backwards</b></td></tr>
-      <tr><td>Bigger batches are more efficient</td><td>fewer, larger operations</td><td><b>29% slower</b></td></tr>
-      <tr><td>Lower reasoning effort saves time</td><td>less thinking = fewer tokens</td><td><b>74% slower</b></td></tr>
-    </tbody>
-  </table>
-  <div class="note ok"><b>The habit worth copying:</b> price the operation before you optimise it. <code>test-backend-ops perf -o &lt;OP&gt;</code> costs about a minute and needs no downtime — it refuted a multi-week plan here in one command. Finding that a kernel is inefficient proves only that the kernel is inefficient, not that it matters.</div>
-</section>
+<p class="eyebrow">Refuted</p>
+<h2>Five ideas measurement killed</h2>
+<table>
+  <thead><tr><th>the idea</th><th>why it was reasonable</th><th>what happened</th></tr></thead>
+  <tbody>
+    <tr><td class="lab">rewrite the serial kernel</td><td>the code really is token-by-token, and upstream fixed it for NVIDIA only</td><td><strong>1.1% of prefill</strong></td></tr>
+    <tr><td class="lab">attention collapses at depth</td><td>a 3.3× cliff in the profiler</td><td><strong>that data was decode</strong></td></tr>
+    <tr><td class="lab">smaller quant is faster</td><td>dense model, memory-bound</td><td><strong>backwards</strong></td></tr>
+    <tr><td class="lab">bigger batches are efficient</td><td>fewer, larger operations</td><td><strong>29% slower</strong></td></tr>
+    <tr><td class="lab">less reasoning saves time</td><td>fewer thinking tokens</td><td><strong>74% slower</strong></td></tr>
+  </tbody>
+</table>
+<div class="aside"><b>The habit worth stealing:</b> price the operation before you optimise it.
+<code>test-backend-ops perf -o &lt;OP&gt;</code> costs about a minute and needs no downtime. It
+refuted a multi-week plan here in one command. Finding that a kernel is inefficient proves only
+that the kernel is inefficient — not that it matters.</div>
+
+<p class="eyebrow">Attribution</p>
+<h2>Where prefill time actually goes</h2>
+<div class="bars">
+  <div class="b pick"><span class="k">MUL_MAT</span><span class="t"><i class="on" style="width:93%"></i></span><span class="v">~93%</span></div>
+  <div class="b"><span class="k">CONCAT</span><span class="t"><i style="width:1.7%"></i></span><span class="v">1.7%</span></div>
+  <div class="b"><span class="k">GATED_DELTA_NET</span><span class="t"><i style="width:1.1%"></i></span><span class="v">1.1%</span></div>
+  <div class="b"><span class="k">GLU</span><span class="t"><i style="width:1.0%"></i></span><span class="v">1.0%</span></div>
+  <div class="b"><span class="k">everything else</span><span class="t"><i style="width:3.2%"></i></span><span class="v">~3%</span></div>
+</div>
+<p>Reading a 44k-token prompt costs about <strong>2.45 PFLOP</strong>, and the weight matmuls
+measure <strong>10.83 TFLOPS</strong> — close to this hardware's practical ceiling. Roughly half of
+prefill is irreducible arithmetic. That's why the kernel rewrite above was worth 1.1%, not the
+weeks it would have taken.</p>
+
+<p class="eyebrow">Quality</p>
+<h2>Scored on suites that exist nowhere public</h2>
+<table>
+  <thead><tr><th>model</th><th class="n">tool calling</th><th class="n">95% CI</th><th class="n">size</th></tr></thead>
+  <tbody>
+    <tr class="pick"><td class="lab">Qwen3.8-27B Q4_K_XL</td><td class="n">29/29</td><td class="n">[88.3, 100.0]</td><td class="n">16.7 GB</td></tr>
+    <tr><td class="lab">Ornith-1.0-35B Q5_K_M</td><td class="n">28/29</td><td class="n">[82.8, 99.4]</td><td class="n">23.0 GB</td></tr>
+    <tr><td class="lab">Qwen3.5-122B-A10B</td><td class="n">28/29</td><td class="n">[82.8, 99.4]</td><td class="n">73.3 GB</td></tr>
+    <tr><td class="lab">Laguna-S-2.1 Q4_K_M</td><td class="n">27/29</td><td class="n">[78.0, 98.1]</td><td class="n">89.4 GB</td></tr>
+  </tbody>
+</table>
+<div class="aside"><b>This is not a ranking.</b> The gap to second place is one case out of 29 and
+the intervals overlap almost entirely. What it supports: the 27B model is not <strong>worse</strong>
+than the others, and it matches a 125B model at a quarter of the size. The agentic coding suite is
+being re-run for every model on identical infrastructure, so the comparison isn't against a
+fortnight-old baseline.</div>
 
 <footer>
-  <p>Source, scripts and full write-ups:
-    <a href="https://github.com/lazarevtill/strix-halo-llm">github.com/lazarevtill/strix-halo-llm</a> ·
-    <a href="EXPLAIN.md">plain-English primer</a> ·
-    <a href="RESULTS.md">all results</a> ·
-    <a href="GOING-FASTER.md">go faster</a> ·
-    <a href="BENCHMARKS.md">how to measure</a>
-  </p>
-  <p>MIT licensed. Numbers are from one machine and one build — reproduce before you rely on them.</p>
+  <a href="https://github.com/lazarevtill/strix-halo-llm">github.com/lazarevtill/strix-halo-llm</a><br>
+  <a href="EXPLAIN.md">plain-English primer</a> · <a href="RESULTS.md">all results</a> ·
+  <a href="GOING-FASTER.md">go faster</a> · <a href="BENCHMARKS.md">how to measure</a><br>
+  MIT. One machine, one build — reproduce before you rely on it.
 </footer>
 
 </div>
