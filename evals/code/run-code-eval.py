@@ -92,8 +92,28 @@ def extract_code(raw: str):
 # to greedy that a fixed seed keeps runs broadly repeatable. Both values are written into every
 # result row: numbers produced under different samplers are NOT comparable, and the row has to say
 # which regime it came from.
+#
+# Both are OVERRIDABLE per run (--temp / --seed) so the same model can be sampled k times at
+# different seeds. One draw from a stochastic process is not a measurement: with an effective
+# n of 7 tasks, a few points between two models is indistinguishable from sampler noise. Any
+# ranking claim needs repeats, and the seed has to be in the row that supports it.
 TEMP = 0.3
 SEED = 42
+
+# One generation at the real ceiling, not two at half of it.
+#
+# This was 16384 with a retry at 32768 on truncation. Measured on the hard tier, that is the
+# single largest cost in the whole sweep and most of it is wasted: ornith hit the cap at 16384,
+# retried, and hit it AGAIN at 32768 -- 49k tokens burned per turn, ~16 minutes at 58 t/s, for
+# one scored artifact. The retry could never have helped either, since at fixed temp and seed the
+# second call re-derives the same prefix; its only contribution was more room, which asking for
+# the room up front supplies in one call.
+#
+# Turns that finish early are unaffected -- they stop on their own and cost exactly what they did
+# before. Truncation is still recorded per turn and reported as its own rate: a model that cannot
+# finish inside 32k tokens of reasoning is telling you something real about itself, and that
+# belongs in the results rather than being retried away.
+MAX_TOKENS = 32768
 
 
 def tests_by_turn(task_id: str) -> dict:
@@ -218,7 +238,7 @@ def run_model(label, endpoint, transcript_dir):
             # 8192 was still not enough for qwen122b, which burned the whole budget reasoning about
             # token_budget and got cut off mid-sentence -- scoring 0 for what was a harness limit,
             # not a coding failure. Truncation is now detected explicitly (finish_reason) too.
-            body = {"messages": msgs, "temperature": TEMP, "seed": SEED, "max_tokens": 16384}
+            body = {"messages": msgs, "temperature": TEMP, "seed": SEED, "max_tokens": MAX_TOKENS}
             try:
                 j = http_json(f"{endpoint}/chat/completions", body)
                 m = j["choices"][0]["message"]
@@ -250,31 +270,7 @@ def run_model(label, endpoint, transcript_dir):
             msgs.append(asst)
             code, how = extract_code(code_src)
 
-            # RETRY ONCE ON TRUNCATION. Reasoning is billed against the same max_tokens as the
-            # answer, so a verbose thinking model can burn the whole budget before writing any code
-            # -- and greedy decoding (temp 0) provably sends some of them into repetition loops.
-            # That is a structural penalty on one model in a three-way comparison, not a coding
-            # failure. Give it one retry at double the cap before believing the zero.
-            #
-            # 2026-08-15: this used to read `truncated and how == "none"`, i.e. retry ONLY when
-            # truncation left nothing extractable. That declines the case that most looks like
-            # incompetence: truncation part-way through a file. Extraction succeeds, the harness
-            # writes a half-written module, and the tests fail on syntax rather than on logic --
-            # Qwen3.8 scored 3/18 on window_merge exactly this way. Retry whenever the cap was hit;
-            # the cost is one extra request on a turn that already failed to finish.
-            if truncated:
-                try:
-                    body2 = dict(body); body2["max_tokens"] = 32768
-                    j2 = http_json(f"{endpoint}/chat/completions", body2)
-                    m2 = j2["choices"][0]["message"]
-                    reasoning = m2.get("reasoning_content") or ""
-                    content = m2.get("content") or ""
-                    code_src = content or reasoning
-                    truncated = (j2["choices"][0].get("finish_reason") == "length")
-                    code, how = extract_code(code_src)
-                    print(f"  turn {ti}: retried at 32768 -> extract={how} truncated={truncated}", flush=True)
-                except Exception as ex:
-                    print(f"  turn {ti}: truncation retry failed: {ex}", flush=True)
+            # No truncation retry -- the budget is asked for up front instead. See MAX_TOKENS.
 
             # FRAGMENT vs BROKEN. Models sometimes reply with just the changed method instead of the
             # full file. That is an instruction-following miss, not "it broke the code" -- but the
@@ -352,15 +348,30 @@ def run_model(label, endpoint, transcript_dir):
         final_passed = valid[-1].get("passed", 0) if valid else 0
         if not valid and per_turn:
             task_total = 0   # nothing scorable at all -> task drops out of the denominator
+
+        # STRICT SCORE -- the same task with NO truncation rescue at all: whatever the last turn
+        # that actually reached the sandbox scored, taken at face value. The rescue above is
+        # defensible, but a rescue is exactly what hid the 2026-08-04 contamination, and a rule
+        # that decides its own audit is not an audit. Reporting both forecloses the question: if
+        # the two agree the rescue did no work, and if they diverge THAT is the finding.
+        # `env` turns are still skipped -- an HTTP 500 from memory pressure is this box failing,
+        # not the model, and that distinction is not the one under suspicion.
+        scored = [x for x in per_turn if not x.get("env")]
+        strict_passed = scored[-1].get("passed", 0) if scored else 0
+
         # regression check: did turn 2/3 break what turn 1 passed?
         best = max((x.get("passed", 0) for x in per_turn), default=0)
-        rows.append({"task": tid, "final_passed": final_passed,
+        rows.append({"task": tid, "tier": task.get("tier", "easy"),
+                     "final_passed": final_passed, "strict_passed": strict_passed,
                      "final_total": task_total, "best_passed": best,
                      "regressed": best > final_passed, "turns": per_turn})
     return rows
 
 
 def main():
+    # Declared up front, not next to the assignments: Python rejects `global X` that appears after
+    # X has already been read in the same scope, and SEED/TEMP are read below as argparse defaults.
+    global TEMP, SEED, TASKS
     ap = argparse.ArgumentParser()
     ap.add_argument("--endpoint")
     ap.add_argument("--model")
@@ -369,11 +380,16 @@ def main():
     ap.add_argument("--ctx", type=int, default=32768)
     # Comma-separated task ids, for re-running just the ones a contaminated run could not finish.
     ap.add_argument("--tasks", default="")
+    # Repeats. `--seed 43` re-samples the same model under a different draw; three such runs give
+    # a mean and a range, which is the difference between "A beat B" and "A beat B by more than
+    # this bench's own noise". Defaults keep every existing invocation byte-identical.
+    ap.add_argument("--seed", type=int, default=SEED)
+    ap.add_argument("--temp", type=float, default=TEMP)
     a = ap.parse_args()
+    TEMP, SEED = a.temp, a.seed
 
     if a.tasks:
         want = {t.strip() for t in a.tasks.split(",") if t.strip()}
-        global TASKS
         TASKS = [t for t in TASKS if t["id"] in want]
         missing = want - {t["id"] for t in TASKS}
         if missing:
@@ -404,6 +420,7 @@ def main():
             except Exception: srv.kill()
 
     tot_p = sum(r["final_passed"] for r in rows)
+    tot_s = sum(r["strict_passed"] for r in rows)
     tot_t = sum(r["final_total"] for r in rows)
     regr = sum(1 for r in rows if r["regressed"])
 
@@ -417,6 +434,22 @@ def main():
     print(f"\n=== {head}{a.label}: {tot_p}/{tot_t} hidden tests passed "
           f"({100*tot_p/tot_t if tot_t else 0:.1f}%) across {ran}/{len(rows)} tasks, "
           f"{regr} task(s) regressed across turns ===")
+    print(f"    strict (no truncation rescue): {tot_s}/{tot_t} "
+          f"({100*tot_s/tot_t if tot_t else 0:.1f}%)"
+          + ("   <-- rescue is doing work; read the transcripts" if tot_s != tot_p else "   (identical -- rescue changed nothing)"))
+    print(f"    sampler: temp={TEMP} seed={SEED}")
+    # PER TIER. The easy tier is known saturated -- every model measured has returned 70/70 on it,
+    # so a combined percentage is dominated by tests that discriminate nothing and drags every
+    # model toward the same number. The hard tier is the whole reason this run exists; it gets its
+    # own line, and any ranking claim has to be made from that line alone.
+    for tier in ("easy", "hard"):
+        tr = [r for r in rows if r.get("tier", "easy") == tier]
+        if not tr:
+            continue
+        p = sum(x["final_passed"] for x in tr); t = sum(x["final_total"] for x in tr)
+        s = sum(x["strict_passed"] for x in tr)
+        print(f"    {tier:5s} tier: {p}/{t} ({100*p/t if t else 0:.1f}%)  strict {s}/{t} "
+              f"({100*s/t if t else 0:.1f}%)  over {len(tr)} task(s)")
     if incomplete:
         print(f"!! {len(incomplete)} task(s) NEVER COMPLETED: {', '.join(incomplete)}")
         print("!! The percentage above covers only the tasks that ran. Re-run before quoting it.")
@@ -437,7 +470,13 @@ def main():
     with res.open("a", encoding="utf-8") as f:
         f.write(json.dumps({
             "ts": _dt.datetime.now().astimezone().isoformat(),
-            "label": a.label, "passed": tot_p, "total": tot_t,
+            "label": a.label, "passed": tot_p, "strict_passed": tot_s, "total": tot_t,
+            "by_tier": {tier: {
+                "passed": sum(x["final_passed"] for x in rows if x.get("tier", "easy") == tier),
+                "strict": sum(x["strict_passed"] for x in rows if x.get("tier", "easy") == tier),
+                "total":  sum(x["final_total"] for x in rows if x.get("tier", "easy") == tier),
+                "tasks":  sum(1 for x in rows if x.get("tier", "easy") == tier),
+            } for tier in ("easy", "hard") if any(x.get("tier", "easy") == tier for x in rows)},
             "tasks_ran": ran, "tasks_total": len(rows), "incomplete": incomplete,
             "regressed_tasks": regr,
             "truncated_turns": sum(1 for r in rows for x in r["turns"] if x.get("truncated")),
@@ -447,7 +486,7 @@ def main():
             # earlier number unattributable after the fact.
             "harness_mtime": _dt.datetime.fromtimestamp(pathlib.Path(__file__).stat().st_mtime).isoformat(),
             "tasks_mtime": _dt.datetime.fromtimestamp((E / "tasks.json").stat().st_mtime).isoformat(),
-            "endpoint": endpoint, "max_tokens": 16384, "temperature": TEMP, "seed": SEED,
+            "endpoint": endpoint, "max_tokens": MAX_TOKENS, "temperature": TEMP, "seed": SEED,
             "detail": rows}) + "\n")
     print("appended ->", res)
 
