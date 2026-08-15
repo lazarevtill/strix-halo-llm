@@ -169,20 +169,31 @@ def main():
         print(json.dumps(out, indent=2))
         return
 
-    print(f"\n{'run':16s} {'strict':>12s} {'rescued':>12s} {'best':>12s}  {'flips':>5s} {'stored':>7s}")
-    print("-" * 72)
+    print(f"\n{'run':16s} {'strict':>12s} {'rescued':>12s} {'best':>12s}  "
+          f"{'frag':>6s} {'noCode':>6s} {'flips':>5s} {'stored':>6s}")
+    print("-" * 88)
     for r in out:
         tot = sum(t["total"] for t in r["tasks"])
         s = sum(t["strict"] for t in r["tasks"])
         g = sum(t["rescued"] for t in r["tasks"])
         b = sum(t["best"] for t in r["tasks"])
         f = sum(t["flips"] for t in r["tasks"])
+        # WHOLE-FILE DISCIPLINE, and it explains more of the ranking than the score does.
+        # A model that re-emits the complete file every turn survives a bad turn; one that replies
+        # with diffs turns a single failure into a zeroed task. Reported next to the score so nobody
+        # has to infer it from the per-task dump.
+        nturn = sum(len(t["turns"]) for t in r["tasks"])
+        nfrag = sum(1 for t in r["tasks"] for x in t["turns"] if x["fragment_now"])
+        # Turns that emitted nothing at all: the sampler pathology of bug 13, not an answer.
+        nnone = sum(1 for t in r["tasks"] for x in t["turns"]
+                    if x["truncated"] and x["passed"] == 0)
         # Turns with no transcript on disk keep the OLD (broken) fragment flag. Surfacing that in
         # the table, not just the JSON, so a partially-corrected row can never read as fully
         # corrected.
         st = sum(1 for t in r["tasks"] for x in t["turns"] if x["source"] == "stored")
         pct = lambda v: f"{v:3d}/{tot:<3d}{100*v/tot:4.0f}%" if tot else "  --      "
-        print(f"{r['label']:16s} {pct(s):>12s} {pct(g):>12s} {pct(b):>12s}  {f:5d} {st:7d}")
+        print(f"{r['label']:16s} {pct(s):>12s} {pct(g):>12s} {pct(b):>12s}  "
+              f"{f'{nfrag}/{nturn}':>6s} {nnone:6d} {f:5d} {st:6d}")
     if any(x["source"] == "stored" for r in out for t in r["tasks"] for x in t["turns"]):
         print("\n!! 'stored' counts turns with no transcript on disk -- those keep the ORIGINAL,")
         print("   broken fragment flag. Those rows are NOT fully corrected.")
