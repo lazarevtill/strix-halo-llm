@@ -187,3 +187,40 @@ retry re-derived the same prefix, so it only ever bought room, at ~16 minutes pe
 in response (3 tasks, 89 tests, 4 turns). The first model through it — which scores 70/70 on the
 easy tier — scored **16/89**, passing every first-turn test and then collapsing when asked to extend
 its own code. If your benchmark has no failures in it, it has no information in it either.
+
+> ⚠️ **That 16/89 is itself mostly an artifact — see bug 12, found 2026-08-15 while the sweep was
+> still running.** The collapse is real in the sense that the models did produce unusable final
+> files; it is *not* evidence that they cannot write the code.
+
+**12. Fragment detection used substring containment, so partial answers scored as broken code.**
+Multi-turn prompts say *"Add a `Range` class"*, and models reasonably reply with **only the new
+code**. The harness overwrites `solution.py` wholesale, so a partial reply loses everything from
+earlier turns and fails on import. That case was anticipated — turns are flagged `FRAGMENT` and kept
+out of the "regressed" claim — but the check was:
+
+```python
+fragment = bool(code) and task.get("entry") and task["entry"] not in code   # WRONG
+```
+
+`"Version" not in code` is a **substring** test. A fragment that merely *calls* the entry symbol
+(`ver = Version(v) if isinstance(v, str) else v`) contains the string, so it was classified as a
+complete solution and scored **0** — indistinguishable from a model that wrote garbage. Detection
+has to ask whether the symbol is **defined**:
+
+```python
+re.search(rf"^(class|def)\s+{re.escape(entry)}\b", code, re.M)
+```
+
+**7 of the 19 graded hard-tier turns were misclassified this way**, and every single zero in the
+first model's hard-tier run traces to it. Rescored on the best turn each task reached rather than
+the final one, that model goes from **16/89 (18%)** to **49/89 (55%)**.
+
+Two lessons, and the second is the uncomfortable one:
+
+- A cheap approximation inside a *safeguard* is worse than no safeguard, because the safeguard's
+  existence is what stops anyone looking again.
+- **There is no system prompt telling the model to return the complete file**, and no turn prompt
+  says it either. The harness requires it; nothing communicates it. Scoring a model down for that is
+  measuring an unstated requirement, not coding ability. The reference solutions pass 100% at every
+  turn precisely because they were *written* as whole files — calibration could never have caught
+  this, which is why it didn't.
