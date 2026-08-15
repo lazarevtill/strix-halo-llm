@@ -118,6 +118,8 @@ def main():
     ap.add_argument("--tier", default="hard", help="hard | easy | all")
     ap.add_argument("--label", default=None, help="only this run label")
     ap.add_argument("--json", action="store_true", help="dump the full structure")
+    ap.add_argument("--include-legacy", action="store_true",
+                    help="also rescore pre-2026-08-15 runs (see the warning this prints)")
     a = ap.parse_args()
 
     if not RESULTS.exists():
@@ -131,6 +133,18 @@ def main():
         if line.strip():
             r = json.loads(line)
             runs[r["label"]] = r
+
+    # VINTAGE GATE. Runs predating 2026-08-15 have no `by_tier` key, no per-task `tier`, and -- the
+    # part that matters -- were produced at temperature 0, the contamination of bug 10. Rescoring
+    # them yields a "corrected" figure for a run that was invalid for an unrelated reason, which is
+    # precisely the kind of number that escapes into a table. Their detail rows also lack `tier`, so
+    # they would fall through to the filename heuristic and land in `easy` uninvited.
+    legacy = [k for k, r in runs.items() if not r.get("by_tier")]
+    if legacy and not a.include_legacy:
+        print(f"skipping {len(legacy)} pre-2026-08-15 run(s): {', '.join(sorted(legacy))}")
+        print("  they ran at temperature 0 (bug 10) -- rescoring cannot make them valid.")
+        print("  --include-legacy overrides this.\n")
+        runs = {k: r for k, r in runs.items() if k not in legacy}
 
     out, any_rows = [], False
     for label, run in runs.items():
@@ -155,16 +169,23 @@ def main():
         print(json.dumps(out, indent=2))
         return
 
-    print(f"\n{'run':16s} {'strict':>12s} {'rescued':>12s} {'best':>12s}  {'flips':>5s}")
-    print("-" * 64)
+    print(f"\n{'run':16s} {'strict':>12s} {'rescued':>12s} {'best':>12s}  {'flips':>5s} {'stored':>7s}")
+    print("-" * 72)
     for r in out:
         tot = sum(t["total"] for t in r["tasks"])
         s = sum(t["strict"] for t in r["tasks"])
         g = sum(t["rescued"] for t in r["tasks"])
         b = sum(t["best"] for t in r["tasks"])
         f = sum(t["flips"] for t in r["tasks"])
+        # Turns with no transcript on disk keep the OLD (broken) fragment flag. Surfacing that in
+        # the table, not just the JSON, so a partially-corrected row can never read as fully
+        # corrected.
+        st = sum(1 for t in r["tasks"] for x in t["turns"] if x["source"] == "stored")
         pct = lambda v: f"{v:3d}/{tot:<3d}{100*v/tot:4.0f}%" if tot else "  --      "
-        print(f"{r['label']:16s} {pct(s):>12s} {pct(g):>12s} {pct(b):>12s}  {f:5d}")
+        print(f"{r['label']:16s} {pct(s):>12s} {pct(g):>12s} {pct(b):>12s}  {f:5d} {st:7d}")
+    if any(x["source"] == "stored" for r in out for t in r["tasks"] for x in t["turns"]):
+        print("\n!! 'stored' counts turns with no transcript on disk -- those keep the ORIGINAL,")
+        print("   broken fragment flag. Those rows are NOT fully corrected.")
 
     print("\nper task:")
     for r in out:
