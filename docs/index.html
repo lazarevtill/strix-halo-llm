@@ -190,6 +190,11 @@ footer .inner{border-top:1px solid var(--surface-muted)}
 
 @media (max-width:600px){
   .b{grid-template-columns:92px 1fr 54px;gap:10px}
+  /* 126+62+118px of fixed columns leaves the bar track nothing on a phone, so the tag
+     drops to its own line under the bar instead of squeezing the thing it annotates. */
+  .bars.tagged .b{grid-template-columns:92px 1fr 54px;row-gap:2px}
+  .bars.tagged .b .tg{grid-column:2/-1}
+  .b .tg:empty{display:none}
   td,th{padding-right:12px}
 }
 @media (prefers-reduced-motion:no-preference){

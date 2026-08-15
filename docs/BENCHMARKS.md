@@ -334,7 +334,9 @@ The suite prints Wilson 95% CIs. With n=29, `28/29` is `[82.8%, 99.4%]` and `27/
 **2. This suite cannot rank models that are close.** It can tell you a model is *bad*. It cannot
 tell you which of three good models is best. The coding suite's effective **n is 4 tasks, not 70
 tests** — tests cluster inside tasks, so "70/70" implies far more evidence than exists. A single
-test flipped between two *identical* temperature-0 runs; that is the noise floor.
+test flipped between two *identical* temperature-0 runs. That was read as the noise floor at the
+time; it was more likely bug 10 (greedy decoding looping), which makes the warning stronger, not
+weaker — the suite could not rank these models, and it could not even reliably repeat itself.
 
 Separating a true 95%-vs-85% pair at 80% power needs **~100+ paired cases**. To rank frontier-tier
 models this suite would need ~100 tool cases and ~10 coding tasks.
