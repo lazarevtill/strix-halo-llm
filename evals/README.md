@@ -22,7 +22,7 @@ python summarize-bench.py                # a completed run -> the published tabl
 | tier | tasks | hidden tests | turns | state |
 |---|---|---|---|---|
 | easy | 4 | 70 | 3 | **saturated** — every model measured returns 70/70 |
-| **hard** | 3 | 89 | 4 | discriminates: the first model through scored **55%** (18% as first reported — see bug 12) |
+| **hard** | 3 | 89 | 4 | discriminates: 55% and 28% for the first two models — but see bugs 12 and 13 before reading that as a ranking |
 
 A benchmark everyone passes measures the tasks, not the models. The hard tier exists because four
 models spanning 16.7 GB to 89 GB all returned 70/70 on the easy one. Its hidden tests probe what
@@ -224,3 +224,28 @@ Two lessons, and the second is the uncomfortable one:
   measuring an unstated requirement, not coding ability. The reference solutions pass 100% at every
   turn precisely because they were *written* as whole files — calibration could never have caught
   this, which is why it didn't.
+
+**13. Raising the temperature did not stop the looping, and a turn-1 loop now costs the whole
+task.** Bug 10 blamed greedy decoding for models emitting no answer, and the fix was `temp 0.3`.
+The second model through the hard tier looped anyway, twice, in two different ways — both burning
+the full 32,768-token budget inside `reasoning_content` and returning **empty `content`**:
+
+| task | turn 1 | what the transcript contains |
+|---|---|---|
+| `hard_semver` | `finish_reason: length`, no code | a **13,422-character run of the digit `0`** — degenerate character collapse |
+| `hard_where` | `finish_reason: length`, no code | the same reasoning block (`"Good. Ok. Need maybe think about if expression has…"`) repeated **26+ times** — a semantic loop that never terminates |
+
+A character-repetition loop and a reasoning loop are different failures, and a temperature that
+suppresses one need not touch the other.
+
+**The multi-turn structure then multiplies the damage.** Turn 1 establishes the file every later
+turn edits. When turn 1 emits nothing, turns 2-4 are diffs against a file that does not exist, so
+they are all fragments and the task scores **0/27 and 0/37** — 64 of 89 tests lost to two sampler
+events. That model scored **25/25, a clean sweep, on the one hard task where it did not loop**,
+beating the model that "won" the tier at 16/25.
+
+So the tier is currently measuring **"does this model loop on turn 1"** at least as much as it
+measures coding ability, and the two are not correlated. Open, and deliberately not fixed
+mid-sweep: a turn that emits **no code at all** is a sampler pathology, not an answer, and should
+probably be retried on a different seed before the task is written off — the same reasoning that
+made `env` failures distinguishable from wrong answers in bug 9.
