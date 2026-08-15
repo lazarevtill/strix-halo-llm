@@ -216,6 +216,32 @@ def main():
         print("\n!! 'stored' counts turns with no transcript on disk -- those keep the ORIGINAL,")
         print("   broken fragment flag. Those rows are NOT fully corrected.")
 
+    # ---- like-for-like ---------------------------------------------------------------------------
+    # With coverage differing between runs, the totals column cannot rank anything: a model that
+    # aborted its hardest task divides by a smaller denominator and floats to the top. The only
+    # honest comparison is over tasks EVERY run actually completed, so compute that explicitly
+    # rather than leaving each reader to do it and get it wrong.
+    scored_tasks = [{t["task"] for t in r["tasks"] if t["total"] > 0} for r in out]
+    common = set.intersection(*scored_tasks) if scored_tasks else set()
+    if common and len(out) > 1:
+        order = [t["task"] for t in out[0]["tasks"] if t["task"] in common]
+        ctot = sum(next(t["total"] for t in out[0]["tasks"] if t["task"] == x) for x in order)
+        print(f"\nlike-for-like -- only tasks EVERY run completed ({', '.join(order)}):")
+        print(f"  {'run':16s} {'rescued':>12s}   per task")
+        print("  " + "-" * 62)
+        rank = []
+        for r in out:
+            per = {t["task"]: t for t in r["tasks"]}
+            got = sum(per[x]["rescued"] for x in order)
+            rank.append((got, r["label"],
+                         "  ".join(f"{x.split('_')[1]}={per[x]['rescued']}/{per[x]['total']}"
+                                   for x in order)))
+        for got, label, detail in sorted(rank, reverse=True):
+            print(f"  {label:16s} {got:3d}/{ctot:<3d}{100*got/ctot:4.0f}%   {detail}")
+        if len(order) < 3:
+            print(f"  NOTE: only {len(order)} of 3 hard tasks are common to every run, so this is a")
+            print("        narrower comparison than the tier was built to make.")
+
     print("\nper task:")
     for r in out:
         print(f"\n  {r['label']}")
