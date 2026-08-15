@@ -4,6 +4,9 @@ From nothing to a working OpenAI-compatible endpoint on your own machine, on **W
 macOS**. No ML background needed — if a term here is unfamiliar, [EXPLAIN.md](EXPLAIN.md) defines
 all of them in plain English.
 
+> 📊 Want the numbers before you install anything? **<https://strix.lazarev.cloud/>** has the
+> measured results as charts, including which flags are worth setting and which are cargo cult.
+
 Four steps on every platform:
 
 ```mermaid

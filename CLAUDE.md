@@ -121,15 +121,19 @@ depth — see docs/BENCHMARKS.md), RAM free 22.3 GB. Two big models genuinely ca
 re-suggest it:
 - **bf16 is 5.6x SLOWER, not better** — measured 11.17 t/s vs Q5_K_M's ~58, and pp collapses too
   (241 vs 698). A bigger Ornith is a bigger *quant*, not a better model.
-- **Laguna-S-2.1 and Qwen3.5-122B TIE Ornith Q5_K_M** on two private uncontaminated suites (tool
-  calling 27-28/29 for all three, all CIs overlapping, McNemar p=1.0; agentic coding 70/70 for all
-  three) — at 3.9x/3.4x the size and 4x/2x the wall-clock. Their published benchmark leads did not
-  reproduce.
-- Reach for a bigger model only for a **capability**: `draft-mtp` (Qwen) or >262K ctx (Laguna).
+- ⚠️ **The "Laguna and Qwen3.5-122B TIE Ornith" claim is WITHDRAWN (2026-08-15).** It came from a
+  run at temperature 0 where models looped instead of answering and the truncation rule let empty
+  turns inherit the previous turn's score. Raw, Qwen122b has a 0/20 and a 0/18 inside its "70/70".
+  **Do not quote the tie, and do not conclude the opposite either** — relative quality is currently
+  unmeasured. A hard tier (3 tasks, 89 tests) is running to settle it.
+- **Ornith remains the default on COST** — a quarter the size, several times faster. That half was
+  never contaminated. Reach for a bigger model for a **capability**: `draft-mtp` (Qwen) or >262K
+  ctx (Laguna).
 
-Read **docs/BENCHMARKS.md before quoting any eval number** — five harness bugs produced five believable
-wrong figures on 2026-08-03/04, and `evals\code\smoke.py` now gates every run. The multi-model
-section below is retained for reference only.
+Read **docs/BENCHMARKS.md before quoting any eval number** — **eleven** harness bugs have each
+produced a believable wrong figure (numbers 10 and 11 are the temperature-0 loop and the saturation
+above), and `evals\code\smoke.py` now gates every run. The multi-model section below is retained for
+reference only.
 
 ## ⚠️ The old bench stack on :8082–:8088 is RETIRED (2026-08-04)
 An elevated PowerShell left running since 2026-07-31 was restoring those servers within ~2 minutes

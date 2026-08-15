@@ -135,18 +135,26 @@ number for it is self-reported, and two of the figures previously in our own `RE
 (see the correction there). So **"Ornith-tier or better" is not a usable selection bar.** Re-anchor to
 SWE-rebench, or better, to **our own measured suites** — local measurement beats published claims.
 
-✅ **Settled by measurement 2026-08-04 (see `BENCHMARKS.md`).** Ornith-1.0-35B Q5_K_M, Laguna-S-2.1
-Q4_K_M and Qwen3.5-122B-A10B Q4_K_XL were scored head-to-head on two private uncontaminated suites:
-**all three tie** — tool calling 28/28/27 of 29 (every CI overlapping, McNemar p = 1.0), agentic
-coding 70/70 each. Laguna's published +5.8-point Terminal-Bench lead over Ornith produced **no
-measurable advantage**, at 3.9x the size and 4x the wall-clock.
+⚠️ **NOT settled — the 2026-08-04 result is WITHDRAWN (see `BENCHMARKS.md`).** Ornith-1.0-35B
+Q5_K_M, Laguna-S-2.1 Q4_K_M and Qwen3.5-122B-A10B Q4_K_XL were scored head-to-head on two private
+suites and ~~all three tied~~ appeared to tie at 70/70. That tie was an artifact: the suites ran at
+**temperature 0**, models looped instead of answering, and the truncation rule let an empty turn
+inherit the previous turn's score. Re-scored raw, Qwen3.5-122B has a **0/20** and a **0/18** inside
+its "70/70", and Laguna emitted **no code at all** on one task.
 
-Two lessons for picking models for the rest of the fleet:
-1. **Published deltas of this magnitude do not survive contact with a private suite.** Select on
-   size and speed, and verify quality locally before believing a leaderboard gap.
+**Relative model quality on this fleet is an open question.** A hard tier (3 tasks, 89 tests) was
+built to answer it and is being run now.
+
+Three lessons for picking models for the rest of the fleet — the first two are strengthened by the
+retraction, not weakened by it:
+1. **Published deltas do not survive contact with a private suite.** Select on size and speed, and
+   verify quality locally before believing a leaderboard gap.
 2. **Small suites cannot rank close models.** n=29 cases and an effective n=4 coding tasks can only
-   catch a *bad* model; a single test flipped between identical temperature-0 runs. Do not quote an
-   ordering off these numbers — `BENCHMARKS.md` explains what it would take to earn one.
+   catch a *bad* model. Do not quote an ordering off these numbers — `BENCHMARKS.md` explains what
+   it would take to earn one.
+3. **A suite where everything scores 100% is not measuring anything.** Four models spanning 16.7 GB
+   to 89 GB all returning the same score is a saturation signal, and it should have prompted a look
+   at the harness long before it prompted a conclusion about the models.
 
 ⚠️ **Methodology warning worth internalizing:** a text-summarizing page fetch *invented* an
 "Open-weights/Proprietary" column on SWE-rebench that does not exist, which made open-weights look

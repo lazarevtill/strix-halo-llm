@@ -12,8 +12,11 @@
 [![GPU](https://img.shields.io/badge/GPU-Radeon%208060S%20gfx1151-ED1C24?logo=amd&logoColor=white)](#requirements)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#requirements)
+[![Report](https://img.shields.io/badge/report-strix.lazarev.cloud-16A34A)](https://strix.lazarev.cloud/)
 
-[**Install & first run →**](docs/INSTALL.md) · [What the terms mean](docs/EXPLAIN.md) · [Results](docs/RESULTS.md) · [Go faster](docs/GOING-FASTER.md) · [Benchmarking](docs/BENCHMARKS.md) · [Live report](https://strix.lazarev.cloud/)
+### 📊 [**strix.lazarev.cloud**](https://strix.lazarev.cloud/) — the charts, without the reading
+
+[**Install & first run →**](docs/INSTALL.md) · [What the terms mean](docs/EXPLAIN.md) · [Results](docs/RESULTS.md) · [Go faster](docs/GOING-FASTER.md) · [Benchmarking](docs/BENCHMARKS.md)
 
 **Windows · Linux · macOS** — [installation for all three](docs/INSTALL.md)
 
@@ -91,7 +94,7 @@ contrast is the useful part.
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **18%** — after scoring 100% on the easy tier |
-| 🧯 **A list of ways benchmarks lie** | seven harness bugs, each with the believable wrong number it produced — including the one that faked a four-way tie |
+| 🧯 **A list of ways benchmarks lie** | **eleven** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
 
 ---
 
@@ -306,10 +309,11 @@ case counts, what each isolates, each coding task's entry point and per-turn tes
 results are interpretable without handing over the answers.
 [docs/PUBLISHING.md](docs/PUBLISHING.md) shows the file shapes so you can author your own.
 
-**The most reusable part may be the failure list.** Six harness bugs each produced a *believable*
-wrong number during development — `17.2%`, `"34/34 = 100%"`, `92.2%`, `44.3%`, `"first-shot 64.3%"`
-— and one task turned out to be **unsatisfiable**, quietly rewarding models that ignored the user.
-Each is written up with the fake number it produced in [evals/README.md](evals/README.md).
+**The most reusable part may be the failure list.** **Eleven** harness bugs each produced a
+*believable* wrong number during development — `17.2%`, `"34/34 = 100%"`, `92.2%`, `44.3%`,
+`"first-shot 64.3%"`, and finally `70/70` for four models at once — and one task turned out to be
+**unsatisfiable**, quietly rewarding models that ignored the user. Each is written up with the fake
+number it produced in [evals/README.md](evals/README.md).
 
 That's why `smoke.py` gates every run: it proves the sandbox distinguishes good code from bad, that
 prose isn't mistaken for code, and that **every task prompt is satisfiable by a reference solution**.

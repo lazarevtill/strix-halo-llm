@@ -348,7 +348,7 @@ The 55–115 GB band is **only four models**. Everything else is either supersed
 |---|---|---|---|---|---|---|
 | **Ornith-1.0-35B** | **bf16** | 64.61 GB | A3B | 262K | MIT | **fastest by far (~63 t/s), full precision.** Same model you already trust |
 | ⭐ **Qwen3.5-122B-A10B** | UD-Q4_K_XL | **78.65 GB** | A10B | 262K | Apache-2.0 | best all-round: honest **4-bit**, `qwen35moe`, MTP head → `draft-mtp` (+35%) |
-| **Laguna-S-2.1** | Q4_K_M | 89.4 GB | **A8B** | **1M** | OpenMDW-1.1 | best *published* agentic scores (TB2.1 70.2%) — but **MEASURED TIED** here, at 4x the cost. See the comparison below |
+| **Laguna-S-2.1** | Q4_K_M | 89.4 GB | **A8B** | **1M** | OpenMDW-1.1 | best *published* agentic scores (TB2.1 70.2%). Our 2026-08-04 "measured tied" claim is **WITHDRAWN** — see the banner below. Still 4x the cost and the slowest of the three |
 | DeepSeek-V4-Flash | UD-IQ2_M | 85.00 GB | A13B | 1M | MIT | 284B but only **~2-bit**; slowest of the set |
 | DeepSeek-V4-Flash | UD-Q2_K_XL | 90.2 GB | A13B | 1M | MIT | as above, tighter fit (~19 GB for KV) |
 | Nemotron-3-Super-120B-A12B | — | ~80 GB | A12B | — | NVIDIA | Mamba2 hybrid |
@@ -367,21 +367,26 @@ DeepSeek-V4's capabilities and accept both the quantization damage and the speed
 
 ### Ranking for this box — SUPERSEDED BY MEASUREMENT (2026-08-04)
 
-This ordering was predicted from published benchmarks. It was then **tested** (see the three-way
-comparison below) and did not survive:
+This ordering was predicted from published benchmarks. The **speed** half was tested and did not
+survive. The **quality** half was tested, appeared settled, and has since been withdrawn — the run
+that settled it was contaminated (see the banner below):
 
 1. ~~**Speed + trusted quality:** Ornith-1.0-35B **bf16** (64.61 GB, ~63 t/s) — biggest easy win.~~
    **bf16 is a trap on this box: measured 11.17 t/s, 5.6x SLOWER than Q5_K_M** (pp collapses too,
-   241 vs 698). Use **Q5_K_M (23 GB, ~58 t/s)**.
-2. ~~**Best all-round:** Qwen3.5-122B-A10B~~ — ties Ornith on quality at 3.4x the size.
-3. ~~**Best agentic coder:** Laguna-S-2.1~~ — ties Ornith on quality at 3.9x the size and 4x slower.
-4. **Max raw capability, accepting 2-bit and slow:** DeepSeek-V4-Flash UD-IQ2_M — never benched;
-   the only untested member of the shortlist.
+   241 vs 698). Use **Q5_K_M (23 GB, ~58 t/s)**. *(Speed — stands.)*
+2. **Best all-round:** Qwen3.5-122B-A10B — 3.4x the size, ~2x the wall-clock. *(Quality vs Ornith:
+   unresolved. The "ties" claim is withdrawn.)*
+3. **Best agentic coder:** Laguna-S-2.1 — 3.9x the size, 4x slower. *(Quality vs Ornith:
+   unresolved. The "ties" claim is withdrawn.)*
+4. **Max raw capability, accepting 2-bit and slow:** DeepSeek-V4-Flash UD-IQ2_M — speed measured
+   2026-08-15 (85.9 pp / 12.5 tg); quality pending.
 
-**Current recommendation: `scripts\windows\run-solo.ps1` with its default, Ornith-1.0-35B Q5_K_M.** The two big
-models buy nothing measurable on tool calling or agentic coding, and cost 3-4x the memory and
-2-4x the wall-clock. Reach for Qwen3.5-122B only when you specifically need its 262K context or
-`draft-mtp`, and for Laguna only if you need >262K context.
+**Current recommendation is unchanged: `scripts\windows\run-solo.ps1` with its default,
+Ornith-1.0-35B Q5_K_M** — but on **cost**, not on measured quality parity. It is a quarter the size
+and several times faster, and those numbers are solid. Whether the big models buy real quality is
+**an open question** the hard tier was built to answer; until it reports, treat "they buy nothing"
+as unproven rather than established. Reach for Qwen3.5-122B when you need its 262K context or
+`draft-mtp`, and Laguna when you need >262K context.
 
 `.\download-model.ps1 -Repo unsloth/Qwen3.5-122B-A10B-MTP-GGUF -File Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf`
 **Download to C: (1234 GB free), not D: (123 GB free).** Stop at Q4_K_XL — UD-Q5_K_XL (93.85 GB)
@@ -439,15 +444,17 @@ With one model at a time there is no reason to run Q4/Q5 of your favourite codin
 or bf16.** This is the highest quality-per-effort move available and needs no new architecture.
 ⚠️ Ornith-1.0-**397B** UD-IQ1_S (112.69 GB) is a trap — weights alone exceed the 109 GB ceiling.
 
-### Laguna-S-2.1 (poolside) — loads since b10182; measured TIED, not ahead
+### Laguna-S-2.1 (poolside) — loads since b10182; slowest of the three, quality unresolved
 118B total / **A8B active** / **1,048,576 ctx** / OpenMDW-1.1. 48 layers, global:sliding-window
 attention 1:3 (512-token window → cheap long context), 256 routed + 1 shared expert.
 Published: **Terminal-Bench 2.1 70.2%** vs Ornith-1.0-35B's 64.4% · SWE-bench Multilingual 78.5% ·
 SWE-Bench Pro 59.4%. ⚠️ **Neither the speed nor the quality prediction held.** "A8B active" implied
 it would be fast here; it is the *slowest* of the three at ~14 t/s, because it routes **10 of 256**
-experts and 256-way routing hits the gfx1151 `MUL_MAT_ID` weakness. And on two private
-uncontaminated suites it scored *level with* Ornith-1.0-35B, a model a quarter its size. Published
-benchmark deltas of this size did not survive contact with measurement.
+experts and 256-way routing hits the gfx1151 `MUL_MAT_ID` weakness. ~~And on two private
+uncontaminated suites it scored *level with* Ornith-1.0-35B, a model a quarter its size.~~ **That
+quality comparison is withdrawn** — the run was contaminated (see the banner below), and Laguna's
+transcript for one task contained no code at all. The **speed** finding stands: it is the slowest
+of the three, and "A8B active" did not make it fast here.
 
 `poolside/Laguna-S-2.1-GGUF` **Q4_K_M = 96,031,829,760 B = 89.4 GB → FITS** (~19 GB left for KV, and
 sliding-window keeps KV small). Q8_0 (128.75 GB) and F16 (235.2 GB) do not fit.
@@ -464,7 +471,21 @@ Read straight from the GGUF metadata, because the research summary was wrong abo
 8192. Routing 10 of 256 experts is why it lands at **~14.1 t/s** — slower than Qwen3.5-122B-A10B
 despite the "A8B" label, since 256-way routing hits the known gfx1151 `MUL_MAT_ID` weakness.
 
-## ⭐⭐ Three-way comparison, measured 2026-08-04 — THEY ARE TIED
+## ~~⭐⭐ Three-way comparison, measured 2026-08-04 — THEY ARE TIED~~ — WITHDRAWN 2026-08-15
+
+> ### 🚩 The tie below was manufactured by the harness. Do not quote this table.
+>
+> The suites ran at **temperature 0**, which drove models into repetition loops that emitted no
+> answer at all — 9 of 9 truncated turns were loops. The truncation rule then scored each turn on
+> the last *complete* answer, so a turn that produced nothing inherited the previous turn's score.
+> The two bugs cancelled into a clean-looking 70/70 for everything.
+>
+> Re-scoring the same transcripts without the rescue: Qwen3.5-122B's 70/70 contains a raw **0/20**
+> and **0/18**; Laguna emitted **no code at all** on one task. Those are not tied models.
+>
+> Written up as bugs **10** and **11** in [`../evals/README.md`](../evals/README.md); current
+> status in [`RESULTS.md`](RESULTS.md). The **speed** figures in the table are unaffected — they
+> come from `llama-bench` and never touched the eval harness.
 
 Ornith-1.0-35B Q5_K_M vs Laguna-S-2.1 Q4_K_M vs Qwen3.5-122B-A10B Q4_K_XL, each the sole occupant
 of the box at `ctx=131072`, on two private uncontaminated suites (`evals\`).
@@ -475,9 +496,11 @@ of the box at `ctx=131072`, on two private uncontaminated suites (`evals\`).
 | **Qwen3.5-122B-A10B Q4_K_XL** | 28/29 = 96.6% | [82.8, 99.4] | **70/70** | 45/45 | **3** | ~34 t/s |
 | **Laguna-S-2.1 Q4_K_M** | 27/29 = 93.1% | [78.0, 98.1] | **70/70** | 45/45 | 1 | ~14 t/s |
 
-Every model: 4/4 tasks, **zero regressions**, perfect turn 1. All three reach 70/70 — a clean
-three-way tie. Each row is one complete run recorded in `evals\code\results-code.jsonl` and
-`evals\results-tools.jsonl` with full provenance (timestamp, script mtime, model, server args).
+~~Every model: 4/4 tasks, **zero regressions**, perfect turn 1. All three reach 70/70 — a clean
+three-way tie.~~ **All three reaching 70/70 was the symptom, not the finding.** Each row is one
+complete run recorded in `evals\code\results-code.jsonl` and `evals\results-tools.jsonl` with full
+provenance (timestamp, script mtime, model, server args) — the provenance is intact, the *scoring*
+was wrong.
 
 **The one durable difference is verbosity.** Qwen truncated 3 turns at 16384 tokens (twice emitting
 a `FRAGMENT` — code cut off mid-file, missing its entry symbol) against 1 each for Ornith and
@@ -495,21 +518,26 @@ is p = 1.0. With n=29 tool cases and n=4 coding tasks (the effective sample is 4
 cluster inside tasks) this design cannot separate them. Separating a true 95%-vs-85% pair at 80%
 power needs ~100+ paired cases.
 
-**So choose on cost, not score: Ornith wins.** Same measured quality, 23 GB instead of 89 GB, and
-4x the tokens/sec. Laguna's headline advantages (Terminal-Bench 2.1 70.2%, 1M ctx) did not show up
-as a measurable quality edge on work of this kind.
+**The recommendation survives; its justification does not.** Ornith is still the default, but no
+longer because "quality is tied" — that comparison is withdrawn. It stands on the half of the data
+that was never in doubt: **23 GB instead of 89 GB, and 4x the tokens/sec**, both from `llama-bench`,
+both re-confirmed in the 2026-08-15 sweep. What can no longer be said is that the big models buy
+*nothing* in quality. That question is open, and the hard tier exists to answer it.
 
 Every model truncated exactly once at 16384 tokens/turn, and **still truncated after a retry at
-32768** — verbosity under a token budget is a real operational risk for all three, tracked as its
-own column rather than scored as incompetence.
+32768**. At the time this was read as verbosity. It was mostly **repetition looping at temperature
+0** — see bug 10. Truncation is still worth tracking as its own column, but it was a symptom of the
+sampler here, not a stable property of the models.
 
 ### What the earlier numbers in this file were, and why they were wrong
 
-Four published figures on 2026-08-03 were harness artifacts, every one of them flattering or
-distorting a model. Kept here because the failure modes recur:
+Every figure below was published, then found to be a harness artifact — each one flattering or
+distorting a model. Kept here rather than deleted, because the failure modes recur and the wrong
+number is the useful part:
 
 | reported | actual | cause |
 |---|---|---|
+| **"70/70 for every model"** (2026-08-04, the tie above) | qwen122b raw **0/20** and **0/18**; laguna emitted **no code** on one task | temperature 0 looped models into empty answers, and the truncation rule scored each turn on the last *complete* answer — so an empty turn silently inherited the previous turn's pass count. Two bugs cancelling into a believable result |
 | laguna tools 17.2% | run was 100% broken | PS re-wrapped the tools array; 500s scored as abstain PASSes |
 | laguna coding "34/34 = 100%" | 2 of 4 tasks never ran | failed task contributed 0/0 and left the denominator |
 | ornith coding 92.2% | 67.1% | a turn whose code fails to import reports `0/1`, not `0/20` |

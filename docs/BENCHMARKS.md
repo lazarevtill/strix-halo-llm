@@ -352,17 +352,37 @@ models this suite would need ~100 tool cases and ~10 coding tasks.
 `parallel-batching` (does it emit ≥2 tool calls in one response, or sequence them?), truncation
 count, median turns used.
 
-### Measured results (2026-08-04)
+### ~~Measured results (2026-08-04)~~ — WITHDRAWN 2026-08-15
 
-| | tool calling | 95% CI | coding | turn 1 | trunc | tg |
+> ### 🚩 The coding column below is invalid. Do not quote this table.
+>
+> Both suites ran at **temperature 0**. Greedy decoding drove models into repetition loops that
+> emitted no answer at all — **9 of 9** truncated turns were loops, not verbose answers. The
+> truncation rule (§"Scoring", bug 8) then graded each turn on the last *complete* answer, so a turn
+> that produced nothing silently inherited the previous turn's score.
+>
+> Re-scoring the same stored transcripts with the rescue disabled:
+>
+> | model | task | raw | as published |
+> |---|---|---|---|
+> | Qwen3.5-122B | `token_budget` | **0/20** | 70/70 |
+> | Qwen3.5-122B | `window_merge` | **0/18** | 70/70 |
+> | Laguna-S-2.1 | `window_merge` | **no code emitted** | 70/70 |
+>
+> Written up as bugs **10** and **11** in [`../evals/README.md`](../evals/README.md). Sampling is now
+> `temp 0.3 / seed 42`, scores are reported **rescued and strict side by side**, and a hard tier was
+> added. Current status: [`RESULTS.md`](RESULTS.md).
+
+| | tool calling | 95% CI | ~~coding~~ | turn 1 | trunc | tg |
 |---|---|---|---|---|---|---|
-| **Ornith-1.0-35B Q5_K_M** | 28/29 = 96.6% | [82.8, 99.4] | **70/70** | 45/45 | 1 | **~58 t/s** |
-| Qwen3.5-122B-A10B Q4_K_XL | 28/29 = 96.6% | [82.8, 99.4] | **70/70** | 45/45 | 3 | ~34 t/s |
-| Laguna-S-2.1 Q4_K_M | 27/29 = 93.1% | [78.0, 98.1] | **70/70** | 45/45 | 1 | ~14 t/s |
+| **Ornith-1.0-35B Q5_K_M** | 28/29 = 96.6% | [82.8, 99.4] | ~~70/70~~ | 45/45 | 1 | **~58 t/s** |
+| Qwen3.5-122B-A10B Q4_K_XL | 28/29 = 96.6% | [82.8, 99.4] | ~~70/70~~ | 45/45 | 3 | ~34 t/s |
+| Laguna-S-2.1 Q4_K_M | 27/29 = 93.1% | [78.0, 98.1] | ~~70/70~~ | 45/45 | 1 | ~14 t/s |
 
-**A three-way tie.** All models: 4/4 tasks, zero regressions, perfect turn 1. So **choose on cost** —
-Ornith gives the same measured quality at a quarter the size and 4x the speed. The only durable
-difference is verbosity: Qwen truncated 3 turns to the others' 1.
+**What survives:** the `tg` column (from `llama-bench`, never routed through the eval harness) and
+the observation that a saturated suite cannot rank anything. **Choosing Ornith on cost still
+holds** — a quarter the size, 4x the speed — but "same measured quality" does not, and the
+truncation column turns out to have been measuring the sampler rather than verbosity.
 
 **Qwen3.8-27B is deliberately ABSENT from this table.** Its speed is measured (20.27 t/s, see §1)
 and it is staged and verified working, but **no quality suite has been run on it**. Adding a model
