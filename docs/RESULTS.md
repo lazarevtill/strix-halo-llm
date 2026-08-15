@@ -63,6 +63,12 @@ xychart-beta
 A separate re-run of the 512 case landed within 0.1% (159.02 vs 159.16), so this is the flag and
 not drift.
 
+**Note that 128, not 256, is the tallest bar** — by 0.9%, on one run each. The honest reading is
+that the curve goes flat below 256 (everything from 256 down sits between 167.4 and 169.0) while
+the 512→256 step is worth 5%. `-ub 256` is shipped as the knee of that curve, not as the maximum.
+See [BENCHMARKS.md](BENCHMARKS.md#round-2-2026-08-14-b10431-the-flags-that-actually-matter) for the
+full table.
+
 ### Quantisation — bigger is faster here
 
 ```mermaid

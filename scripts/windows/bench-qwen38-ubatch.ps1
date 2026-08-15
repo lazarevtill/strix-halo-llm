@@ -19,6 +19,17 @@
   there would be no way to tell.
 
   Same prompt generator and same ~31k token size as Phase A, so numbers are directly comparable.
+
+  RESULT: 512 was NOT a peak -- prefill keeps improving below it, then flattens.
+
+      -ub 512  159.2 t/s  (control; matches Phase A's 159.0 to 0.1%, so the sweep is reproducible)
+      -ub 256  167.4 t/s  <- shipped default
+      -ub 128  169.0 t/s  <- fastest measured, +0.9% over 256
+
+  128 edges 256, but each point is n=1 and 0.9% is too small for this design to call. The solid
+  finding is the FLATTENING: everything at 256 and below lands in 167.4-169.0, while 512->256 is
+  worth 5%. That is why 256 ships -- it is the knee, not the maximum. Resolving 128 vs 256 needs
+  repeated runs per point, which this script does not do.
 #>
 [CmdletBinding()]
 param(

@@ -163,6 +163,13 @@ td:last-child,th:last-child{padding-right:0}
 .b .v{font-family:var(--font-mono);font-size:.8125rem;text-align:right;
       font-variant-numeric:tabular-nums;color:var(--text-body)}
 .b.pick .k{color:var(--accent);font-weight:var(--fw-semibold)}
+/* Optional 4th column, for charts where the longest bar is NOT the one we ship.
+   Without a tag the accent reads as "this is the maximum", and a reader who can see
+   a longer bar right below it correctly concludes the chart is lying. */
+.bars.tagged .b{grid-template-columns:126px 1fr 62px 118px}
+.b .tg{font-family:var(--font-mono);font-size:.75rem;color:var(--text-muted);
+       white-space:nowrap;letter-spacing:.01em}
+.b.pick .tg{color:var(--accent)}
 
 .aside{border-left:2px solid var(--border-subtle);padding:2px 0 2px 20px;margin:0 0 24px;
        color:var(--text-muted);font-size:.9375rem}
@@ -325,13 +332,19 @@ footer .inner{border-top:1px solid var(--surface-muted)}
 
     <h2>Smaller batches prefill faster</h2>
     <p class="dir">Prefill speed, tokens/sec · <b>higher is better →</b> · smaller <code>-ub</code> wins</p>
-    <div class="bars">
-      <div class="b"><span class="k">ubatch 2048</span><span class="t"><i style="width:63.8%"></i></span><span class="v">107.8</span></div>
-      <div class="b"><span class="k">1024</span><span class="t"><i style="width:76.6%"></i></span><span class="v">129.5</span></div>
-      <div class="b"><span class="k">512 default</span><span class="t"><i style="width:94.1%"></i></span><span class="v">159.0</span></div>
-      <div class="b pick"><span class="k">256</span><span class="t"><i class="on" style="width:99.1%"></i></span><span class="v">167.4</span></div>
-      <div class="b"><span class="k">128</span><span class="t"><i style="width:100%"></i></span><span class="v">169.0</span></div>
+    <div class="bars tagged">
+      <div class="b"><span class="k">ubatch 2048</span><span class="t"><i style="width:63.8%"></i></span><span class="v">107.8</span><span class="tg"></span></div>
+      <div class="b"><span class="k">1024</span><span class="t"><i style="width:76.6%"></i></span><span class="v">129.5</span><span class="tg"></span></div>
+      <div class="b"><span class="k">512 default</span><span class="t"><i style="width:94.1%"></i></span><span class="v">159.0</span><span class="tg">llama.cpp default</span></div>
+      <div class="b pick"><span class="k">256</span><span class="t"><i class="on" style="width:99.1%"></i></span><span class="v">167.4</span><span class="tg">what we ship</span></div>
+      <div class="b"><span class="k">128</span><span class="t"><i style="width:100%"></i></span><span class="v">169.0</span><span class="tg">fastest measured</span></div>
     </div>
+    <p><strong>The accented bar is not the longest one, deliberately.</strong> 128 measured fastest,
+    by 0.9% — one run each, so this sweep cannot actually separate it from 256. The curve has gone
+    flat by then: every config at 256 or below lands between 167.4 and 169.0. We ship
+    <code>-ub 256</code> as the knee of the curve, where essentially all of the gain has been
+    collected, rather than chase a 1.6 t/s edge that a single run can't establish. If you want that
+    edge, measure 128 against 256 on your own box with repeats — don't take it from this chart.</p>
     <p><code>-ub 256</code> is 29% faster than the 1024 commonly recommended — including by an
     earlier version of this repo, which measured it on a different model architecture.
     <code>-b</code> makes no measurable difference at matched <code>-ub</code>. Re-running the 512

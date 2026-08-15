@@ -24,7 +24,7 @@ Leave `reasoning_effort` at its default.
 | setting | gain | notes |
 |---|---|---|
 | `--spec-type draft-mtp --spec-draft-n-max 3` | **+79%** | 11.33 → 20.27 t/s |
-| `-ub 256` | **+29% prefill** | vs `-ub 1024`; `-b` is irrelevant |
+| `-ub 256` | **+29% prefill** | vs `-ub 1024`; `-b` is irrelevant. `-ub 128` measured 0.9% higher on one run — the curve is flat below 256, so 256 is the knee, not the maximum |
 | `-fa on` | +14% | |
 | `-ctk/-ctv q8_0` | free | halves KV cache |
 | `-c 262144` | costs 3% | full context is nearly free on this architecture |

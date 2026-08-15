@@ -137,12 +137,18 @@ bigger batches are more efficient. Measured, on this model:
 | 2048 | 107.8 t/s |
 | 1024 | 129.5 t/s |
 | 512 (default) | 159.0 t/s |
-| **256** | **167.4 t/s** ⟵ best |
-| 128 | 169.0 t/s |
+| **256** | **167.4 t/s** ⟵ what this repo ships |
+| 128 | 169.0 t/s ⟵ fastest measured |
 
 Smaller is better, up to a point. **`--ubatch-size 256` is 29% faster than 1024** — which is what
 this repo previously recommended, based on a measurement taken on a *different kind of model*.
 That is the recurring lesson: settings do not transfer between model architectures.
+
+**Why the recommendation isn't the top row.** 128 came out 0.9% ahead of 256, and that is one run
+each — the sweep can't tell them apart. What it does show clearly is that the curve *flattens*
+below 256: everything at 256 or under lands between 167.4 and 169.0, while the step from 512 to 256
+is worth 5%. So 256 is the knee, and picking anywhere on the flat part is fine. If a 1.6 t/s edge
+matters to you, measure it yourself with repeats rather than inheriting it from a single run.
 
 ---
 

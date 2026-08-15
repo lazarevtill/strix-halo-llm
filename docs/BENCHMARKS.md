@@ -114,12 +114,20 @@ unique prompt per row so every prefill is genuinely cold:
 | 4096 | 1024 | 129.8 |
 | 2048 | 512 (llama.cpp default) | 159.0 |
 | 2048 | 512 *(control, separate run)* | 159.2 |
-| 2048 | **256** | **167.4** |
-| 2048 | 128 | 169.0 |
+| 2048 | **256** ← shipped default | **167.4** |
+| 2048 | 128 | **169.0** ← fastest measured |
 | 1024 | 256 | 168.9 |
 
-**Optimum is `-ub 256`.** Going to 128 buys 0.9% — inside the noise floor and not worth the extra
-dispatch overhead. **`-ub 256` is +29% over the `-b 2048 -ub 1024` recorded in §1 of this document**,
+**The fastest row is not the recommended one, and that needs saying out loud.** `-ub 128` measured
+0.9% above 256. Every point here is n=1, and the only repeatability evidence in this sweep is the
+512 control at 0.1% spread — so a 0.9% gap is larger than the drift we can demonstrate, and calling
+it "noise" would be an overclaim. What the data *does* support is that **the curve is flat below
+256**: three configs at 256 or under span 167.4–169.0, while the single step from 512 to 256 is
+worth 5%. `-ub 256` is shipped as the knee — the last point where a change still clearly buys
+something. Anyone wanting the remaining 1.6 t/s should run 128 vs 256 with repeats on their own box;
+this sweep does not settle it.
+
+**`-ub 256` is +29% over the `-b 2048 -ub 1024` recorded in §1 of this document**,
 which was measured on **MoE** models. Neither figure is wrong; the optimum is architecture-dependent,
 so re-measure per model class rather than inheriting it.
 
