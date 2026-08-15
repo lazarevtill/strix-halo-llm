@@ -169,9 +169,10 @@ def main():
         print(json.dumps(out, indent=2))
         return
 
+    incomplete = []
     print(f"\n{'run':16s} {'strict':>12s} {'rescued':>12s} {'best':>12s}  "
-          f"{'frag':>6s} {'noCode':>6s} {'flips':>5s} {'stored':>6s}")
-    print("-" * 88)
+          f"{'cov':>5s} {'frag':>6s} {'noCode':>6s} {'flips':>5s} {'stored':>6s}")
+    print("-" * 94)
     for r in out:
         tot = sum(t["total"] for t in r["tasks"])
         s = sum(t["strict"] for t in r["tasks"])
@@ -187,13 +188,30 @@ def main():
         # Turns that emitted nothing at all: the sampler pathology of bug 13, not an answer.
         nnone = sum(1 for t in r["tasks"] for x in t["turns"]
                     if x["truncated"] and x["passed"] == 0)
+        # COVERAGE. A task that died on an environment fault contributes 0/0 and VANISHES from the
+        # denominator, so a run that completed 1 of 3 tasks prints the best percentage in the sweep.
+        # That is bug 5 verbatim, reappearing in the tool written to correct bug 12. The percentage
+        # is not wrong for what it covers -- it is wrong to put it in a column beside runs that
+        # covered everything, so incomplete runs are marked and never rank.
+        ndone = sum(1 for t in r["tasks"] if t["total"] > 0)
+        ntask = len(r["tasks"])
+        partial = ndone < ntask
         # Turns with no transcript on disk keep the OLD (broken) fragment flag. Surfacing that in
         # the table, not just the JSON, so a partially-corrected row can never read as fully
         # corrected.
         st = sum(1 for t in r["tasks"] for x in t["turns"] if x["source"] == "stored")
-        pct = lambda v: f"{v:3d}/{tot:<3d}{100*v/tot:4.0f}%" if tot else "  --      "
+        mark = "*" if partial else " "
+        pct = lambda v: (f"{v:3d}/{tot:<3d}{100*v/tot:3.0f}%{mark}" if tot else "  --      ")
         print(f"{r['label']:16s} {pct(s):>12s} {pct(g):>12s} {pct(b):>12s}  "
-              f"{f'{nfrag}/{nturn}':>6s} {nnone:6d} {f:5d} {st:6d}")
+              f"{f'{ndone}/{ntask}':>5s} {f'{nfrag}/{nturn}':>6s} {nnone:6d} {f:5d} {st:6d}")
+        if partial:
+            dead = [t["task"] for t in r["tasks"] if t["total"] == 0]
+            incomplete.append((r["label"], ndone, ntask, dead))
+    for label, ndone, ntask, dead in incomplete:
+        print(f"\n!! {label} is marked * -- it scored {ndone} of {ntask} tasks. "
+              f"Aborted: {', '.join(dead)}.")
+        print("   Its percentage is computed over the tasks that RAN, so it is NOT comparable")
+        print("   with the complete runs above and must not be ranked against them.")
     if any(x["source"] == "stored" for r in out for t in r["tasks"] for x in t["turns"]):
         print("\n!! 'stored' counts turns with no transcript on disk -- those keep the ORIGINAL,")
         print("   broken fragment flag. Those rows are NOT fully corrected.")
