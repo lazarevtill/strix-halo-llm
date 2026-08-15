@@ -12,6 +12,7 @@
 
 | script | mirrors | draft state |
 |---|---|---|
+| `fetch-llamacpp.sh` | `../windows/fetch-llamacpp.ps1` | **step zero** — downloads a prebuilt Vulkan release into `bin/`. Plain curl + unzip; the untested part is whether that build runs on your driver stack |
 | `run-solo.sh` | `../windows/run-solo.ps1` | flags ported 1:1; **GPU accounting and occupancy logic unverified** |
 | `fetch-models.sh` | `../windows/fetch-models.ps1` | most portable of the set — curl + arithmetic, no OS-specific behaviour; byte counts verified |
 | `bench-big.sh` | `../windows/bench-big.ps1` | depth sweep ported; **the dirty-GPU guard only warns, it does not block** |
@@ -37,7 +38,8 @@ entries are now read from real files, not guessed.
 
 | finding | transfers? | why |
 |---|---|---|
-| `-b 2048 -ub 1024` batch sweet spot | ✅ likely | property of gfx1151, not the OS |
+| `-b 2048` batch size | ✅ likely | property of gfx1151, not the OS |
+| **`-ub 256`** | ⚠️ **sweep it** | the biggest single win here (+29% prefill) *and* the most architecture-specific flag in the repo: 256 wins because the tile fits gfx1151's 32 KB of shared memory. A different GPU has a different answer. (Was `-ub 1024` until 2026-08-14 — any older reference is stale) |
 | `q8_0` KV + flash attention | ✅ likely | llama.cpp behaviour |
 | MoE-over-dense, the bf16 trap | ✅ likely | bandwidth-bound arithmetic |
 | `draft-mtp` wins, generic drafts don't | ✅ likely | model property — but re-measure per model anyway |
@@ -66,11 +68,14 @@ are a later job, and the Python underneath them does the real work.
 ```bash
 chmod +x scripts/linux/*.sh
 
+scripts/linux/fetch-llamacpp.sh              # step zero: the engine, into bin/
 scripts/linux/fetch-models.sh --list
-scripts/linux/fetch-models.sh --only ornith-q5
+scripts/linux/fetch-models.sh --only qwen38
 scripts/linux/run-solo.sh --dry-run          # print the command line, launch nothing
 scripts/linux/run-solo.sh
 ```
+
+Full first-run walkthrough for all three platforms: **[../../docs/INSTALL.md](../../docs/INSTALL.md)**.
 
 `--dry-run` on `run-solo.sh` is the safest first thing to run: it prints the exact `llama-server`
 invocation without starting anything, so you can compare it against what you would have typed.

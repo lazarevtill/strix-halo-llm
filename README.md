@@ -5,16 +5,61 @@
 **Get the most out of an AMD Strix Halo box for local LLM inference — measured, not guessed.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D6?logo=windows&logoColor=white)](#requirements)
-[![Linux](https://img.shields.io/badge/Linux-drafts%20(unproven)-FCC624?logo=linux&logoColor=black)](#linux-drafts)
-[![llama.cpp](https://img.shields.io/badge/llama.cpp-b10338%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
+[![Platform](https://img.shields.io/badge/Windows%2011-measured-0078D6?logo=windows&logoColor=white)](#requirements)
+[![Linux](https://img.shields.io/badge/Linux-drafts%20(unproven)-FCC624?logo=linux&logoColor=black)](#other-platforms)
+[![macOS](https://img.shields.io/badge/macOS-drafts%20(unproven)-000000?logo=apple&logoColor=white)](#other-platforms)
+[![llama.cpp](https://img.shields.io/badge/llama.cpp-b10431%20Vulkan-blue)](https://github.com/ggml-org/llama.cpp)
 [![GPU](https://img.shields.io/badge/GPU-Radeon%208060S%20gfx1151-ED1C24?logo=amd&logoColor=white)](#requirements)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#requirements)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#requirements)
 
-[Quick start](#quick-start) · [Findings](#what-we-found) · [Benchmarking](docs/BENCHMARKS.md) · [Tuning playbook](docs/OPTIMIZATION.md) · [Linux drafts](#linux-drafts)
+[**Install & first run →**](docs/INSTALL.md) · [What the terms mean](docs/EXPLAIN.md) · [Results](docs/RESULTS.md) · [Go faster](docs/GOING-FASTER.md) · [Benchmarking](docs/BENCHMARKS.md) · [Live report](https://strix.lazarev.cloud/)
+
+**Windows · Linux · macOS** — [installation for all three](docs/INSTALL.md)
 
 </div>
+
+---
+
+## In one screen
+
+Never tuned a local model before? **[docs/INSTALL.md](docs/INSTALL.md)** takes you from nothing to a
+working endpoint on Windows, Linux or macOS, and **[docs/EXPLAIN.md](docs/EXPLAIN.md)** explains
+every term below in plain English, with diagrams. No GPU or ML background needed.
+
+**The settings that matter**, all measured on this box (llama.cpp b10431, Vulkan):
+
+```
+--model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
+--spec-type draft-mtp --spec-draft-n-max 3     # +79%
+-b 2048 -ub 256                                # +29% prefill vs the usual 1024
+-ctk q8_0 -ctv q8_0                            # free, halves the KV cache
+-c 262144                                      # full context costs only 3%
+```
+
+| | measured |
+|---|---|
+| generation | **20.3 t/s** (~38 t/s on code) |
+| prefill | **167 t/s** — a 44k prompt is ~4.5 min before the first word |
+| model size | **16.7 GB** — the smallest of the four models benchmarked here |
+| quality | 🔄 **being re-measured** — see below |
+
+> **The quality numbers are currently withdrawn, on purpose.** Both eval suites were run under
+> greedy decoding (temperature 0), which sends thinking models into repetition loops that emit no
+> answer — and the harness was quietly discarding exactly those turns. That is *why* four models
+> spanning 16.7 GB to 89 GB all appeared to tie at 100%. The sampler and the scoring are fixed, a
+> harder tier was added, and every model is being re-run. **[Full explanation →](docs/RESULTS.md#3-quality)**
+
+**Five "obvious" optimisations that measurement killed** — full detail in
+[GOING-FASTER.md](docs/GOING-FASTER.md):
+
+| idea | why it sounded right | reality |
+|---|---|---|
+| rewrite the slow GPU kernel | the code really is serial | **1.1%** of prefill |
+| use a smaller quant | fewer bytes to read | **slower** |
+| bigger batches | fewer, larger operations | **29% slower** |
+| deeper speculation | more tokens per pass | **worse than off** |
+| lower "reasoning effort" | less thinking = faster | **74% slower** |
 
 ---
 
@@ -45,8 +90,8 @@ contrast is the useful part.
 | ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model, the whole memory budget, full context, measured-optimal flags |
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
-| 📊 **A measured model comparison** | three frontier-class models, with confidence intervals and an honest "these are tied" |
-| 🧯 **A list of ways benchmarks lie** | six harness bugs, each with the believable wrong number it produced |
+| 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **18%** — after scoring 100% on the easy tier |
+| 🧯 **A list of ways benchmarks lie** | seven harness bugs, each with the believable wrong number it produced — including the one that faked a four-way tie |
 
 ---
 
@@ -63,26 +108,47 @@ physical LPDDR5X either way. That's ~13 GB of free headroom most setups leave on
 > resident servers by **42.5 GB**, which is how the box silently blew past its ceiling while the
 > console showed plenty of room.
 
-### Three models tie on quality — so pick the small one
+### A benchmark everyone passes is measuring the tasks, not the models
 
-Measured 2026-08-04, each the sole GPU occupant at `ctx=131072`, on two private uncontaminated suites:
+Four models spanning **16.7 GB to 89 GB** all scored **70/70** on the coding suite and 27–29/29 on
+tool calling. That is not four tied models. That is a saturated benchmark, and chasing why it
+saturated turned up something worse.
 
-| model | tool calling | 95% CI | agentic coding | truncations | tg | size |
-|---|---|---|---|---|---|---|
-| 🥇 **Ornith-1.0-35B Q5_K_M** | 28/29 = 96.6% | [82.8, 99.4] | **70/70** | 1 | **~58 t/s** | **23 GB** |
-| Qwen3.5-122B-A10B Q4_K_XL | 28/29 = 96.6% | [82.8, 99.4] | **70/70** | 3 | ~34 t/s | 78 GB |
-| Laguna-S-2.1 Q4_K_M | 27/29 = 93.1% | [78.0, 98.1] | **70/70** | 1 | ~14 t/s | 89 GB |
+Both suites ran at **temperature 0** — chosen for reproducibility, and measurably the wrong choice
+for thinking models. An audit of the retained transcripts found that **every truncated turn was a
+repetition loop that emitted no answer at all — 9 of 9, across all four models**, one line repeated
+up to 439 times until the token budget ran out. Qwen ships the warning on its own model cards:
+*"We do NOT recommend using greedy decoding, as it can lead to performance degradation and endless
+repetitions."*
 
-All three: 4/4 tasks, **zero regressions**, perfect first turn. Every confidence interval overlaps
-and McNemar exact is **p = 1.0** — a three-way tie, not a ranking.
+It stayed hidden because the scorer **excluded truncated turns**. That rule was treating the
+symptom in the wrong layer: it silently rescued turns where the model produced nothing, which is
+precisely why very different models appeared to tie.
 
-**So take the 23 GB model.** Same measured quality, a quarter of the footprint, 4× the throughput.
-Laguna's published Terminal-Bench 2.1 lead (70.2 vs 64.4) produced no measurable advantage here.
+**What changed:**
 
-> ⚠️ **Don't read an ordering into those numbers.** n=29 tool cases and an *effective* n=4 coding
-> tasks can catch a bad model but cannot rank close ones — a single test flipped between two
-> identical temperature-0 runs. Ranking frontier models would need ~100 paired cases and ~10 tasks.
-> [How to read this properly →](docs/BENCHMARKS.md)
+| | |
+|---|---|
+| sampler | temperature 0.3, seed recorded in every result row |
+| scoring | every task reports its score **twice** — rescued, and strict with no rescue at all |
+| tiers | hard and easy scored separately; a saturated tier can no longer flatter a model |
+| **a hard tier** | 3 multi-turn tasks, 89 hidden tests: a token-bucket rate limiter, semver ranges, and a SQL `WHERE` evaluator with full three-valued logic |
+
+The hard tier discriminates. The first model through it — Ornith-1.0-35B, which scores 70/70 on the
+easy tier — managed **16/89 (18%)**. It passes *every* first-turn test on all three tasks and then
+collapses when asked to extend its own code:
+
+```
+hard_ratelimit   first 10 -> final 16/25
+hard_semver      first 11 -> final  0/27
+hard_where       first 14 -> final  0/37
+```
+
+Writing the code was never the hard part. Revising it is.
+
+> 🔄 **The full re-run across every model is in progress.** Until it lands, pick on **speed and
+> size** — those numbers never depended on the sampler and still stand.
+> [Method and current results →](docs/RESULTS.md#3-quality)
 
 ### bf16 is a trap
 
@@ -99,7 +165,7 @@ The obvious "upgrade" from Q5_K_M to full precision makes everything **worse**: 
 | `--fit on` | Useless here — reported free VRAM is a constant, so it sizes against a fiction |
 | `--cache-reuse` | A no-op on these MoEs; prefix caching already works |
 | Sleep | Modern standby drops all VRAM. `powercfg /change standby-timeout-ac 0` |
-| Batch size | `-b 2048 -ub 1024` is the prompt-processing sweet spot on gfx1151 |
+| Batch size | `-b 2048 -ub 256` on gfx1151. `-ub` is the most-often-wrong flag here — the common 1024 costs **29%** |
 
 Full detail and the measurements behind each: **[docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)**.
 
@@ -107,22 +173,49 @@ Full detail and the measurements behind each: **[docs/OPTIMIZATION.md](docs/OPTI
 
 ## Quick start
 
+Three steps: get the engine, get a model, serve it. Full walkthrough with troubleshooting for all
+three platforms in **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+**Windows** — measured, supported:
+
 ```powershell
 git clone https://github.com/lazarevtill/strix-halo-llm.git
 cd strix-halo-llm
 
-# 1. Get a model (resume-capable, verifies byte counts against the HF API)
-.\scripts\windows\fetch-models.ps1 -List
-.\scripts\windows\fetch-models.ps1 -Only ornith-q5
+# 1. Get the engine (llama.cpp Vulkan release -> bin\). Nothing to compile.
+.\scripts\windows\fetch-llamacpp.ps1 -Build b10431
 
-# 2. Serve it: whole memory budget, full 262144 context
+# 2. Get a model (resume-capable, verifies byte counts against the HF API)
+.\scripts\windows\fetch-models.ps1 -List
+.\scripts\windows\fetch-models.ps1 -Only qwen38
+
+# 3. Serve it: whole memory budget, full context
 .\scripts\windows\run-solo.ps1
 #    -> Web UI:     http://127.0.0.1:8080
 #    -> OpenAI API: http://127.0.0.1:8080/v1/chat/completions
 ```
 
+**Linux** and **macOS** — ported, unproven; `--dry-run` prints the command without launching:
+
+```bash
+git clone https://github.com/lazarevtill/strix-halo-llm.git && cd strix-halo-llm
+
+# Linux (Vulkan)                         # macOS (Apple silicon / Metal)
+chmod +x scripts/linux/*.sh              chmod +x scripts/macos/*.sh
+./scripts/linux/fetch-llamacpp.sh        ./scripts/macos/fetch-llamacpp.sh
+./scripts/linux/fetch-models.sh --only qwen38     # both platforms use this one
+./scripts/linux/run-solo.sh --dry-run    ./scripts/macos/run-solo.sh --dry-run
+```
+
+Then check it:
+
+```bash
+curl http://127.0.0.1:8080/health                     # {"status":"ok"}
+```
+
 That's it — you now have an OpenAI-compatible endpoint. **Claude Code, Codex and any OpenAI SDK can
-point straight at it**, no shim required (see [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)).
+point straight at it**, no shim required: set the base URL to `http://127.0.0.1:8080/v1` and use any
+string as the API key (see [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)).
 
 <details>
 <summary><b>Going further</b> — bigger models, benchmarking, evaluation</summary>
@@ -152,32 +245,45 @@ docker build -f evals\code\Dockerfile.sandbox -t llm-eval-sandbox evals\code
 ```
 strix-halo-llm/
 ├── docs/
-│   ├── OPTIMIZATION.md     ⭐ the tuning playbook + full model comparison
+│   ├── INSTALL.md          ⭐ START HERE -- first run on Windows / Linux / macOS
+│   ├── EXPLAIN.md          ⭐ every term in plain English, with diagrams
+│   ├── RESULTS.md          what was measured, and what it means
+│   ├── GOING-FASTER.md     the settings worth copying, and five that measurement killed
+│   ├── OPTIMIZATION.md     the full tuning playbook (long -- a reference)
 │   ├── BENCHMARKS.md       ⭐ what to measure, how, and how not to fool yourself
 │   ├── FLEET.md            multi-machine roles; retrieval / memory-layer findings
-│   └── PUBLISHING.md       what is safe to publish, and what must never be
+│   ├── MULTI-USER.md       serving real people: saved chats, capacity, restart cost
+│   ├── PUBLISHING.md       what is safe to publish, and what must never be
+│   └── index.html          the GitHub Pages report -> strix.lazarev.cloud
 │
 ├── scripts/                platform-separated -- see scripts/README.md
-│   ├── windows/            PowerShell 5.1 (supported today)
+│   ├── windows/            PowerShell 5.1 -- supported, and where every number came from
+│   │   ├── fetch-llamacpp.ps1  ⭐ step zero: the engine, into bin\
 │   │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── bench-big.ps1       depth-aware benchmark
 │   │   ├── bench-spec.ps1      A/B baseline vs speculative decoding
 │   │   ├── build-poolside.ps1  build poolside's llama.cpp fork (DFlash drafting)
 │   │   └── legacy/             superseded multi-model launchers
-│   └── linux/              bash DRAFTS -- unproven, see its README
-│       ├── run-solo.sh         serve one model (has --dry-run)
-│       ├── fetch-models.sh     download + byte-verify
-│       ├── bench-big.sh        depth-aware benchmark
-│       └── bench-spec.sh       A/B speculative decoding
+│   ├── linux/              bash DRAFTS -- unproven, see its README
+│   │   ├── fetch-llamacpp.sh   download a prebuilt Vulkan release
+│   │   ├── run-solo.sh         serve one model (has --dry-run)
+│   │   ├── fetch-models.sh     download + byte-verify (macOS uses this too)
+│   │   ├── bench-big.sh        depth-aware benchmark
+│   │   └── bench-spec.sh       A/B speculative decoding
+│   └── macos/              bash DRAFTS -- Apple silicon / Metal, unproven
+│       ├── fetch-llamacpp.sh   Homebrew, or the prebuilt macos-arm64 release
+│       └── run-solo.sh         serve one model on Metal (has --dry-run)
 │
 ├── evals/                  ⭐ the evaluation harness
-│   ├── run-guarded.ps1     run suites across models: smoke-gated, respawn-proof
+│   ├── run-full-bench.ps1  the whole stack: speed, then hard tier, then easy + tools
+│   ├── run-model-suite.ps1 one model, both suites, sole GPU occupant
+│   ├── summarize-bench.py  turn a run into the published table
 │   ├── run-tools-eval.ps1  tool-calling eval (29 cases)
 │   ├── tools/tools.json    the 10 tool schemas (public)
 │   └── code/
-│       ├── run-code-eval.py   agentic coding eval (portable)
-│       ├── smoke.py           harness self-test — gates every run (portable)
+│       ├── run-code-eval.py   agentic coding eval, easy + hard tiers (portable)
+│       ├── smoke.py           harness self-test -- gates every run (portable)
 │       └── Dockerfile.sandbox no network, 512 MB, 1 CPU, read-only
 │
 └── archive/coding-eval/    superseded first-gen eval, kept for history
@@ -215,7 +321,8 @@ prose isn't mistaken for code, and that **every task prompt is satisfiable by a 
 | | status | notes |
 |---|---|---|
 | **Windows 11** | ✅ supported | Everything here is measured on Windows 11 + PowerShell 5.1 |
-| **Linux** | 📝 **unproven drafts** | Bash ports exist in [`scripts/linux/`](scripts/linux/) — syntax-checked, never run on Linux. **They will be updated and proven** once there's a box to run them on |
+| **Linux** | 📝 **unproven drafts** | Bash ports in [`scripts/linux/`](scripts/linux/) — syntax-checked, never run on Linux. **They will be updated and proven** once there's a box to run them on |
+| **macOS** (Apple silicon) | 📝 **unproven drafts** | Bash ports in [`scripts/macos/`](scripts/macos/) — Metal instead of Vulkan. An M-series Mac is the other mainstream unified-memory machine, so the *method* transfers; no number here was measured on it |
 
 Today's scripts are PowerShell 5.1, and several findings are genuinely Windows-specific — the WDDM
 shared-heap ceiling, `Total Committed` accounting, modern-standby dropping VRAM, and the commit-charge
@@ -225,13 +332,18 @@ limit. Those need re-measuring on Linux rather than assuming they carry over.
 [`evals/code/smoke.py`](evals/code/smoke.py) and the
 [Docker sandbox](evals/code/Dockerfile.sandbox) are plain Python and run anywhere.
 
-### Linux drafts
+### Other platforms
 
-Bash ports live in their own tree at **[`scripts/linux/`](scripts/linux/)** — not `.sh` interleaved
-with `.ps1`, and no PowerShell-on-Linux dependency.
+Bash ports live in their own trees at **[`scripts/linux/`](scripts/linux/)** and
+**[`scripts/macos/`](scripts/macos/)** — not `.sh` interleaved with `.ps1`, and no
+PowerShell-on-Linux dependency. Setup for all three platforms is in
+**[docs/INSTALL.md](docs/INSTALL.md)**.
 
 | script | mirrors | what it does | state |
 |---|---|---|---|
+| [`linux/fetch-llamacpp.sh`](scripts/linux/fetch-llamacpp.sh) | [`windows/fetch-llamacpp.ps1`](scripts/windows/fetch-llamacpp.ps1) | download a prebuilt Vulkan release into `bin/` | curl + unzip; **untested against a real driver stack** |
+| [`macos/fetch-llamacpp.sh`](scripts/macos/fetch-llamacpp.sh) | — | Homebrew, or the prebuilt `macos-arm64` release | **never run on macOS** |
+| [`macos/run-solo.sh`](scripts/macos/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve one model on Metal; has `--dry-run` | **never run on macOS**; `-ub` deliberately left at 512, not the Windows 256 |
 | [`run-solo.sh`](scripts/linux/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve ONE model with the whole memory budget; has `--dry-run` | flags ported 1:1; **GPU accounting unverified** |
 | [`fetch-models.sh`](scripts/linux/fetch-models.sh) | [`windows/fetch-models.ps1`](scripts/windows/fetch-models.ps1) | resume-capable download + byte verification | most portable; byte counts verified |
 | [`bench-big.sh`](scripts/linux/bench-big.sh) | [`windows/bench-big.ps1`](scripts/windows/bench-big.ps1) | depth-aware benchmark sweep | **dirty-GPU guard only warns, doesn't block** |
@@ -255,7 +367,8 @@ scripts/linux/run-solo.sh --dry-run  # prints the exact llama-server invocation,
 
 | | |
 |---|---|
-| ✅ **likely transfers** | `-b 2048 -ub 1024` batch sweet spot · `q8_0` KV + flash attention · MoE-over-dense · the bf16 trap · `draft-mtp` wins where generic drafts don't |
+| ✅ **likely transfers** | `q8_0` KV + flash attention · MoE-over-dense · the bf16 trap · `draft-mtp` wins where generic drafts don't · quant size vs speed running backwards |
+| ⚠️ **sweep, don't copy** | **`-ub 256`** — the biggest win here (+29% prefill) *and* the most architecture-specific flag in the repo: it works because a 256-row tile fits gfx1151's 32 KB of shared memory |
 | ❌ **must be re-measured** | the ~109 GB ceiling (that's 96 GB carve-out **+ WDDM shared heap**) · `Total Committed` vs `Dedicated Usage` (a Windows perf-counter distinction; Linux uses `amdgpu_top` / `rocm-smi` / sysfs) · whether `--mlock` is harmful (it is on WDDM — may be *correct* on Linux) · sleep dropping VRAM · pagefile commit limits |
 
 **Port the method, not the numbers.** Anything measured on Linux belongs in its own column in
@@ -270,11 +383,20 @@ as llama.cpp's own ROCm backend.
 ## Requirements
 
 - **AMD Strix Halo** (Ryzen AI MAX+ 395 / Radeon 8060S, gfx1151) — most of it applies to other
-  unified-memory AMD parts, but the numbers are from this chip
-- **Windows 11** + PowerShell 5.1 (scripts are 5.1-compatible throughout — no PS7 required)
-- **llama.cpp Vulkan build** in `bin\` (currently b10338; b10182+ for `laguna`/`deepseek4`, and `muse-glimmer` needs a build newer than b10338)
+  unified-memory parts, but the numbers are from this chip. Any Vulkan GPU will *run* this; only
+  the tuning is chip-specific
+- **Windows 11** + PowerShell 5.1 (scripts are 5.1-compatible throughout — no PS7 required), or
+  bash on Linux / macOS — see [docs/INSTALL.md](docs/INSTALL.md)
+- **llama.cpp Vulkan build** in `bin\` — `.\scripts\windows\fetch-llamacpp.ps1` puts it there,
+  nothing to compile. Every number in this repo is from **b10431**; pin it with `-Build b10431`
+  when reproducing one
+- **A current GPU driver.** If the startup banner lists no Vulkan device, that is the problem —
+  nothing else here works until it does
 - **Docker Desktop** — only for the coding-eval sandbox
 - **Python 3.12** — only for the coding eval
+
+Memory is the real constraint: a model needs roughly its file size, plus the KV cache. The 27B
+default here wants ~20 GB at a modest context.
 
 ## Contributing
 

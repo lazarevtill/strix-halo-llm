@@ -7,12 +7,45 @@ SWE-rebench scores A3B-class models roughly 4x below their self-reported SWE-ben
 | suite | what it measures | entry point |
 |---|---|---|
 | tool-calling | native `tools` array → `message.tool_calls`: right tool, right args, right enum, knows when NOT to call | `run-tools-eval.ps1` |
-| agentic coding | 3-turn tasks scored against hidden pytest suites, **every turn** scored so regressions show | `code\run-code-eval.py` |
+| agentic coding | multi-turn tasks scored against hidden pytest suites, **every turn** scored so regressions show | `code\run-code-eval.py` |
 
 ```powershell
 .\run-tools-eval.ps1 -Endpoint http://127.0.0.1:8080/v1 -Label laguna-q4
 python code\run-code-eval.py --endpoint http://127.0.0.1:8080/v1 --label laguna-q4
+
+.\run-full-bench.ps1                     # everything: speed, then hard tier, then easy + tools
+python summarize-bench.py                # a completed run -> the published table
 ```
+
+## Two tiers, and why the easy one is not enough
+
+| tier | tasks | hidden tests | turns | state |
+|---|---|---|---|---|
+| easy | 4 | 70 | 3 | **saturated** — every model measured returns 70/70 |
+| **hard** | 3 | 89 | 4 | discriminates: the first model through scored **18%** |
+
+A benchmark everyone passes measures the tasks, not the models. The hard tier exists because four
+models spanning 16.7 GB to 89 GB all returned 70/70 on the easy one. Its hidden tests probe what
+each spec *implies* rather than what it states — a token bucket that must stay correct under clock
+skew and sub-millisecond refill, semver range semantics including prerelease exclusion, and a SQL
+`WHERE` evaluator in full three-valued logic.
+
+**The tiers are scored and reported separately.** A combined percentage is dominated by the tests
+that separate nothing, and drags every model toward the same number.
+
+## Reading a result
+
+Every task reports its score **twice**:
+
+- **rescued** — the last turn that did not lose work to truncation;
+- **strict** — the last turn that reached the sandbox, taken at face value.
+
+If they agree, the rescue rule did nothing. If they diverge, that divergence *is* the finding —
+see bug 10 below for what happened when only the rescued number was reported.
+
+Before any run, `calibrate()` scores every reference solution against its own hidden suite at every
+turn. If a reference cannot pass its own tests, that turn's prompt is unsatisfiable and every model
+score on it is noise (bug 7). All 7 tasks currently calibrate at 100%.
 
 The coding sandbox image is built from `code\Dockerfile.sandbox`. Registry and package index are
 build ARGs, public by default, so it builds anywhere:
@@ -96,6 +129,12 @@ that are otherwise identical; scored on the last *complete* answer they are 70/7
 A cut-off response is not an answer — mark the turn invalid, score the last valid artifact, and
 report truncation rate separately.
 
+> ⚠️ **This fix was itself the problem.** Read bug 10 before adopting it. The rule is right in
+> principle and was applied far too broadly: it also rescued turns where the model emitted
+> *nothing*, which is what produced the fake tie. The current version only excludes a truncated
+> turn when truncation actually **cost** work, and reports the unrescued score alongside so the
+> rule can never again be the thing that produced the ranking.
+
 **9. Environment failures were indistinguishable from model failures.** Two ways the box takes a run
 down, both observed the same afternoon:
 
@@ -110,3 +149,41 @@ failure, and labels the case `ENVIRONMENT` instead of scoring it as quality.
 > ~0 while it still holds the reservation, so the dedicated counter under-reported two resident
 > servers by 42.5 GiB — which is exactly how the box hit its ceiling while the console showed plenty
 > of headroom.
+
+## The one found on 2026-08-15 — and it invalidated everything above it
+
+**10. Greedy decoding produced empty answers, and the fix for bug 8 hid them.** Both suites ran at
+`temperature 0`, chosen for reproducibility: same input, same output, no sampling noise between
+models. For thinking models that is measurably wrong.
+
+Auditing the retained transcripts found that **every truncated turn was a repetition loop that
+emitted no answer at all — 9 of 9, across all four models.** One line repeated up to 439 times
+until the token budget ran out; `content` was empty in every case.
+
+```
+laguna    window_merge    t3   439x repeat   166 KB   no answer
+qwen122b  quant_pick      t2   160x repeat    54 KB   no answer
+ornith    hard_ratelimit  t3   134x repeat   175 KB   no answer
+```
+
+Qwen ships the warning on its own model cards: *"We do NOT recommend using greedy decoding, as it
+can lead to performance degradation and endless repetitions."*
+
+The reason it went unnoticed for two weeks is bug 8's fix. Excluding truncated turns silently
+rescued every one of those turns — so four very different models all reported 70/70. Re-scoring the
+same transcripts without the rescue: qwen122b's 70/70 contains a raw **0/20** and **0/18**;
+qwen38's contains **3/18**; laguna's contains a turn that emitted no code at all.
+
+**The lesson is not "temperature 0 is bad".** It is that a rule which discards inconvenient data
+must report what it discarded. A scoring rule that decides its own audit is not an audit.
+
+Fixed: `TEMP = 0.3` with temp and seed written into every result row; truncation exclusion now
+requires that truncation actually cost work; and every task reports rescued **and** strict scores.
+`max_tokens` also moved to 32768 in a single call rather than 16384-with-retry — at a fixed seed the
+retry re-derived the same prefix, so it only ever bought room, at ~16 minutes per turn.
+
+**11. A saturated benchmark looks exactly like a set of tied models.** Even with the sampler fixed,
+70/70 across four models spanning 16.7 GB to 89 GB says nothing about ranking. A hard tier was added
+in response (3 tasks, 89 tests, 4 turns). The first model through it — which scores 70/70 on the
+easy tier — scored **16/89**, passing every first-turn test and then collapsing when asked to extend
+its own code. If your benchmark has no failures in it, it has no information in it either.

@@ -25,7 +25,16 @@ param(
     [switch] $SkipTools,
     [switch] $SkipCode,
     # Comma-separated coding task ids, for finishing a run that was interrupted part-way.
-    [string] $Tasks = ''
+    [string] $Tasks = '',
+    # Sampling seed, passed through to the coding eval. Re-running the same model at 42/43/44
+    # gives a spread to compare model-vs-model gaps against; without it a 3-point difference
+    # cannot be told apart from the sampler.
+    [int]    $Seed = 42,
+    # LOOPBACK BY DEFAULT. This used to bind 0.0.0.0, which put the model under test on the LAN
+    # for the duration of the run. A stray client request lands in the same slot the eval is
+    # using, contends for the GPU, and quietly changes a number nobody will be able to explain
+    # later. Nothing outside this box has any business talking to an eval server.
+    [string] $Bind = '127.0.0.1'
 )
 $ErrorActionPreference = 'Continue'
 $root = $PSScriptRoot
@@ -55,7 +64,7 @@ if ($held.Count) {
 # ---- serve --------------------------------------------------------------------------------------
 $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
 $a = @('-m',$Model,'-ngl','999','--ctx-size',"$Ctx",'--batch-size','2048','--ubatch-size','1024',
-       '-fa','on','-lm','none','--jinja','--parallel','1','--host','0.0.0.0','--port',"$Port",
+       '-fa','on','-lm','none','--jinja','--parallel','1','--host',$Bind,'--port',"$Port",
        '--no-warmup','--cache-type-k','q8_0','--cache-type-v','q8_0',
        '--reasoning',$Reasoning,'--reasoning-preserve')
 if ($Spec) { $a += @('--spec-type',$Spec,'--spec-draft-n-max',"$SpecNMax") }
@@ -84,7 +93,8 @@ try {
     if (-not $SkipCode) {
         Write-Host "`n--- agentic coding ---" -ForegroundColor Cyan
         Push-Location "$root\code"
-        $codeArgs = @('run-code-eval.py','--endpoint',"http://127.0.0.1:$Port/v1",'--label',$Label)
+        $codeArgs = @('run-code-eval.py','--endpoint',"http://127.0.0.1:$Port/v1",'--label',$Label,
+                      '--seed',"$Seed")
         if ($Tasks) { $codeArgs += @('--tasks',$Tasks) }
         & python $codeArgs 2>&1 | Write-Host
         Pop-Location
