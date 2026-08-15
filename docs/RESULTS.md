@@ -14,11 +14,12 @@ New to this? **[EXPLAIN.md](EXPLAIN.md)** defines every term used here.
 
 | question | answer |
 |---|---|
-| Which model? | **Qwen3.8-27B UD-Q4_K_XL** — 100% on tool calling, 16.7 GB |
+| Which model? | **Qwen3.8-27B UD-Q4_K_XL** on speed and size — 16.7 GB, the smallest of the five benchmarked. Quality ranking is [being re-measured](#3-quality) |
 | How fast does it write? | **20.3 t/s** (~38 t/s on code, where speculation lands better) |
 | How fast does it read? | **167 t/s** — a 44k-token prompt takes ~4.5 min before the first word |
 | Biggest single win | speculative decoding, **+79%** |
 | Most-often-wrong setting | `--ubatch-size` — the common value costs **29%** |
+| Biggest *mistake* here | trusting a benchmark everyone passed. [What that hid →](#3-quality) |
 
 Copy-paste config:
 
@@ -104,40 +105,86 @@ n=1 per cell; quality not assessed.
 Scored against two **private** suites that exist nowhere public, so no model has trained on them.
 The harness is in this repo; the answers are not. See [BENCHMARKS.md](BENCHMARKS.md).
 
-### Tool calling — 29 cases
+> ## ⚠️ The published quality scores are withdrawn
+>
+> Every quality number produced before 2026-08-15 was measured under **greedy decoding**
+> (temperature 0), and the scorer was **discarding truncated turns**. Together those two choices
+> manufactured a tie. Do not quote the old table. The speed numbers above are unaffected — they
+> never depended on the sampler.
 
-| model | score | 95% CI |
-|---|---|---|
-| **Qwen3.8-27B Q4_K_XL** | **29/29 = 100%** | [88.3, 100.0] |
-| Ornith-1.0-35B Q5_K_M | 28/29 = 96.6% | [82.8, 99.4] |
-| Qwen3.5-122B-A10B Q4_K_XL | 28/29 = 96.6% | [82.8, 99.4] |
-| Laguna-S-2.1 Q4_K_M | 27/29 = 93.1% | [78.0, 98.1] |
+### What went wrong
 
-⚠️ **This is not a ranking.** The gap to second place is one case out of 29 and the confidence
-intervals overlap almost entirely. What it supports: Qwen3.8 is **not worse** than the others, and
-a 27B model matches a 125B one here at a quarter of the size.
+Temperature 0 was chosen for reproducibility: same input, same output, no sampling noise between
+models. For thinking models it is measurably the wrong choice.
 
-Qwen3.8 breakdown: selection 5/5, arguments 8/8, multi-step 3/3, chaining 2/2, enums 3/3,
-**abstention 5/5**, hard cases 3/3. Abstention is where models usually leak points by calling a
-tool when they should decline.
+An audit of the retained transcripts found that **every truncated turn was a repetition loop that
+emitted no answer at all — 9 of 9, across all four models:**
 
-### Agentic coding — 70 hidden tests, multi-turn
-
-🔄 **Re-running for all models on identical infrastructure (b10431, sandbox image rebuilt
-2026-08-15).** The previous three-model table was produced on an older llama.cpp and an older
-container; the harness code itself is unchanged.
-
-Qwen3.8-27B Q4_K_XL, in progress:
-
-| task | turn 1 | turn 2 | turn 3 |
+| model | task | | |
 |---|---|---|---|
-| token_budget | 12/12 | 20/20 | 20/20 |
-| shard_planner | 8/8 | — | — |
-| window_merge | — | — | — |
-| quant_pick | — | — | — |
+| Laguna-S-2.1 | window_merge t3 | 439× repeat, 166 KB | no answer |
+| Qwen3.5-122B | quant_pick t2 | 160× repeat, 54 KB | no answer |
+| Ornith-1.0-35B | hard_ratelimit t3 | 134× repeat, 175 KB | no answer |
 
-Prior results (2026-08-04, older build): all three of Ornith, Qwen3.5-122B and Laguna scored
-**70/70** with zero regressions and 45/45 on turn 1 — a three-way tie.
+Qwen ships the warning on its own model cards: *"We do NOT recommend using greedy decoding, as it
+can lead to performance degradation and endless repetitions."*
+
+It stayed hidden because the scorer **excluded truncated turns** — a rule meant to stop a harness
+token limit being scored as a coding failure. It was treating the symptom in the wrong layer: it
+silently rescued the turns where the model produced nothing. That is precisely why four models
+spanning 16.7 GB to 89 GB appeared to tie.
+
+Re-scoring those same transcripts *without* the rescue shows how much it was covering:
+
+| model | task | raw last turn | was reported |
+|---|---|---|---|
+| Qwen3.5-122B | token_budget | **0/20** | 70/70 |
+| Qwen3.5-122B | window_merge | **0/18** | 70/70 |
+| Qwen3.8-27B | window_merge | **3/18** | 70/70 |
+| Laguna-S-2.1 | window_merge | **no code emitted** | 70/70 |
+| Ornith-1.0-35B | quant_pick | 15/18 | 70/70 |
+
+### What changed
+
+| | |
+|---|---|
+| **sampler** | temperature 0.3, with temp and seed written into every result row — runs under different samplers can never be silently compared again |
+| **strict column** | every task reports its score twice: rescued, and with no rescue at all. If they agree the rule did nothing; if they diverge, that *is* the finding |
+| **tiers scored apart** | a saturated tier can no longer flatter a model through a combined percentage |
+| **one generation, not two** | `max_tokens` 32768 up front instead of 16384-then-retry. At fixed seed the retry re-derived the same prefix, so it only ever bought room — and cost ~16 min/turn |
+| **a hard tier** | 3 new multi-turn tasks, 89 hidden tests |
+
+Every reference solution is verified to pass **100% of its own hidden tests at every turn** before a
+run starts (159 tests across 7 tasks), and the changed scoring path is unit-tested against a turn
+truncated *after* completing its work and one truncated *while losing* it.
+
+### The hard tier
+
+Four turns each, and the hidden tests probe what the spec *implies* rather than what it states:
+
+| task | what it actually tests |
+|---|---|
+| `hard_ratelimit` | a token bucket with fractional refill, atomic multi-key acquire, and monotonic time under clock skew |
+| `hard_semver` | semver 2.0.0 precedence, `^`/`~` range semantics, and prerelease exclusion from ranges |
+| `hard_where` | a SQL `WHERE` evaluator in full three-valued logic — `FALSE AND NULL` is FALSE, `NULL = NULL` is NULL, `x NOT IN (7, NULL)` is never TRUE |
+
+**It discriminates.** Ornith-1.0-35B — which scores 70/70 on the easy tier — managed **16/89 (18%)**:
+
+| task | turn 1 | final |
+|---|---|---|
+| hard_ratelimit | 10/10 | 16/25 |
+| hard_semver | 11/11 | **0/27** |
+| hard_where | 14/14 | **0/37** |
+
+It passes *every* first-turn test on all three tasks, then collapses when asked to extend its own
+code. Writing the code was never the hard part.
+
+### 🔄 Current status
+
+The full re-run across all five models is **in progress** (speed → hard tier → easy tier + tools).
+Until it completes there is no defensible quality ranking here, and this page will not print one.
+
+**Pick on speed and size in the meantime** — §2 above is unaffected.
 
 ---
 
@@ -171,11 +218,17 @@ See [GOING-FASTER.md](GOING-FASTER.md) for the full reasoning.
 
 ## 5. Reproducing any of this
 
+Start from [INSTALL.md](INSTALL.md) if you don't have a working endpoint yet — Windows, Linux and
+macOS are all covered there.
+
 ```powershell
 scripts\windows\bench-qwen38.ps1           # speculative depth, KV quant, context, concurrency
 scripts\windows\bench-qwen38-opt.ps1       # prefill batch, quant, flags, reasoning_effort
 scripts\windows\bench-qwen38-ubatch.ps1    # ubatch below 512
-evals\run-model-suite.ps1 -Label <x> -Model <path>   # both quality suites
+
+evals\run-full-bench.ps1                   # the whole stack: speed, hard tier, easy tier + tools
+evals\run-model-suite.ps1 -Label <x> -Model <path>   # one model, both quality suites
+python evals\summarize-bench.py            # turn a completed run into the published table
 ```
 
 Every one refuses to start if another server holds the GPU — two resident models share one memory

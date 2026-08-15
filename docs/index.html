@@ -172,6 +172,14 @@ footer .inner{padding-top:44px;padding-bottom:56px}
 footer{font-family:var(--font-mono);font-size:.8125rem;color:var(--text-muted);line-height:2}
 footer a{color:var(--text-muted)}
 footer a:hover{color:var(--accent)}
+/* The section above the footer is also a dark band, so without a rule the two read as one
+   undifferentiated block. A hairline is enough to separate them. */
+footer .inner{border-top:1px solid var(--surface-muted)}
+.footcols{display:flex;flex-wrap:wrap;gap:8px 40px;margin:18px 0 22px}
+.footcols div{min-width:150px}
+.footcols b{display:block;color:var(--text-body);font-weight:var(--fw-medium);
+            text-transform:uppercase;letter-spacing:var(--tracking-wide);font-size:.6875rem;
+            margin-bottom:2px}
 
 @media (max-width:600px){
   .b{grid-template-columns:92px 1fr 54px;gap:10px}
@@ -216,7 +224,9 @@ footer a:hover{color:var(--accent)}
     <h1>Every number here was measured.<br><em>Five of my best guesses were wrong.</em></h1>
     <p class="abstract">Tuning local LLM inference on an AMD Strix Halo box. The settings below are
     worth copying. The more useful part is the record of what <strong>sounded</strong> right and
-    wasn't — each took one command to disprove, and one would have cost weeks.</p>
+    wasn't — each took one command to disprove, and one would have cost weeks. That includes
+    <a href="#quality">this project's own benchmark</a>, which spent two weeks reporting a tie that
+    its scoring rule had manufactured.</p>
 
     <p class="eyebrow">Result</p>
     <h2>The configuration</h2>
@@ -231,8 +241,8 @@ footer a:hover{color:var(--accent)}
       <tbody>
         <tr><td class="lab">generation</td><td class="n">20.3 t/s</td><td>~38 t/s on code, where drafts land better</td></tr>
         <tr><td class="lab">prefill</td><td class="n">167 t/s</td><td>a 44k prompt waits ~4.5 min before word one</td></tr>
-        <tr><td class="lab">tool calling</td><td class="n">29/29</td><td>private suite · CI [88.3, 100.0]</td></tr>
-        <tr><td class="lab">weights</td><td class="n">16.7 GB</td><td>matches a 125B model's score at a quarter the size</td></tr>
+        <tr><td class="lab">weights</td><td class="n">16.7 GB</td><td>the smallest of the five models benchmarked</td></tr>
+        <tr><td class="lab">quality</td><td class="n">withdrawn</td><td><a href="#quality">the benchmark was measuring itself</a></td></tr>
       </tbody>
     </table>
 
@@ -383,32 +393,138 @@ footer a:hover{color:var(--accent)}
     of prefill is irreducible arithmetic. That's why the kernel rewrite above was worth 1.1%, not
     the weeks it would have taken.</p>
 
-    <p class="eyebrow">Quality</p>
-    <h2>Scored on suites that exist nowhere public</h2>
-    <p class="dir">Cases passed of 29 · <b>higher is better</b></p>
+    <p class="eyebrow" id="quality">Quality · withdrawn</p>
+    <h2>Every model passed. That was the bug.</h2>
+    <p>Four models spanning <strong>16.7 GB to 89 GB</strong> all scored <strong>70/70</strong> on
+    the private coding suite and 27–29 of 29 on tool calling. That is not four tied models. That is
+    a benchmark with no information in it — and chasing why turned up something worse.</p>
+
+    <p>Both suites ran at <strong>temperature 0</strong>, picked for reproducibility. For thinking
+    models it is measurably the wrong choice. Auditing the saved transcripts found that
+    <strong>every truncated turn was a repetition loop that emitted no answer at all — 9 of 9,
+    across all four models</strong>, one line repeated up to 439 times until the token budget ran
+    out.</p>
+
+    <p>It stayed invisible because the scorer <em>excluded truncated turns</em> — a rule meant to
+    stop a harness limit being scored as a coding failure. It was quietly rescuing the turns where
+    the model produced nothing. Re-scoring the same transcripts without that rescue:</p>
+
+    <p class="dir">Raw last-turn score, against what was published · <b>higher is better</b></p>
     <table>
-      <thead><tr><th>model</th><th class="n">tool calling</th><th class="n">95% CI</th><th class="n">size</th></tr></thead>
+      <thead><tr><th>model</th><th>task</th><th class="n">raw</th><th class="n">reported</th></tr></thead>
       <tbody>
-        <tr class="pick"><td class="lab">Qwen3.8-27B Q4_K_XL</td><td class="n">29/29</td><td class="n">[88.3, 100.0]</td><td class="n">16.7 GB</td></tr>
-        <tr><td class="lab">Ornith-1.0-35B Q5_K_M</td><td class="n">28/29</td><td class="n">[82.8, 99.4]</td><td class="n">23.0 GB</td></tr>
-        <tr><td class="lab">Qwen3.5-122B-A10B</td><td class="n">28/29</td><td class="n">[82.8, 99.4]</td><td class="n">73.3 GB</td></tr>
-        <tr><td class="lab">Laguna-S-2.1 Q4_K_M</td><td class="n">27/29</td><td class="n">[78.0, 98.1]</td><td class="n">89.4 GB</td></tr>
+        <tr><td class="lab">Qwen3.5-122B-A10B</td><td>token_budget</td><td class="n">0/20</td><td class="n">70/70</td></tr>
+        <tr><td class="lab">Qwen3.5-122B-A10B</td><td>window_merge</td><td class="n">0/18</td><td class="n">70/70</td></tr>
+        <tr><td class="lab">Qwen3.8-27B</td><td>window_merge</td><td class="n">3/18</td><td class="n">70/70</td></tr>
+        <tr><td class="lab">Laguna-S-2.1</td><td>window_merge</td><td class="n">no code</td><td class="n">70/70</td></tr>
+        <tr><td class="lab">Ornith-1.0-35B</td><td>quant_pick</td><td class="n">15/18</td><td class="n">70/70</td></tr>
       </tbody>
     </table>
-    <div class="aside"><b>This is not a ranking.</b> The gap to second place is one case out of 29
-    and the intervals overlap almost entirely. What it supports: the 27B model is not
-    <strong>worse</strong> than the others, and it matches a 125B model at a quarter of the size.
-    The agentic coding suite is being re-run for every model on identical infrastructure.</div>
+
+    <div class="aside"><b>The lesson isn't "temperature 0 is bad".</b> It's that a rule which
+    discards inconvenient data has to report what it discarded. A scoring rule that decides its own
+    audit is not an audit. Every task now reports its score twice — rescued, and strict with no
+    rescue at all.</div>
+
+    <p class="eyebrow">The replacement</p>
+    <h2>A tier that actually bites</h2>
+    <p>Three new multi-turn tasks, 89 hidden tests, where the tests probe what each spec
+    <em>implies</em> rather than what it states: a token bucket that stays correct under clock skew
+    and sub-millisecond refill, semver range semantics including prerelease exclusion, and a SQL
+    <code>WHERE</code> evaluator in full three-valued logic.</p>
+
+    <p>The first model through it — Ornith-1.0-35B, which scores <strong>70/70</strong> on the easy
+    tier — managed <strong>16/89</strong>.</p>
+
+    <p class="dir">Hidden tests passed · <b>higher is better</b></p>
+    <table>
+      <thead><tr><th>task</th><th class="n">turn 1</th><th class="n">final</th></tr></thead>
+      <tbody>
+        <tr><td class="lab">hard_ratelimit</td><td class="n">10/10</td><td class="n">16/25</td></tr>
+        <tr><td class="lab">hard_semver</td><td class="n">11/11</td><td class="n">0/27</td></tr>
+        <tr><td class="lab">hard_where</td><td class="n">14/14</td><td class="n">0/37</td></tr>
+      </tbody>
+    </table>
+
+    <div class="aside"><b>It passes every first-turn test, then collapses.</b> Writing the code was
+    never the hard part — revising it is. That is exactly the thing a multi-turn agentic benchmark
+    exists to isolate, and exactly what a single-shot benchmark cannot see.
+    <br><br>The full re-run across all five models is still in progress, so there is deliberately no
+    ranking on this page. Until it lands, pick on <strong>speed and size</strong> — those numbers
+    never depended on the sampler.</div>
+  </div>
+</section>
+
+<!-- ============ inverted band: getting started ============ -->
+<section class="band">
+  <div class="inner">
+    <p class="eyebrow">Reproduce it</p>
+    <h2>Three steps, on any of three platforms</h2>
+    <p>Nothing to compile. The first script downloads a prebuilt llama.cpp release; the second
+    fetches a model and verifies its byte count; the third serves it as an OpenAI-compatible
+    endpoint that Claude Code, Codex and any OpenAI SDK can point straight at.</p>
+
+    <pre>git clone https://github.com/lazarevtill/strix-halo-llm
+cd strix-halo-llm
+
+.\scripts\windows\fetch-llamacpp.ps1 -Build b10431   <span class="c">1 · the engine</span>
+.\scripts\windows\fetch-models.ps1 -Only qwen38      <span class="c">2 · a model, 16.7 GB</span>
+.\scripts\windows\run-solo.ps1                       <span class="c">3 · serve it on :8080</span></pre>
+
+    <p>Linux and macOS have ported equivalents under <code>scripts/linux/</code> and
+    <code>scripts/macos/</code>. They are honest drafts — written here, never run on their own
+    platform — so start with <code>--dry-run</code>, which prints the exact invocation and launches
+    nothing.</p>
+
+    <table>
+      <thead><tr><th>platform</th><th>backend</th><th>state</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td class="lab">Windows 11</td><td>Vulkan</td><td>measured — every number here</td></tr>
+        <tr><td class="lab">Linux</td><td>Vulkan</td><td>ported, unproven</td></tr>
+        <tr><td class="lab">macOS · Apple silicon</td><td>Metal</td><td>ported, unproven</td></tr>
+      </tbody>
+    </table>
+
+    <div class="aside"><b>One flag not to copy.</b> <code>-ub 256</code> is the biggest win here
+    (+29% prefill) and the most architecture-specific: it works because a 256-row tile fits
+    gfx1151's 32 KB of shared memory. On another GPU, sweep it rather than trusting this number.
+    <br><br><a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/INSTALL.md">Full
+    install guide for all three platforms →</a></div>
   </div>
 </section>
 
 <!-- ============ inverted band: footer ============ -->
 <footer class="band">
   <div class="inner">
+    <div class="footcols">
+      <div>
+        <b>Start</b>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/INSTALL.md">Install &amp; first run</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/EXPLAIN.md">Plain-English primer</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm#quick-start">Quick start</a>
+      </div>
+      <div>
+        <b>Numbers</b>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/RESULTS.md">All results</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/GOING-FASTER.md">Go faster</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/OPTIMIZATION.md">Tuning playbook</a>
+      </div>
+      <div>
+        <b>Method</b>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/BENCHMARKS.md">How to measure</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/evals/README.md">The eval harness, and 11 ways it lied</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/PUBLISHING.md">What is safe to publish</a>
+      </div>
+      <div>
+        <b>Platforms</b>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/tree/main/scripts/windows">Windows — measured</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/tree/main/scripts/linux">Linux — draft</a><br>
+        <a href="https://github.com/lazarevtill/strix-halo-llm/tree/main/scripts/macos">macOS — draft</a>
+      </div>
+    </div>
     <a href="https://github.com/lazarevtill/strix-halo-llm">github.com/lazarevtill/strix-halo-llm</a><br>
-    <a href="EXPLAIN.md">plain-English primer</a> · <a href="RESULTS.md">all results</a> ·
-    <a href="GOING-FASTER.md">go faster</a> · <a href="BENCHMARKS.md">how to measure</a><br>
-    MIT. One machine, one build — reproduce before you rely on it.
+    MIT. One machine, one build — reproduce before you rely on it.<br>
+    Quality scores are withdrawn pending a re-run; speed figures stand.
   </div>
 </footer>
 
