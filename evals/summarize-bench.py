@@ -24,14 +24,31 @@ def load_speed(stamp):
     out = {}
     for f in RES.glob(f"speed-*-{stamp}.json"):
         label = f.name[len("speed-"):-len(f"-{stamp}.json")]
-        txt = f.read_text(encoding="utf-8", errors="replace")
-        i = txt.find("[")
-        if i < 0:
+        # Decode by BOM, not by assumption. PowerShell 5.1's Tee-Object writes UTF-16LE, so
+        # reading these as UTF-8 yields a NUL between every character -- no line ever equals "[",
+        # and every file reports as unparseable for a reason that looks nothing like an encoding
+        # problem.
+        raw = f.read_bytes()
+        for bom, enc in ((b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be"),
+                         (b"\xef\xbb\xbf", "utf-8-sig")):
+            if raw.startswith(bom):
+                txt = raw.decode(enc, errors="replace")
+                break
+        else:
+            txt = raw.decode("utf-8", errors="replace")
+        # Find the line that IS the opening bracket, not the first '[' character. llama-bench
+        # writes its backend banner to stderr, and PowerShell wraps that in a NativeCommandError
+        # block containing the literal "[], RemoteException" -- so scanning for the first '['
+        # lands inside the error text and every file reads as unparseable.
+        lines = txt.splitlines()
+        start = next((n for n, l in enumerate(lines) if l.strip() == "["), None)
+        if start is None:
+            print(f"  !! {f.name}: no JSON array found", file=sys.stderr)
             continue
         try:
-            rows = json.loads(txt[i:])
-        except json.JSONDecodeError:
-            print(f"  !! {f.name}: unparseable", file=sys.stderr)
+            rows = json.loads("\n".join(lines[start:]))
+        except json.JSONDecodeError as ex:
+            print(f"  !! {f.name}: unparseable ({ex})", file=sys.stderr)
             continue
         rec = {}
         for r in rows:
