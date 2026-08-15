@@ -40,7 +40,7 @@ param(
     [switch] $All,
     [int]    $Port = 8094,
     [int]    $Ctx = 16384,
-    [double] $Temp = 0.0,
+    [double] $Temp = 0.3,
     [string] $Bin = 'D:\llamacpp-vulkan\bin\llama-server.exe',
     [string] $Csv = 'D:\llamacpp-vulkan\evals\results-tools.csv',
     # Agent-loop depth. 4 is enough for every case here (longest chain is 2 calls + a summary turn)

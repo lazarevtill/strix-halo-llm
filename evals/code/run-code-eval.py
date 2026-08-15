@@ -75,6 +75,27 @@ def extract_code(raw: str):
     return code.strip() + "\n", how
 
 
+# ============================================================================================
+# SAMPLER. Was temperature 0.0 / seed 42 until 2026-08-15, chosen for reproducibility: same input,
+# same output, no sampling noise between models.
+#
+# That choice was measurably wrong for thinking models. Auditing the retained transcripts found
+# EVERY truncated turn was a repetition loop that emitted no answer at all -- 9 of 9, across all
+# four models, with one line repeated up to 439 times until the token budget ran out. The
+# truncation-exclusion rule in score_task() was silently rescuing those turns, which is why four
+# very different models all appeared to tie at 70/70.
+#
+# Qwen ships the same warning on its model cards: "We do NOT recommend using greedy decoding, as
+# it can lead to performance degradation and endless repetitions."
+#
+# 0.3 is a compromise, not a vendor recommendation. It breaks the loops while staying close enough
+# to greedy that a fixed seed keeps runs broadly repeatable. Both values are written into every
+# result row: numbers produced under different samplers are NOT comparable, and the row has to say
+# which regime it came from.
+TEMP = 0.3
+SEED = 42
+
+
 def tests_by_turn(task_id: str) -> dict:
     """Map test function name -> the turn that introduced its feature.
 
@@ -197,7 +218,7 @@ def run_model(label, endpoint, transcript_dir):
             # 8192 was still not enough for qwen122b, which burned the whole budget reasoning about
             # token_budget and got cut off mid-sentence -- scoring 0 for what was a harness limit,
             # not a coding failure. Truncation is now detected explicitly (finish_reason) too.
-            body = {"messages": msgs, "temperature": 0.0, "seed": 42, "max_tokens": 16384}
+            body = {"messages": msgs, "temperature": TEMP, "seed": SEED, "max_tokens": 16384}
             try:
                 j = http_json(f"{endpoint}/chat/completions", body)
                 m = j["choices"][0]["message"]
@@ -234,7 +255,14 @@ def run_model(label, endpoint, transcript_dir):
             # -- and greedy decoding (temp 0) provably sends some of them into repetition loops.
             # That is a structural penalty on one model in a three-way comparison, not a coding
             # failure. Give it one retry at double the cap before believing the zero.
-            if truncated and how == "none":
+            #
+            # 2026-08-15: this used to read `truncated and how == "none"`, i.e. retry ONLY when
+            # truncation left nothing extractable. That declines the case that most looks like
+            # incompetence: truncation part-way through a file. Extraction succeeds, the harness
+            # writes a half-written module, and the tests fail on syntax rather than on logic --
+            # Qwen3.8 scored 3/18 on window_merge exactly this way. Retry whenever the cap was hit;
+            # the cost is one extra request on a turn that already failed to finish.
+            if truncated:
                 try:
                     body2 = dict(body); body2["max_tokens"] = 32768
                     j2 = http_json(f"{endpoint}/chat/completions", body2)
@@ -306,7 +334,21 @@ def run_model(label, endpoint, transcript_dir):
         # (laguna 18->0 on window_merge, qwen 18->0 on quant_pick, ornith 18->15). Scoring those
         # zeroes as coding ability produced a 95.7 / 74.3 / 72.9 spread between models that are
         # otherwise identical. Truncation rate is reported on its own instead.
-        valid = [x for x in per_turn if not x.get("env") and not x.get("truncated")]
+        # 2026-08-15: exclusion used to key on the `truncated` FLAG alone. That over-corrects.
+        # Ornith passed token_budget 20/20 at turns 2 AND 3, both flagged truncated because the
+        # response envelope closed after the code was complete -- and the old rule fell back to
+        # turn 1, reporting 12/20 for a task it demonstrably passed 20/20. Truncation is only
+        # disqualifying when it actually cost work, so keep a truncated turn that scored at least
+        # as well as the last complete one.
+        valid = []
+        for x in per_turn:
+            if x.get("env"):
+                continue
+            if x.get("truncated"):
+                prev = valid[-1].get("passed", 0) if valid else 0
+                if x.get("passed", 0) < max(prev, 1):
+                    continue          # genuinely lost work -- drop it
+            valid.append(x)
         final_passed = valid[-1].get("passed", 0) if valid else 0
         if not valid and per_turn:
             task_total = 0   # nothing scorable at all -> task drops out of the denominator
@@ -405,7 +447,7 @@ def main():
             # earlier number unattributable after the fact.
             "harness_mtime": _dt.datetime.fromtimestamp(pathlib.Path(__file__).stat().st_mtime).isoformat(),
             "tasks_mtime": _dt.datetime.fromtimestamp((E / "tasks.json").stat().st_mtime).isoformat(),
-            "endpoint": endpoint, "max_tokens": 16384, "temperature": 0.0, "seed": 42,
+            "endpoint": endpoint, "max_tokens": 16384, "temperature": TEMP, "seed": SEED,
             "detail": rows}) + "\n")
     print("appended ->", res)
 
