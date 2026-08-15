@@ -174,16 +174,33 @@ Four turns each, and the hidden tests probe what the spec *implies* rather than 
 | `hard_semver` | semver 2.0.0 precedence, `^`/`~` range semantics, and prerelease exclusion from ranges |
 | `hard_where` | a SQL `WHERE` evaluator in full three-valued logic — `FALSE AND NULL` is FALSE, `NULL = NULL` is NULL, `x NOT IN (7, NULL)` is never TRUE |
 
-**It discriminates.** Ornith-1.0-35B — which scores 70/70 on the easy tier — managed **16/89 (18%)**:
+**It discriminates** — but the first headline number off it was wrong, in the suite's now-familiar
+way. Ornith-1.0-35B, which scores 70/70 on the easy tier, was reported at **16/89 (18%)**:
 
-| task | turn 1 | final |
-|---|---|---|
-| hard_ratelimit | 10/10 | 16/25 |
-| hard_semver | 11/11 | **0/27** |
-| hard_where | 14/14 | **0/37** |
+| task | turn 1 | as reported | corrected |
+|---|---|---|---|
+| hard_ratelimit | 10/10 | 16/25 | 16/25 |
+| hard_semver | 11/11 | ~~0/27~~ | **11/27** |
+| hard_where | 14/14 | ~~0/37~~ | **22/37** |
+| **total** | | ~~16/89 (18%)~~ | **49/89 (55%)** |
 
-It passes *every* first-turn test on all three tasks, then collapses when asked to extend its own
-code. Writing the code was never the hard part.
+> 🚩 **Bug 12, caught 2026-08-15.** The turn prompts say *"Add a `Range` class"*, so models replied
+> with only the new code. The harness overwrites `solution.py` wholesale, so a partial reply loses
+> the earlier turns and fails on import. That was anticipated and flagged `FRAGMENT` — but the check
+> tested `entry not in code`, a **substring** match, and a fragment that merely *calls* the entry
+> symbol contains the string. Five turns were graded as complete solutions scoring 0.
+> [`../evals/README.md`](../evals/README.md) has the write-up; `evals/rescore.py` re-derives scores
+> from stored runs without spending GPU time.
+
+**The real finding is narrower and more interesting than "it collapses."** Ornith passes *every*
+first-turn test on all three tasks and demonstrably gets substantial work passing on later turns —
+then loses it at the handoff by replying with a diff instead of a file. That is a failure worth
+measuring. It is not the same claim as "it cannot write the code," which is what 18% implied.
+
+A caveat on the corrected number too: **nothing in the protocol tells the model to return the
+complete file** — there is no system prompt, and no turn prompt says it. The harness requires it
+anyway. Until that is stated explicitly, some of what is left is still measuring an unstated
+requirement rather than coding ability.
 
 ### 🔄 Current status
 

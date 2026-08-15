@@ -452,24 +452,32 @@ footer .inner{border-top:1px solid var(--surface-muted)}
     <code>WHERE</code> evaluator in full three-valued logic.</p>
 
     <p>The first model through it — Ornith-1.0-35B, which scores <strong>70/70</strong> on the easy
-    tier — managed <strong>16/89</strong>.</p>
+    tier — reached <strong>49/89</strong>. This page said <strong>16/89</strong> for a day, and that
+    number was mostly our own bug.</p>
 
     <p class="dir">Hidden tests passed · <b>higher is better</b></p>
     <table>
-      <thead><tr><th>task</th><th class="n">turn 1</th><th class="n">final</th></tr></thead>
+      <thead><tr><th>task</th><th class="n">turn 1</th><th class="n">corrected</th><th class="n">as first published</th></tr></thead>
       <tbody>
-        <tr><td class="lab">hard_ratelimit</td><td class="n">10/10</td><td class="n">16/25</td></tr>
-        <tr><td class="lab">hard_semver</td><td class="n">11/11</td><td class="n">0/27</td></tr>
-        <tr><td class="lab">hard_where</td><td class="n">14/14</td><td class="n">0/37</td></tr>
+        <tr><td class="lab">hard_ratelimit</td><td class="n">10/10</td><td class="n">16/25</td><td class="n">16/25</td></tr>
+        <tr class="pick"><td class="lab">hard_semver</td><td class="n">11/11</td><td class="n">11/27</td><td class="n">0/27</td></tr>
+        <tr class="pick"><td class="lab">hard_where</td><td class="n">14/14</td><td class="n">22/37</td><td class="n">0/37</td></tr>
       </tbody>
     </table>
 
-    <div class="aside"><b>It passes every first-turn test, then collapses.</b> Writing the code was
-    never the hard part — revising it is. That is exactly the thing a multi-turn agentic benchmark
-    exists to isolate, and exactly what a single-shot benchmark cannot see.
+    <div class="aside"><b>Bug 12: fragment detection was a substring test.</b> The prompts say
+    <em>"add a <code>Range</code> class"</em>, so models replied with only the new code. The harness
+    overwrites the file wholesale, so a partial reply loses the earlier turns and fails on import —
+    which was anticipated and flagged, except the check asked whether the entry symbol appeared
+    <em>anywhere</em> in the text. A fragment that merely <em>calls</em> it contains the string. Five
+    turns were graded as complete solutions scoring zero.
+    <br><br><b>The real finding is narrower, and better.</b> It passes every first-turn test and gets
+    real work passing on later turns, then <b>loses it at the handoff</b> by replying with a diff
+    instead of a file. That is worth measuring. It is not the same claim as "it cannot write the
+    code" — which is what 18% implied, and which we published.
     <br><br>The full re-run across all five models is still in progress, so there is deliberately no
     ranking on this page. Until it lands, pick on <strong>speed and size</strong> — those numbers
-    never depended on the sampler.</div>
+    never depended on the sampler or the scorer.</div>
   </div>
 </section>
 

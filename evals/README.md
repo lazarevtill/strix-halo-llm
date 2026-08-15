@@ -22,7 +22,7 @@ python summarize-bench.py                # a completed run -> the published tabl
 | tier | tasks | hidden tests | turns | state |
 |---|---|---|---|---|
 | easy | 4 | 70 | 3 | **saturated** — every model measured returns 70/70 |
-| **hard** | 3 | 89 | 4 | discriminates: the first model through scored **18%** |
+| **hard** | 3 | 89 | 4 | discriminates: the first model through scored **55%** (18% as first reported — see bug 12) |
 
 A benchmark everyone passes measures the tasks, not the models. The hard tier exists because four
 models spanning 16.7 GB to 89 GB all returned 70/70 on the easy one. Its hidden tests probe what

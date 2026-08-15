@@ -93,7 +93,7 @@ contrast is the useful part.
 | ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model, the whole memory budget, full context, measured-optimal flags |
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
-| 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **18%** — after scoring 100% on the easy tier |
+| 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
 | 🧯 **A list of ways benchmarks lie** | **eleven** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
 
 ---
@@ -138,14 +138,22 @@ precisely why very different models appeared to tie.
 | **a hard tier** | 3 multi-turn tasks, 89 hidden tests: a token-bucket rate limiter, semver ranges, and a SQL `WHERE` evaluator with full three-valued logic |
 
 The hard tier discriminates. The first model through it — Ornith-1.0-35B, which scores 70/70 on the
-easy tier — managed **16/89 (18%)**. It passes *every* first-turn test on all three tasks and then
-collapses when asked to extend its own code:
+easy tier — reached **49/89 (55%)**, passing *every* first-turn test and then **losing its work at
+the handoff**: asked to extend its own code, it replies with just the new function, and the harness
+scores that file alone.
 
 ```
-hard_ratelimit   first 10 -> final 16/25
-hard_semver      first 11 -> final  0/27
-hard_where       first 14 -> final  0/37
+                 turn 1      corrected     as first reported
+hard_ratelimit   10/10       16/25         16/25
+hard_semver      11/11       11/27          0/27   <- bug 12
+hard_where       14/14       22/37          0/37   <- bug 12
 ```
+
+That first `16/89 (18%)` was **mostly a harness artifact** — fragment detection used a substring
+test, so a partial reply that merely *called* the entry symbol was graded as a complete solution
+worth 0. It is written up as bug 12, and `evals/rescore.py` re-derives corrected scores from stored
+runs without re-spending GPU time. The suite caught it the way it caught the others: a number that
+was too clean to believe.
 
 Writing the code was never the hard part. Revising it is.
 
