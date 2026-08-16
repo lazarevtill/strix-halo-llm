@@ -19,15 +19,25 @@ HF_BASE="${HF_ENDPOINT:-https://huggingface.co}"
 # key|repo|path|expected_bytes
 REGISTRY=(
   "ornith-q5|deepreinforce-ai/Ornith-1.0-35B-GGUF|ornith-1.0-35b-Q5_K_M.gguf|24729130848"
+  "qwen38|unsloth/Qwen3.8-27B-GGUF|Qwen3.8-27B-UD-Q4_K_XL.gguf|17923394624"
+  "qwen38-mmproj|unsloth/Qwen3.8-27B-GGUF|mmproj-F16.gguf|927607488"
   "qwen122b-1|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf|10943808"
   "qwen122b-2|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf|49667346080"
   "qwen122b-3|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf|28968190016"
 )
-# All four byte counts are VERIFIED against files on disk (2026-08-04). Worth stating because
-# the first draft of this table had ornith-q5 off by ~9 MB from a guessed value — a size that
-# looks right and produces a GGUF that fails at load with a confusing error rather than an
-# obvious one. Never guess these; read them from the HF API or a known-good file.
-# Shard 1 of Qwen being only ~10 MB is CORRECT — it holds the MTP head, not weights.
+# Every byte count here is VERIFIED — the original four against files on disk (2026-08-04), the
+# two qwen38 rows against the HF API and the Windows registry they mirror (2026-08-16). Worth
+# stating because the first draft of this table had ornith-q5 off by ~9 MB from a guessed value —
+# a size that looks right and produces a GGUF that fails at load with a confusing error rather
+# than an obvious one. Never guess these; read them from the HF API or a known-good file.
+# Shard 1 of Qwen122b being only ~10 MB is CORRECT — it holds the MTP head, not weights.
+#
+# qwen38 was MISSING here until 2026-08-16 while README.md, docs/INSTALL.md and
+# scripts/linux/README.md all told Linux users to run `--only qwen38` as step two of the quick
+# start. It is the documented default model on the Windows side and carries its MTP head in the
+# main GGUF (--spec-type draft-mtp, n-max 3 — 1.79x). The mmproj row is its vision projector and
+# is a SEPARATE key on purpose: it is only needed for image input, and pulling 0.9 GB nobody
+# asked for is the kind of thing that makes people stop trusting a downloader.
 
 usage() {
   cat <<'EOF'
@@ -68,7 +78,7 @@ human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"; }
 entry_fields() { IFS='|' read -r KEY REPO RPATH WANT <<<"$1"; FNAME="$(basename "$RPATH")"; }
 
 if [[ "$MODE" == "list" || "$MODE" == "verify" ]]; then
-  printf '%-12s %-14s %-14s %s\n' KEY EXPECTED ONDISK STATUS
+  printf '%-14s %-14s %-14s %s\n' KEY EXPECTED ONDISK STATUS
   for e in "${REGISTRY[@]}"; do
     entry_fields "$e"
     local_path="${DEST}/${FNAME}"
@@ -78,7 +88,7 @@ if [[ "$MODE" == "list" || "$MODE" == "verify" ]]; then
     else
       have=0; status="missing"
     fi
-    printf '%-12s %-14s %-14s %s\n' "$KEY" "$(human "$WANT")" "$(human "$have")" "$status"
+    printf '%-14s %-14s %-14s %s\n' "$KEY" "$(human "$WANT")" "$(human "$have")" "$status"
   done
   exit 0
 fi

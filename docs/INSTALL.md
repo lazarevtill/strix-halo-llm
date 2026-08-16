@@ -132,7 +132,8 @@ One model at a time, holding the whole memory budget. Every launcher here refuse
 another model is resident — two models sharing one memory bus don't give you a slightly wrong
 number, they give you a meaningless one. With no model argument each launcher lists the GGUFs in
 `models/` and asks which to serve (or takes the only one if there is just one); pass `-Model` /
-`-m` to skip the prompt.
+`-m` to skip the prompt. If your weights live outside the checkout, point `MODELS_DIR` at them —
+the same variable `fetch-models.sh` already honours.
 
 ```powershell
 .\scripts\windows\run-solo.ps1                       # Windows — prompts for the model
