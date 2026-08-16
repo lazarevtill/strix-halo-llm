@@ -183,6 +183,45 @@ bought almost nothing, because prefill here is not bound by that term. What *did
 > unknown quality regression, and this repo has been burned by exactly that shape of assumption.
 > Run both through the eval suites before changing what `run-solo.ps1` serves.
 
+### Round 4 (2026-08-17): the curve, and what it says about the box
+
+Extending upward to `Q6_K`, all five re-run in one session on one binary:
+
+| quant | GiB | pp4096 | pp16384 | tg128 | **tg × GiB** |
+|---|---:|---:|---:|---:|---:|
+| **Q4_K_M** | 15.92 | **195.7** | **183.7** | **12.06** | 192.0 |
+| UD-Q4_K_XL | 16.68 | 194.6 | 183.2 | 11.44 | 190.8 |
+| Q5_K_M | 18.46 | 184.1 | 174.1 | 10.58 | 195.3 |
+| Q6_K | 21.30 | 167.1 | 158.6 | 9.21 | 196.2 |
+
+**Look at the last column.** `tg × size` is constant to **2.8%** across a 34% span of model size. At
+Q4 and above, generation on this box is doing nothing but reading weights:
+
+```
+tg  ≈  194 GiB/s  /  model size in GiB
+```
+
+That is **~81% of the 238 GiB/s theoretical** for this part's LPDDR5X — a good efficiency figure,
+and it means the quant question for a *dense* model has no interesting answer above Q4. You are
+buying tokens per second at a fixed exchange rate of gigabytes. It predicts `Q8_0` (27.05 GiB) at
+**7.2 t/s**; that run was interrupted and is the obvious way to falsify this.
+
+**Prefill behaves completely differently, and the contrast is the point.** From `Q4_K_M` to `Q6_K`
+the model grows 34% while prefill falls only 14% — nothing like the 1/size that generation follows.
+**Prefill is compute-bound; generation is bandwidth-bound.** Which is why `-ub` (a compute-tiling
+knob) moves prefill 29% and barely touches generation, while the quant moves generation and barely
+touches prefill. Two different bottlenecks, two different levers, and neither one helps the other.
+
+> **This law is per-model, NOT per-box. Do not apply it across architectures.** It says a *dense*
+> 27B reads all its weights every token. `Ornith-1.0-35B` is 23.0 GiB and generates at **62.4 t/s** —
+> 7× what this formula predicts — because it is MoE and only a fraction of its weights are active
+> per token. The right general statement is `tg ≈ 194 / (GiB actually read per token)`, and for MoE
+> that is much smaller than the file.
+
+**Reproducibility:** rounds 3 and 4 agree within **0.36%** on every figure. So the `Q4_K_M` vs
+`UD-Q4_K_XL` generation gap (5.4%) is roughly 15× the run-to-run spread, and the `Q6_K` gap is
+enormous. `llama-bench` timing noise is not what is being reported here.
+
 **Other flags** (baseline = UD-Q4_K_XL, `draft-mtp` n=3, f16 KV, 20.06 t/s):
 
 | change | tg | verdict |
