@@ -20,7 +20,7 @@ jobs:
     name: bash syntax + shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: bash -n every shell script
         run: |
@@ -54,9 +54,9 @@ jobs:
     name: python compile + rescore self-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -73,7 +73,7 @@ jobs:
     name: PowerShell 5.1 parse
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # `shell: powershell` is Windows PowerShell 5.1; `pwsh` would be 7.x and would
       # happily parse `&&`, ternaries and `??`, none of which run on the target.
@@ -115,9 +115,9 @@ jobs:
     # run for anyone but the author. Nothing here scores a model; it proves the sandbox
     # discriminates good code from bad and that every turn prompt is satisfiable by its reference.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -141,7 +141,7 @@ jobs:
     # Only running the launcher and reading the argv it would exec catches that class.
     # LLAMA_BIN=/bin/echo satisfies the executable check; --dry-run prints the argv and exits.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Assert the flags the launchers actually emit
         run: |
