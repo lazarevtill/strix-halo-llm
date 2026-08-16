@@ -31,14 +31,23 @@ param(
     [int]    $Port = 8099,
     [int]    $Seed = 42,
     # Restrict to a subset of the labels below, e.g. -Only ornith,qwen38
-    [string[]] $Only = @()
+    [string[]] $Only = @(),
+    # Run identifier for the log and the speed JSONs. Defaults to now; pass it only to write into
+    # an existing run's directory on purpose.
+    [string] $Stamp = ''
 )
 $ErrorActionPreference = 'Continue'
 $root    = 'D:\llamacpp-vulkan\evals'
 $bench   = 'D:\llamacpp-vulkan\bin\llama-bench.exe'
 $outdir  = Join-Path $root 'results'
 New-Item -ItemType Directory -Force -Path $outdir | Out-Null
-$stamp   = '20260815-1630'          # fixed, not Get-Date: one run -> one directory
+# One run -> one stamp, so the speed JSONs and the log of a single invocation stay together. This
+# was a hardcoded literal, which held for exactly one day: the next run wrote into the PREVIOUS
+# run's log, and because that file still had a lock on it, every log line failed with an
+# Add-Content IOException while the eval itself carried on unlogged. Default to now; pass -Stamp to
+# resume into an existing run's directory deliberately.
+if (-not $Stamp) { $Stamp = Get-Date -Format 'yyyyMMdd-HHmm' }
+$stamp   = $Stamp
 $log     = Join-Path $outdir "fullbench-$stamp.log"
 
 $HARD = 'hard_ratelimit,hard_semver,hard_where'

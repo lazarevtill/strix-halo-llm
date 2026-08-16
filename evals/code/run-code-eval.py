@@ -31,7 +31,29 @@ REFDIR = E / "reference"
 SANDBOX_IMAGE = "llm-eval-sandbox"
 
 
-def http_json(url, payload=None, timeout=1800):
+# The request must be allowed to run as long as the token budget can physically take.
+#
+# This was a flat 1800s while MAX_TOKENS was raised to 32768, and the two were never checked
+# against each other. 32768 tokens needs 2291s at laguna's 14.3 t/s and 2621s at deepseek's 12.5 --
+# so on 2026-08-15 laguna aborted two of three hard tasks and deepseek one, each with
+# "ENVIRONMENT request failed: timed out". The env guard then correctly scored them 0/0, which made
+# the tasks VANISH from the denominator, and laguna printed 24/25 = 96%: the best number in the
+# sweep, from a model that finished one task in three.
+#
+# It only bites a model that actually generates to the cap, which is why the three fastest models
+# never saw it. Derive it instead: a conservative floor rate, plus headroom for prefill of a long
+# context and for the sandbox queueing behind it.
+GEN_FLOOR_TPS = 10.0      # slowest measured here is 12.5 t/s (deepseek); 10 leaves margin
+PREFILL_HEADROOM_S = 900
+
+
+def request_timeout(max_tokens=None):
+    return int((max_tokens or MAX_TOKENS) / GEN_FLOOR_TPS + PREFILL_HEADROOM_S)
+
+
+def http_json(url, payload=None, timeout=None):
+    if timeout is None:
+        timeout = request_timeout()
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     hdrs = {"Content-Type": "application/json; charset=utf-8"} if data else {}
     req = urllib.request.Request(url, data, hdrs)
@@ -114,6 +136,32 @@ SEED = 42
 # finish inside 32k tokens of reasoning is telling you something real about itself, and that
 # belongs in the results rather than being retried away.
 MAX_TOKENS = 32768
+
+
+def defines(code: str, entry: str) -> bool:
+    """True when `entry` is DEFINED in this code, not merely mentioned.
+
+    Bug 12. This used to be `entry not in code` -- a SUBSTRING test. Multi-turn prompts say
+    "Add a `Range` class", so models reply with only the new code; the harness overwrites
+    solution.py wholesale, so a partial reply loses every earlier turn and fails on import. That
+    case was anticipated and flagged FRAGMENT, but a fragment that merely CALLS the entry symbol
+    (`ver = Version(v) if isinstance(v, str) else v`) contains the string, so it was classified as
+    a complete solution and scored 0 -- indistinguishable from a model that wrote garbage. Five of
+    ornith's twelve hard-tier turns were misclassified this way; corrected, it reads 55%, not 18%.
+
+    Regex, not ast.parse: a fragment with a syntax error still needs a verdict, and ast.parse
+    raises on exactly the inputs that matter most here. Kept identical to evals/rescore.py's
+    defines() so re-derived and freshly-scored runs agree.
+    """
+    if not entry:
+        return True
+    if re.search(rf"^\s*(?:async\s+def|def|class)\s+{re.escape(entry)}\b", code, re.M):
+        return True
+    if re.search(rf"^\s*{re.escape(entry)}\s*=", code, re.M):
+        return True
+    if re.search(rf"^\s*from\s+\S+\s+import\s+.*\b{re.escape(entry)}\b", code, re.M):
+        return True
+    return False
 
 
 def tests_by_turn(task_id: str) -> dict:
@@ -276,7 +324,7 @@ def run_model(label, endpoint, transcript_dir):
             # full file. That is an instruction-following miss, not "it broke the code" -- but the
             # harness overwrites solution.py wholesale, so a partial edit crashes on import and
             # scores identically to garbage. Flag it, and keep it out of the "regressed" claim.
-            fragment = bool(code) and task.get("entry") and task["entry"] not in code
+            fragment = bool(code) and not defines(code, task.get("entry"))
             if fragment:
                 note_prefix = f"FRAGMENT (missing '{task['entry']}'); "
             else:
