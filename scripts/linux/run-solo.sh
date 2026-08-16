@@ -157,7 +157,14 @@ if [[ ${#OTHERS[@]} -gt 0 ]]; then
   if [[ $DRY_RUN -eq 0 ]]; then
     kill "${OTHERS[@]}" 2>/dev/null || true
     sleep 3
-    pgrep -x llama-server >/dev/null 2>&1 && kill -9 "$(pgrep -x llama-server)" 2>/dev/null || true
+    # Re-read the list rather than testing and then re-running pgrep: between the two calls a
+    # process can exit, and `kill -9 "$(pgrep ...)"` with an empty substitution kills nothing while
+    # reporting success. One capture, then act on it.
+    survivors=()
+    mapfile -t survivors < <(pgrep -x llama-server || true)
+    if [[ ${#survivors[@]} -gt 0 ]]; then
+      kill -9 "${survivors[@]}" 2>/dev/null || true
+    fi
   fi
 fi
 

@@ -34,6 +34,19 @@ jobs:
           # A find that silently matches nothing is a green check that proves nothing.
           [ "$found" -gt 0 ] || { echo "no *.sh found under scripts/ -- did the tree move?" >&2; exit 1; }
 
+      # PINNED. The runner's preinstalled shellcheck is not the version anyone develops against,
+      # and they disagree: 0.11.0 accepts `cmd && act || true` while an older one raises SC2015 on
+      # it. An unpinned linter turns "CI is green" into a statement about the runner image rather
+      # than about this repo -- the same reason every benchmark here carries its build number.
+      - name: Install shellcheck ${{ env.SHELLCHECK_VERSION }}
+        env:
+          SHELLCHECK_VERSION: v0.11.0
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            | tar -xJf - --strip-components=1 -C /usr/local/bin "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          shellcheck --version
+
       - name: shellcheck
         run: shellcheck scripts/linux/*.sh scripts/macos/*.sh
 
@@ -132,6 +145,13 @@ jobs:
 
       - name: Assert the flags the launchers actually emit
         run: |
+          # `set +e` FIRST, and it is load-bearing. GitHub invokes this block as `bash -e {0}`, so
+          # errexit is already on before the script's own `set` runs: the first assertion that
+          # deliberately expects a non-zero exit (the launcher refusing a directory it cannot
+          # choose from) killed the step before `rc=$?` could be read, and the job reported a
+          # failure with no failing assertion in the log. Verifying this file locally with plain
+          # `bash` did not reproduce it -- the shell flags were the difference.
+          set +e
           set -uo pipefail
           FAIL=0
           ok()  { printf '  ok    %s\n' "$1"; }
