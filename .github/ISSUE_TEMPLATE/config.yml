@@ -1,0 +1,17 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Install and first run
+    url: https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/INSTALL.md
+    about: Nothing to a working endpoint on Windows, Linux or macOS. Start here before filing anything.
+  - name: What the terms mean
+    url: https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/EXPLAIN.md
+    about: ubatch, KV cache, speculative decoding, quants — in plain English, no ML background needed.
+  - name: Tuning — and five optimisations that measurement killed
+    url: https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/GOING-FASTER.md
+    about: Before asking why it is slow. The most-often-wrong flag on gfx1151 is -ub.
+  - name: How to benchmark without fooling yourself
+    url: https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/BENCHMARKS.md
+    about: Read this before quoting any number from this repo, or sending one to it.
+  - name: Contributing
+    url: https://github.com/lazarevtill/strix-halo-llm/blob/main/CONTRIBUTING.md
+    about: What this repo wants most, and the conventions a PR has to hold to.

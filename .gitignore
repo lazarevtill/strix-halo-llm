@@ -16,6 +16,14 @@ evals/tools/cases.jsonl
 evals/code/tasks.json
 evals/code/tests/
 evals/code/reference/
+#
+# NOTE THE ANCHORING. These four patterns start with a path, so git matches them ONLY at those
+# exact locations -- `evals/code/examples/tasks.json`, `examples/tests/` and `examples/reference/`
+# are deliberately NOT matched and ARE committed. That public example suite is what lets anyone who
+# clones this repo run smoke.py and the harness end to end; without it run-code-eval.py raised
+# FileNotFoundError at import for every reader who was not the author, which made the repo's own
+# self-test unrunnable by exactly the people it was meant to convince. Do not "fix" these patterns
+# by adding `**/` -- that would silently re-break it.
 
 # ---- (2) PRIVATE WORKING LOGS ------------------------------------------------
 .remember/

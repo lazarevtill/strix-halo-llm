@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "PUBLIC EXAMPLE SUITE. This is not a benchmark and must never be reported as one.",
+    "",
+    "The real suites are withheld (docs/PUBLISHING.md): a published benchmark stops measuring",
+    "anything the moment models train on it. This file exists for the opposite reason -- so that",
+    "anyone who clones the repo can run smoke.py and the full harness end to end and watch them",
+    "work, instead of being asked to take the published numbers on faith.",
+    "",
+    "The task below is deliberately a textbook exercise that every model has already memorised.",
+    "That is the point: leaking it teaches models nothing they do not already know, so it costs",
+    "nothing to publish, while still exercising every part of the machinery -- multi-turn prompts,",
+    "turn-scoped test sections, fragment detection via the entry symbol, reference calibration,",
+    "and the Docker sandbox.",
+    "",
+    "It cannot rank models and must not be used to. Every model worth serving scores 100% here."
+  ],
+  "tasks": [
+    {
+      "id": "example_stack",
+      "tier": "example",
+      "module": "solution",
+      "entry": "Stack",
+      "turns": [
+        "Write a `Stack` class in Python with `push(item)`, `pop()`, `peek()` and `__len__()`. `pop()` and `peek()` must raise `IndexError` on an empty stack. Reply with the complete contents of solution.py.",
+        "Add a `min()` method that returns the smallest item currently on the stack, and must run in O(1) -- do not scan the stack on each call. It raises `IndexError` when the stack is empty. Keep everything from the previous turn working. Reply with the complete contents of solution.py.",
+        "There is a bug: after pushing 5, 3, 5 and then popping once, `min()` returns 5 instead of 3. Fix it, and add an optional `capacity` argument to `__init__` (default `None` = unbounded); when the stack is full, `push()` must raise `OverflowError`. Reply with the complete contents of solution.py."
+      ]
+    }
+  ]
+}

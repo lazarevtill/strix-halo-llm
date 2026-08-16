@@ -17,7 +17,7 @@ This asserts three things, in ~30s:
 
 Usage:  python smoke.py            # exits non-zero if the harness is not trustworthy
 """
-import json, pathlib, sys
+import json, pathlib, subprocess as sp, sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import importlib.util
@@ -27,7 +27,10 @@ spec = importlib.util.spec_from_file_location("rce", E / "run-code-eval.py")
 rce = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rce)
 
-REF = E / "reference"
+# Resolved by run-code-eval.py: the private suite when it is present, the public example suite
+# otherwise. smoke.py has to work in BOTH cases -- a self-test only the author can run is not
+# evidence anyone else can act on.
+REF = rce.REFDIR
 fails = []
 
 
@@ -35,6 +38,32 @@ def check(name, cond, detail=""):
     print(f"  [{'PASS' if cond else 'FAIL'}] {name}{'' if cond else '  -- ' + detail}")
     if not cond:
         fails.append(name)
+
+
+def sandbox_available():
+    """Is the Docker sandbox usable at all? Returns (ok, why_not).
+
+    Bug 9 in evals/README.md is that an environment failure and a model failure looked identical,
+    so the runner learned to tell them apart -- and then this script went on conflating them. With
+    no Docker every sandbox check returns 0/0 and smoke.py printed "HARNESS NOT TRUSTWORTHY",
+    accusing the harness of a defect when the truth is that nothing was measured at all. The first
+    thing a stranger runs should not misreport what it found.
+    """
+    try:
+        r = sp.run(["docker", "image", "inspect", rce.SANDBOX_IMAGE],
+                   capture_output=True, text=True, timeout=60)
+    except FileNotFoundError:
+        return False, "docker is not installed or not on PATH"
+    except sp.TimeoutExpired:
+        return False, "docker did not respond within 60s (daemon not running?)"
+    if r.returncode == 0:
+        return True, ""
+    lines = (r.stderr or r.stdout).strip().splitlines()
+    tail = lines[-1][:160] if lines else f"rc={r.returncode}"
+    if "no such image" in tail.lower():
+        return False, (f"sandbox image '{rce.SANDBOX_IMAGE}' is not built -- run: "
+                       f"docker build -f evals/code/Dockerfile.sandbox -t {rce.SANDBOX_IMAGE} evals/code")
+    return False, f"docker present but not usable: {tail}"
 
 
 print("1. extraction")
@@ -47,25 +76,32 @@ for raw, want in [
     code, how = rce.extract_code(raw)
     check(f"extract({raw[:24]!r}...) -> {want}", how == want, f"got {how}")
 
+SANDBOX_OK, SANDBOX_WHY = sandbox_available()
+
 print("\n2. sandbox discriminates")
-good = "def add(a, b):\n    return a + b\n"
-bad = "def add(a, b):\n    return a - b\n"
-broken = "this is not python at all ((("
-(E / "tests").mkdir(exist_ok=True)
-probe = E / "tests" / "test__smoke.py"
-probe.write_text("from solution import add\n\ndef test_a():\n    assert add(2, 3) == 5\n\ndef test_b():\n    assert add(0, 0) == 0\n", encoding="utf-8")
-try:
-    p, t, note = rce.score_in_sandbox("_smoke", good)
-    check("known-good solution passes 2/2", (p, t) == (2, 2), f"got {p}/{t} ({note})")
-    p, t, note = rce.score_in_sandbox("_smoke", bad)
-    check("known-bad solution does not pass", p < t and t > 0, f"got {p}/{t} ({note})")
-    p, t, note = rce.score_in_sandbox("_smoke", broken)
-    check("unparsable code scores 0, not a crash", p == 0, f"got {p}/{t} ({note})")
-finally:
-    probe.unlink(missing_ok=True)
+if not SANDBOX_OK:
+    print(f"  [SKIP] {SANDBOX_WHY}")
+else:
+    good = "def add(a, b):\n    return a + b\n"
+    bad = "def add(a, b):\n    return a - b\n"
+    broken = "this is not python at all ((("
+    rce.TESTDIR.mkdir(parents=True, exist_ok=True)
+    probe = rce.TESTDIR / "test__smoke.py"
+    probe.write_text("from solution import add\n\ndef test_a():\n    assert add(2, 3) == 5\n\ndef test_b():\n    assert add(0, 0) == 0\n", encoding="utf-8")
+    try:
+        p, t, note = rce.score_in_sandbox("_smoke", good)
+        check("known-good solution passes 2/2", (p, t) == (2, 2), f"got {p}/{t} ({note})")
+        p, t, note = rce.score_in_sandbox("_smoke", bad)
+        check("known-bad solution does not pass", p < t and t > 0, f"got {p}/{t} ({note})")
+        p, t, note = rce.score_in_sandbox("_smoke", broken)
+        check("unparsable code scores 0, not a crash", p == 0, f"got {p}/{t} ({note})")
+    finally:
+        probe.unlink(missing_ok=True)
 
 print("\n3. task prompts are satisfiable by the reference solution")
-tasks = json.loads((E / "tasks.json").read_text(encoding="utf-8"))["tasks"]
+if not SANDBOX_OK:
+    print(f"  [SKIP] {SANDBOX_WHY}")
+tasks = [] if not SANDBOX_OK else rce.TASKS
 for task in tasks:
     tid = task["id"]
     ref = REF / f"{tid}.py"
@@ -80,4 +116,15 @@ print()
 if fails:
     print(f"HARNESS NOT TRUSTWORTHY -- {len(fails)} check(s) failed: {', '.join(fails)}")
     sys.exit(1)
+if not SANDBOX_OK:
+    # Exit 2, not 0 and not 1. Callers must still refuse to start a multi-hour sweep -- nothing was
+    # scored -- but "we could not check" is a different claim from "we checked and it is broken",
+    # and collapsing the two is how an environment fault gets written down as a quality result.
+    print(f"CANNOT VERIFY -- extraction is sane, but the sandbox could not be reached: {SANDBOX_WHY}")
+    print("Nothing was scored. This is an environment gap, NOT evidence that the harness is wrong.")
+    sys.exit(2)
+if rce.USING_EXAMPLES:
+    print("harness OK -- verified against the PUBLIC EXAMPLE SUITE. It proves the machinery works;")
+    print("it says nothing about any model. The measured suites are private (docs/PUBLISHING.md).")
+    sys.exit(0)
 print("harness OK")

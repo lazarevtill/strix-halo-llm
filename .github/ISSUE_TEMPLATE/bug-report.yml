@@ -1,0 +1,77 @@
+name: Bug report
+description: A script, launcher or eval harness misbehaves.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reporting a **number** that looks wrong rather than a crash? Use the
+        *Benchmark result* form instead, and attach the conditions — most of the wrong numbers
+        this repo has produced looked entirely plausible, which is why thirteen of them are
+        written up in
+        [evals/README.md](https://github.com/lazarevtill/strix-halo-llm/blob/main/evals/README.md).
+
+        If a launcher fails, run it with `--dry-run` (bash) first: it prints the exact
+        `llama-server` invocation and launches nothing, which separates an argument bug from a
+        runtime one.
+
+  - type: input
+    id: script
+    attributes:
+      label: Which script or entry point
+      placeholder: "scripts/linux/run-solo.sh"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and shell
+      description: The Windows scripts target PowerShell **5.1**; the Linux and macOS trees are bash drafts that have never been run on their own platform.
+      placeholder: "Windows 11, PowerShell 5.1"
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: llama.cpp build
+      description: The tag from `bin/`, or "n/a" if llama.cpp is not involved.
+      placeholder: "b10431"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The error, the startup banner, or the `--dry-run` command line. If the banner lists no Vulkan device, that is the problem — nothing else works until it does.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Checked first
+      options:
+        - label: No other `llama-server` is holding VRAM (an `ErrorOutOfDeviceMemory` here usually means a stale process, not a model that is too big).
+          required: false
+        - label: This is reproducible, not a one-off.
+          required: false

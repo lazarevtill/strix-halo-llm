@@ -22,12 +22,39 @@ import datetime as _dt
 
 E = pathlib.Path(__file__).resolve().parent
 BIN = pathlib.Path(r"D:\llamacpp-vulkan\bin\llama-server.exe")
-TASKS = json.loads((E / "tasks.json").read_text(encoding="utf-8"))["tasks"]
+
+# WHICH SUITE ARE WE RUNNING?
+#
+# The real cases (tasks.json, tests/, reference/) are gitignored and exist only on the machines
+# that measure with them -- publishing them would put them in the next crawl and retroactively
+# devalue every number ever recorded here (docs/PUBLISHING.md).
+#
+# That had a consequence nobody intended: on a fresh clone this module raised FileNotFoundError at
+# IMPORT time, so `python smoke.py` -- the thing the README offers as the reason to trust any number
+# in this repo -- died with a traceback for every reader who was not the author. A harness whose
+# self-test cannot run is asking to be taken on faith, which is the one thing this repo refuses to
+# ask for. So when the private suite is absent we fall back to a small public example suite that
+# exercises the same machinery end to end.
+SUITE = E if (E / "tasks.json").exists() else E / "examples"
+USING_EXAMPLES = SUITE != E
+TESTDIR = SUITE / "tests"
+REFDIR = SUITE / "reference"
+if not (SUITE / "tasks.json").exists():
+    sys.exit(f"no suite found: neither {E / 'tasks.json'} nor {SUITE / 'tasks.json'} exists")
+TASKS = json.loads((SUITE / "tasks.json").read_text(encoding="utf-8"))["tasks"]
+if USING_EXAMPLES:
+    print(
+        "!! PUBLIC EXAMPLE SUITE -- evals/code/tasks.json is absent, so this is running the\n"
+        "   demonstration tasks in evals/code/examples/. They exist to prove the harness works,\n"
+        "   not to rank models: they are textbook exercises every model has already seen, and a\n"
+        "   score on them is NOT comparable with any number published in this repo.\n"
+        "   See docs/PUBLISHING.md for how to author your own private cases.",
+        flush=True,
+    )
 # Per-process work dir. A single shared `_work` is a silent cross-contamination path: two eval runs
 # interleave rmtree / write solution.py / docker run, and model A gets scored on model B's code with
 # no error anywhere.
 WORK = E / f"_work-{os.getpid()}"
-REFDIR = E / "reference"
 SANDBOX_IMAGE = "llm-eval-sandbox"
 
 
@@ -173,7 +200,7 @@ def tests_by_turn(task_id: str) -> dict:
     returned byte-identical first-turn scores (12/8/14/11) on every run. That metric measured the
     test file, not the models.
     """
-    src = (E / "tests" / f"test_{task_id}.py").read_text(encoding="utf-8")
+    src = (TESTDIR / f"test_{task_id}.py").read_text(encoding="utf-8")
     turn, out = 1, {}
     for line in src.splitlines():
         m = re.match(r"\s*#\s*-*\s*turn\s*(\d)", line, re.I)
@@ -191,7 +218,7 @@ def score_in_sandbox(task_id: str, code: str, max_turn: int = 99) -> tuple[int, 
         shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "solution.py").write_text(code, encoding="utf-8")
-    test_src = E / "tests" / f"test_{task_id}.py"
+    test_src = TESTDIR / f"test_{task_id}.py"
     if not test_src.exists():
         return 0, 0, f"NO_TESTS for {task_id}"
     shutil.copy(test_src, WORK / f"test_{task_id}.py")
@@ -541,7 +568,7 @@ def main():
             # PROVENANCE -- see the tools eval. Three harness vintages in one file made every
             # earlier number unattributable after the fact.
             "harness_mtime": _dt.datetime.fromtimestamp(pathlib.Path(__file__).stat().st_mtime).isoformat(),
-            "tasks_mtime": _dt.datetime.fromtimestamp((E / "tasks.json").stat().st_mtime).isoformat(),
+            "tasks_mtime": _dt.datetime.fromtimestamp((SUITE / "tasks.json").stat().st_mtime).isoformat(),
             "endpoint": endpoint, "max_tokens": MAX_TOKENS, "temperature": TEMP, "seed": SEED,
             "detail": rows}) + "\n")
     print("appended ->", res)

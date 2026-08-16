@@ -4,6 +4,7 @@
 
 **Get the most out of an AMD Strix Halo box for local LLM inference — measured, not guessed.**
 
+[![verify](https://github.com/lazarevtill/strix-halo-llm/actions/workflows/verify.yml/badge.svg)](https://github.com/lazarevtill/strix-halo-llm/actions/workflows/verify.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Windows%2011-measured-0078D6?logo=windows&logoColor=white)](#requirements)
 [![Linux](https://img.shields.io/badge/Linux-drafts%20(unproven)-FCC624?logo=linux&logoColor=black)](#other-platforms)
@@ -21,6 +22,23 @@
 **Windows · Linux · macOS** — [installation for all three](docs/INSTALL.md)
 
 </div>
+
+```powershell
+git clone https://github.com/lazarevtill/strix-halo-llm.git && cd strix-halo-llm
+.\scripts\windows\fetch-llamacpp.ps1 -Build b10431   # the engine, into bin\. Nothing to compile.
+.\scripts\windows\fetch-models.ps1 -Only qwen38      # ~17 GB. -List shows the registry.
+.\scripts\windows\run-solo.ps1                       # -> OpenAI API on http://127.0.0.1:8080/v1
+```
+
+Linux and macOS are the same three steps in `scripts/linux/` and `scripts/macos/` — **ported but
+unproven**, so run them with `--dry-run` first. [Full walkthrough for all three →](docs/INSTALL.md)
+
+**Don't have this hardware?** Two parts of this repo are about measurement rather than about one
+GPU, and they transfer: **[the thirteen harness bugs](evals/README.md)** — each with the believable
+wrong number it produced, including the pair that faked a four-way tie between models spanning
+16.7 GB to 89 GB — and **[how to benchmark without fooling yourself](docs/BENCHMARKS.md)**. The eval
+harness runs anywhere Python and Docker do; `python evals/code/smoke.py` scores it against itself in
+about thirty seconds.
 
 ---
 
@@ -344,6 +362,15 @@ limit. Those need re-measuring on Linux rather than assuming they carry over.
 **Portable already:** [`evals/code/run-code-eval.py`](evals/code/run-code-eval.py),
 [`evals/code/smoke.py`](evals/code/smoke.py) and the
 [Docker sandbox](evals/code/Dockerfile.sandbox) are plain Python and run anywhere.
+
+That claim used to be false in the way that matters. The measured cases are gitignored, so on a
+fresh clone `run-code-eval.py` raised `FileNotFoundError` at import and `smoke.py` — the script
+offered here as the reason to trust any number in this repo — died with a traceback for everyone who
+was not its author. There is now a committed
+**[public example suite](evals/code/examples/)**: one deliberately textbook task, in the same
+three-turn shape, that the harness falls back to and announces loudly. It ranks nothing and every
+model passes it; it exists so that the self-test is something you can run rather than something you
+are asked to believe.
 
 ### Other platforms
 

@@ -1,0 +1,135 @@
+name: Benchmark result
+description: A measured pp/tg number from your box. Numbers from other Strix Halo boxes, or from Linux, are the most useful thing anyone can send.
+title: "[bench] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A number without its conditions cannot be compared to anything.** Four attributes are
+        mandatory here — **context depth, quant, backend, build** — because every one of them moves
+        the result by more than the differences people usually argue about. Depth especially:
+        `llama-bench` defaults to depth 0, an empty KV cache, and that number is a fiction for
+        agentic work.
+
+        **pp and tg go in separate boxes.** A single "tok/s" is not a result: prefill is
+        compute-bound and decode is bandwidth-bound on *active* parameters, so they move in
+        opposite directions under the same change.
+
+        If your run is *worse* than one published here, that is still a result — post it. Method
+        and pitfalls:
+        [docs/BENCHMARKS.md](https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/BENCHMARKS.md).
+
+  - type: input
+    id: depth
+    attributes:
+      label: Context depth
+      description: The `-d` value, or the real conversation depth. Say `0` if it was the llama-bench default, and say so plainly.
+      placeholder: "-d 32768"
+    validations:
+      required: true
+
+  - type: input
+    id: quant
+    attributes:
+      label: Quant
+      placeholder: "UD-Q4_K_XL"
+    validations:
+      required: true
+
+  - type: input
+    id: backend
+    attributes:
+      label: Backend
+      description: Vulkan, ROCm, CUDA, Metal, CPU. If it was Ollama rather than llama.cpp, say that too — it is not the same comparison.
+      placeholder: "Vulkan"
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: llama.cpp build
+      description: The build tag, not "latest". Numbers move between builds.
+      placeholder: "b10431"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model / GGUF file
+      description: Repo and filename, so the exact weights can be fetched.
+      placeholder: "unsloth/Qwen3.8-27B-GGUF — Qwen3.8-27B-UD-Q4_K_XL.gguf"
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware
+      description: APU/GPU, total RAM, the VRAM carve-out if there is one, and memory speed. Memory speed matters — token generation is bandwidth-bound.
+      placeholder: |
+        Ryzen AI MAX+ 395 / Radeon 8060S (gfx1151)
+        128 GB LPDDR5X @ 8000 MT/s, 96 GB carve-out
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and driver
+      placeholder: "Ubuntu 24.04, Mesa 25.x RADV"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The exact command line
+      description: Paste it verbatim, flags and all. Half the surprises in this repo turned out to be a flag nobody mentioned.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: pp
+    attributes:
+      label: pp — prompt processing / prefill (t/s)
+      placeholder: "167"
+    validations:
+      required: true
+
+  - type: input
+    id: tg
+    attributes:
+      label: tg — token generation / decode (t/s)
+      placeholder: "20.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: raw
+    attributes:
+      label: Raw output
+      description: The llama-bench table or server log, if you have it. Repeat count and spread are worth more than a single figure.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything you had to work around, anything that contradicts a number in this repo, and anything you are unsure of. A contradiction is a finding, not a complaint.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: conditions
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I have attached context depth, quant, backend and build, and I understand a result without its conditions cannot be compared to anything.
+          required: true
+        - label: The GPU was otherwise idle — no second model resident, no other process holding VRAM.
+          required: false

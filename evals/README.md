@@ -57,6 +57,28 @@ docker build -f code\Dockerfile.sandbox -t llm-eval-sandbox code
 Behind a private mirror, add
 `--build-arg BASE_IMAGE=<registry>/proxy/python:3.12-slim --build-arg PIP_INDEX_URL=<index-url>`.
 
+
+## Running it without the private cases
+
+The cases are withheld (`..\docs\PUBLISHING.md`), which used to mean the harness could not be run
+at all by anyone else: `run-code-eval.py` read `tasks.json` at import, so a fresh clone got a
+`FileNotFoundError` traceback from the very script that is supposed to establish that these numbers
+can be trusted.
+
+`code\examples\` now holds a public example suite -- one textbook task, same three-turn shape --
+that the harness falls back to and announces in its first five lines. It exercises the whole
+machinery (turn-scoped tests, parametrized-test counting, fragment detection, reference calibration,
+the sandbox) and ranks nothing: every model passes it. See `code\examples\README.md`.
+
+```powershell
+docker build -f code\Dockerfile.sandbox -t llm-eval-sandbox code
+python code\smoke.py     # 0 = verified, 1 = a check failed, 2 = sandbox unreachable, nothing scored
+```
+
+Exit 2 is deliberate. "We could not check" and "we checked and it is broken" are different claims,
+and collapsing them is how an environment fault gets written down as a quality result -- which is
+bug 9 below, committed by the self-test that was supposed to catch it.
+
 **Run `python code\smoke.py` before trusting any number** — it gates every run via
 `run-guarded.ps1` and refuses to start a multi-hour sweep on a harness that cannot score itself.
 What exactly the suites contain (category counts, what each isolates, what each coding task is) is

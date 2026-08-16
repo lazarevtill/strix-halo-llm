@@ -1,0 +1,203 @@
+name: verify
+
+# What CI can and cannot do here. There is no GPU, no model, and no private eval
+# content on a runner -- evals/code/tasks.json, tests/, reference/ and
+# evals/tools/cases.jsonl are gitignored on purpose (docs/PUBLISHING.md), so
+# nothing below may import or score them. This workflow checks the parts that are
+# true regardless of hardware: syntax, the rescore self-test, and the launcher
+# argument contract.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: bash syntax + shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n every shell script
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r f; do
+            bash -n "$f"
+            echo "  ok  $f"
+            found=$((found + 1))
+          done < <(find scripts -name '*.sh' -type f | sort)
+          # A find that silently matches nothing is a green check that proves nothing.
+          [ "$found" -gt 0 ] || { echo "no *.sh found under scripts/ -- did the tree move?" >&2; exit 1; }
+
+      - name: shellcheck
+        run: shellcheck scripts/linux/*.sh scripts/macos/*.sh
+
+  python:
+    name: python compile + rescore self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: py_compile
+        run: python -m py_compile evals/*.py evals/code/*.py
+
+      # A real self-test, not a smoke import: it asserts defines() and the
+      # strict/rescued/best turn selection against the failure shapes that
+      # produced bugs 12 and 10. Needs no GPU, no Docker, no private cases.
+      - name: rescore self-test
+        run: python evals/test-rescore.py
+
+  powershell:
+    name: PowerShell 5.1 parse
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `shell: powershell` is Windows PowerShell 5.1; `pwsh` would be 7.x and would
+      # happily parse `&&`, ternaries and `??`, none of which run on the target.
+      # 5.1 is what ships with Windows, which is the whole reason these scripts avoid them.
+      - name: Parse every .ps1
+        shell: powershell
+        run: |
+          $bad = 0
+          # @() and foreach, not a ForEach-Object pipeline: a counter incremented in a
+          # pipeline block is exactly the kind of 5.1 scoping question this job exists to
+          # avoid arguing about.
+          $files = @(Get-ChildItem -Path scripts, evals -Recurse -Filter *.ps1)
+          if ($files.Count -eq 0) { Write-Host "no .ps1 found -- did the tree move?"; exit 1 }
+          foreach ($f in $files) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $f.FullName, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors -and $parseErrors.Count -gt 0) {
+              $bad++
+              Write-Host ("  FAIL {0}" -f $f.FullName)
+              foreach ($e in $parseErrors) {
+                Write-Host ("        line {0}: {1}" -f $e.Extent.StartLineNumber, $e.Message)
+              }
+            } else {
+              Write-Host ("  ok   {0}" -f $f.FullName)
+            }
+          }
+          Write-Host ("{0} file(s) parsed, {1} with errors" -f $files.Count, $bad)
+          if ($bad -gt 0) { exit 1 }
+
+  harness:
+    name: eval harness self-test
+    runs-on: ubuntu-latest
+    # The harness scores itself here on the PUBLIC EXAMPLE SUITE (evals/code/examples/), which is
+    # committed precisely so this is possible: the measured cases are gitignored, and until the
+    # example suite existed run-code-eval.py raised FileNotFoundError at import on any fresh clone,
+    # so smoke.py -- the script the README offers as the reason to trust its numbers -- could not
+    # run for anyone but the author. Nothing here scores a model; it proves the sandbox
+    # discriminates good code from bad and that every turn prompt is satisfiable by its reference.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the eval sandbox
+        run: docker build -f evals/code/Dockerfile.sandbox -t llm-eval-sandbox evals/code
+
+      # Exit codes are meaningful and must not be collapsed: 0 = verified, 1 = a check genuinely
+      # failed, 2 = the sandbox was unreachable so NOTHING was scored. CI must fail on 2 as well --
+      # a run that measured nothing is not a pass -- but the distinction is the point of bug 9.
+      - name: smoke.py
+        run: python evals/code/smoke.py
+
+  launcher-contract:
+    name: launcher argument contract
+    runs-on: ubuntu-latest
+    # WHY BEHAVIOURAL ASSERTIONS AND NOT JUST LINTING. A formatting change once turned
+    # `KV_QUANT=0; shift` into `KV_QUANT=0 shift` in the argument parser. Without the
+    # semicolon that is an environment assignment scoped to `shift`, so --no-kv-quant
+    # parsed cleanly, exited 0, and quietly did nothing. `bash -n` accepted it and
+    # shellcheck reported nothing -- both are correct, because the mutant is valid bash.
+    # Only running the launcher and reading the argv it would exec catches that class.
+    # LLAMA_BIN=/bin/echo satisfies the executable check; --dry-run prints the argv and exits.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert the flags the launchers actually emit
+        run: |
+          set -uo pipefail
+          FAIL=0
+          ok()  { printf '  ok    %s\n' "$1"; }
+          bad() { printf '  FAIL  %s\n' "$1"; FAIL=1; }
+          # `case` rather than [[ =~ ]] so flag text matches literally, not as a regex.
+          has() { case "$2" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
+          want()   { if has "$1" "$2"; then ok "$3"; else bad "$3 -- '$1' missing"; fi; }
+          wantno() { if has "$1" "$2"; then bad "$3 -- '$1' present"; else ok "$3"; fi; }
+
+          ONE="$(mktemp -d)";   : > "${ONE}/only-model.gguf"
+          TWO="$(mktemp -d)";   : > "${TWO}/model-a.gguf"; : > "${TWO}/model-b.gguf"
+          EMPTY="$(mktemp -d)"
+
+          dry() {  # dry <script> <models-dir> [extra args...]
+            local script="$1" models="$2"; shift 2
+            MODELS_DIR="$models" LLAMA_BIN=/bin/echo bash "$script" --dry-run "$@" 2>/dev/null
+          }
+
+          echo "linux/run-solo.sh:"
+          LX="$(dry scripts/linux/run-solo.sh "$ONE")"
+          want   '--ubatch-size 256'   "$LX" 'a) -ub defaults to the measured gfx1151 256'
+          want   '--cache-type-k q8_0' "$LX" 'b) KV cache defaults to q8_0 (k)'
+          want   '--cache-type-v q8_0' "$LX" 'b) KV cache defaults to q8_0 (v)'
+          want   '-lm none'            "$LX" 'c) -lm none, the --no-mmap replacement'
+          wantno '--no-mmap'           "$LX" 'c) deprecated --no-mmap is gone'
+          want   "${ONE}/only-model.gguf" "$LX" 'd) the sole model in MODELS_DIR is selected'
+
+          LXNK="$(dry scripts/linux/run-solo.sh "$ONE" --no-kv-quant)"
+          wantno '--cache-type-k' "$LXNK" 'b) --no-kv-quant removes --cache-type-k'
+          wantno '--cache-type-v' "$LXNK" 'b) --no-kv-quant removes --cache-type-v'
+
+          echo "macos/run-solo.sh:"
+          MC="$(dry scripts/macos/run-solo.sh "$ONE")"
+          want   '--ubatch-size 512'   "$MC" 'a) -ub stays 512 on Metal, NOT the gfx1151 256'
+          want   '--cache-type-k q8_0' "$MC" 'b) KV cache defaults to q8_0 (k)'
+          want   '--cache-type-v q8_0' "$MC" 'b) KV cache defaults to q8_0 (v)'
+          wantno '--no-mmap'           "$MC" 'c) deprecated --no-mmap is gone'
+          want   "${ONE}/only-model.gguf" "$MC" 'd) the sole model in MODELS_DIR is selected'
+
+          MCNK="$(dry scripts/macos/run-solo.sh "$ONE" --no-kv-quant)"
+          wantno '--cache-type-k' "$MCNK" 'b) --no-kv-quant removes --cache-type-k'
+          wantno '--cache-type-v' "$MCNK" 'b) --no-kv-quant removes --cache-type-v'
+
+          echo "model selection refuses to guess, and refuses to hang:"
+          for s in scripts/linux/run-solo.sh scripts/macos/run-solo.sh; do
+            if MODELS_DIR="$EMPTY" LLAMA_BIN=/bin/echo bash "$s" --dry-run >/dev/null 2>&1; then
+              bad "e) $s accepted an empty MODELS_DIR"
+            else
+              ok "e) $s exits non-zero on an empty MODELS_DIR"
+            fi
+
+            # Under systemd, launchd or CI there is no terminal to answer the picker.
+            # A read on a closed stdin returns instantly, so an unguarded prompt loop
+            # spins at full tilt rather than failing -- hence the timeout, not just a
+            # non-zero check.
+            timeout 20 env MODELS_DIR="$TWO" LLAMA_BIN=/bin/echo \
+              bash "$s" --dry-run >/dev/null 2>&1 </dev/null
+            rc=$?
+            case $rc in
+              0)   bad "f) $s picked a model with no terminal to ask at" ;;
+              124) bad "f) $s HUNG on 2 models with stdin closed" ;;
+              *)   ok  "f) $s exits $rc on 2 models with stdin closed" ;;
+            esac
+          done
+
+          rm -rf "$ONE" "$TWO" "$EMPTY"
+          echo
+          if [ "$FAIL" -eq 0 ]; then echo 'launcher contract: ALL PASS'; else echo 'launcher contract: FAILURES'; fi
+          exit "$FAIL"

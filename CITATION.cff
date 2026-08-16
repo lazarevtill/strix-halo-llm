@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use these measurements or the eval harness, please cite this repository."
+title: "strix-halo-llm: measured llama.cpp Vulkan tuning for AMD Strix Halo"
+abstract: >-
+  Measured tuning for local LLM inference on an AMD Ryzen AI MAX+ 395 "Strix Halo"
+  (Radeon 8060S, gfx1151) with 128 GB of unified memory: llama.cpp Vulkan launchers,
+  depth-aware benchmarks, and a private two-suite evaluation harness. Every figure was
+  measured on the box, with its context depth, quant, backend and build attached, and
+  claims that did not survive measurement are kept alongside their refutation.
+type: software
+authors:
+  - given-names: Anatoly
+    family-names: Lazarev
+repository-code: "https://github.com/lazarevtill/strix-halo-llm"
+url: "https://strix.lazarev.cloud/"
+license: MIT
+keywords:
+  - llama.cpp
+  - Vulkan
+  - Strix Halo
+  - gfx1151
+  - local inference
+  - unified memory
+  - benchmarking
+  - LLM evaluation
