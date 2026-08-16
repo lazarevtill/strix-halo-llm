@@ -27,6 +27,11 @@ evals/code/reference/
 
 # ---- (2) PRIVATE WORKING LOGS ------------------------------------------------
 .remember/
+GAP_AUDIT.md
+
+# ---- (2b) LOCAL TOOL CACHES --------------------------------------------------
+# Editor/agent tooling scratch that has no business in a public repo.
+.inspector/
 
 # ---- (3) NESTED PRIVATE REPO -------------------------------------------------
 # ornith-router is its OWN git repo with a remote on the internal GitLab (the URL

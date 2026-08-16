@@ -281,7 +281,6 @@ strix-halo-llm/
 │   ├── GOING-FASTER.md     the settings worth copying, and five that measurement killed
 │   ├── OPTIMIZATION.md     the full tuning playbook (long -- a reference)
 │   ├── BENCHMARKS.md       ⭐ what to measure, how, and how not to fool yourself
-│   ├── FLEET.md            multi-machine roles; retrieval / memory-layer findings
 │   ├── MULTI-USER.md       serving real people: saved chats, capacity, restart cost
 │   ├── PUBLISHING.md       what is safe to publish, and what must never be
 │   └── index.html          the GitHub Pages report -> strix.lazarev.cloud
@@ -305,18 +304,19 @@ strix-halo-llm/
 │       ├── fetch-llamacpp.sh   Homebrew, or the prebuilt macos-arm64 release
 │       └── run-solo.sh         serve one model on Metal (prompts for model; has --dry-run)
 │
-├── evals/                  ⭐ the evaluation harness
-│   ├── run-full-bench.ps1  the whole stack: speed, then hard tier, then easy + tools
-│   ├── run-model-suite.ps1 one model, both suites, sole GPU occupant
-│   ├── summarize-bench.py  turn a run into the published table
-│   ├── run-tools-eval.ps1  tool-calling eval (29 cases)
-│   ├── tools/tools.json    the 10 tool schemas (public)
-│   └── code/
-│       ├── run-code-eval.py   agentic coding eval, easy + hard tiers (portable)
-│       ├── smoke.py           harness self-test -- gates every run (portable)
-│       └── Dockerfile.sandbox no network, 512 MB, 1 CPU, read-only
-│
-└── archive/coding-eval/    superseded first-gen eval, kept for history
+└── evals/                  ⭐ the evaluation harness
+    ├── run-full-bench.ps1  the whole stack: speed, then hard tier, then easy + tools
+    ├── run-model-suite.ps1 one model, both suites, sole GPU occupant
+    ├── summarize-bench.py  turn a run into the published table
+    ├── rescore.py          re-derive scores from stored runs -- no GPU, no Docker
+    ├── run-tools-eval.ps1  tool-calling eval (29 cases)
+    ├── tools/tools.json    the 10 tool schemas (public)
+    └── code/
+        ├── run-code-eval.py   agentic coding eval, easy + hard tiers (portable)
+        ├── smoke.py           harness self-test -- gates every run (portable)
+        ├── Dockerfile.sandbox no network, 512 MB, 1 CPU, read-only
+        └── examples/          ⭐ public example suite -- what makes smoke.py runnable
+                               on a fresh clone, since the real cases are withheld
 ```
 
 Local-only, never committed: `models/` (~640 GB of GGUF), `bin*/` (llama.cpp binaries), logs,

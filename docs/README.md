@@ -22,7 +22,6 @@ There is also a rendered report of the results at **<https://strix.lazarev.cloud
 | **[GOING-FASTER.md](GOING-FASTER.md)** | You want the settings to copy, and what NOT to try | short |
 | **[OPTIMIZATION.md](OPTIMIZATION.md)** | You're choosing a model or quant, or hunting the memory ceiling | long — a reference, skim the ⭐ sections |
 | **[BENCHMARKS.md](BENCHMARKS.md)** | You want to measure something, or you're reading numbers someone else produced | medium |
-| **[FLEET.md](FLEET.md)** | You have more than one machine, or you're wiring up retrieval / memory layers | medium |
 | **[MULTI-USER.md](MULTI-USER.md)** | Real people are using the endpoint: saved chats, capacity, what a restart costs them | medium |
 | **[PUBLISHING.md](PUBLISHING.md)** | You're about to push this (or a fork) somewhere public | short |
 

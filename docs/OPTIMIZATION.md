@@ -576,6 +576,13 @@ tg climbs sharply on later turns (13.5 → 43–52 t/s) because the prompt prefi
 **`--reasoning-preserve` does nothing unless the CLIENT echoes `reasoning_content` back.** Both evals
 had to be fixed to do that; setting the flag alone had been exercising nothing.
 
+**⛔ Speculative decoding cannot be offloaded to another machine.** Worth stating because it is the
+first thing people propose when they have a second box idle: llama.cpp loads the draft model
+**in-process** (`--spec-type` / `--spec-draft-model`), and there is no remote-draft mode to
+configure. The latency budget forbids it regardless — at 63 t/s the target verifies a token every
+**15.9 ms**, and a LAN round trip plus drafting 3 tokens remotely costs more than that. Draft
+locally or not at all.
+
 **Speculative decoding: no working path for Laguna today.**
 - `draft-dflash` — upstream b10182 lists it in `--spec-type` but the enum does not match poolside's
   tensor layout: `wrong number of tensors; expected 76, got 69`.

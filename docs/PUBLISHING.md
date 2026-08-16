@@ -55,7 +55,7 @@ A scan of all 249 tracked text files (excluding `.venv`, `node_modules`, `.remem
 | was | now | where |
 |---|---|---|
 | NetBird address `100.x.x.x` | `127.0.0.1` in code defaults; `<inference-host>` in docs | `bench-web/{models.py,store.py,docker-compose.yml,targets.json}`, 4 docs |
-| LAN address `192.168.x.x` | `<lan-ip>`, `<host-a>`, `<host-b>` | `CLAUDE.md`, `FLEET.md` |
+| LAN address `192.168.x.x` | `<lan-ip>`, `<host-a>`, `<host-b>` | `CLAUDE.md` |
 | NetBird CIDR | `<netbird-cidr>` | `CLAUDE.md` |
 | internal GitLab URL incl. org/group path | `<your-git-remote>` | `ornith-router/finetune/README.md` |
 
