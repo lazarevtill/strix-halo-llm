@@ -55,6 +55,12 @@ Don't assume either style; check the file.
 .\scripts\windows\run-solo.ps1 -DryRun                 # print the llama-server invocation only
 ```
 
+**No launcher has a default model.** With no `-Model` / `-m` they list the GGUFs they can see and
+ask (taking the only one if there is just one). They look in `<repo>/models` unless `MODELS_DIR`
+says otherwise — **this box needs it set**, since its weights are on `C:\llm-router\models` and
+`D:\llamacpp-vulkan\models`, not in the checkout. The previous hardcoded defaults pointed at those
+same paths, which is why every other clone died on startup.
+
 `run-solo.ps1` enforces **solo occupancy** (stops any other llama-server, waits for the GPU to
 drain), `--parallel 1`, max context, `-lm none`, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`. Two big models
 genuinely cannot co-reside — WDDM does not trim the incumbent, the newcomer just OOMs.
@@ -106,9 +112,10 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
 - **`-b 2048 -ub 256`**, not 1024. `-ub` is the most architecture-specific flag here: 256 is +29%
   prefill over 1024 on gfx1151 because a 256-row tile fits its 32 KB of shared memory. 128 measured
   0.9% higher on one run — the curve is flat below 256, so 256 is the knee. **Sweep it on other
-  hardware, don't copy it.** ⚠️ Live inconsistency: `scripts/windows/run-solo.ps1` and
-  `evals/code/run-code-eval.py` still default to `-ub 1024`; `evals/run-model-suite.ps1` moved to
-  256 on 2026-08-16. Every eval before that date paid the 29%.
+  hardware, don't copy it.** Every serving and eval path now defaults to 256; the one deliberate
+  holdout is `evals/rerun-sampler.ps1`, which pins 1024 to match the run it is a control for
+  (changing prefill timing in the same run that changes the sampler would make both meaningless).
+  Anything measured before 2026-08-16 paid the 29% — its `medMs` is not comparable with a 256 run.
 - **Speculative decoding is model-dependent, and depth is not monotonic.** `draft-mtp` at
   `--spec-draft-n-max 3` is the peak (Qwen3.8-27B: 11.33 → 20.27 t/s, 1.79×); n=5 collapses to
   **0.68× — worse than no speculation at all**. Generic `ngram-mod` is neutral-to-negative; a
