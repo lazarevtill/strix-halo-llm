@@ -74,16 +74,14 @@ if (-not $SkipA) {
     Say "=== QUEUE PHASE A DONE ===" Green
 }
 
-# ---- B: qwen38 anti-repetition -------------------------------------------------------------------
-if (-not $SkipB) {
-    Say "=== QUEUE PHASE B: qwen38 anti-repetition (bug 13) ===" Yellow
-    if (-not (Wait-GpuFree)) { exit 3 }
-    & "$root\rerun-sampler.ps1" -Label qwen38-drytest -Port $Port -Seed $Seed 2>&1 |
-        Out-String -Stream | ForEach-Object { Write-Host $_; Add-Content $log $_ -Encoding utf8 }
-    Say "=== QUEUE PHASE B DONE ===" Green
-}
-
-# ---- D: determinism control, and it must run BEFORE C --------------------------------------------
+# ---- D: determinism control. RUNS FIRST, and the order is load-bearing ---------------------------
+#
+# D must precede B, not follow it. Phase B's entire claim is that a difference between qwen38-drytest
+# and the qwen38-hard control is CAUSED BY the DRY sampler. That inference requires runs to be
+# reproducible in the first place. If D shows they are not, B measures nothing -- any difference it
+# finds could just as well be the run-to-run spread, and we would have spent an hour producing a
+# number with no interpretation. Establish reproducibility, then attribute.
+#
 # ornith-easy scored 70/70 at --ubatch-size 1024 and 65/70 at 256, on the SAME seed, temperature and
 # token budget. token_budget went 20/20 -> 15/20 on turns 2 and 3, with no FRAGMENT flags in either
 # run, so the model genuinely emitted different code. Two explanations fit, and they are not close
@@ -109,6 +107,17 @@ if (-not $SkipD) {
     & "$root\run-model-suite.ps1" @p 2>&1 |
         Out-String -Stream | ForEach-Object { Write-Host $_; Add-Content $log $_ -Encoding utf8 }
     Say "=== QUEUE PHASE D DONE -- compare against ornith-easy 70/70 (ub1024) and 65/70 (ub256) ===" Green
+}
+
+# ---- B: qwen38 anti-repetition -------------------------------------------------------------------
+# Interpretable only in light of D. If D reproduced 70/70, a difference here is the sampler; if D
+# came back a third number, read this against that spread and not against zero.
+if (-not $SkipB) {
+    Say "=== QUEUE PHASE B: qwen38 anti-repetition (bug 13) ===" Yellow
+    if (-not (Wait-GpuFree)) { exit 3 }
+    & "$root\rerun-sampler.ps1" -Label qwen38-drytest -Port $Port -Seed $Seed 2>&1 |
+        Out-String -Stream | ForEach-Object { Write-Host $_; Add-Content $log $_ -Encoding utf8 }
+    Say "=== QUEUE PHASE B DONE ===" Green
 }
 
 # ---- C: laguna + deepseek hard tier, in full -----------------------------------------------------
