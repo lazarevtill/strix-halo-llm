@@ -1,166 +1,158 @@
-# CLAUDE.md — llama.cpp Vulkan stack (Strix Halo)
+# CLAUDE.md
 
-Production local-inference stack for **AMD Ryzen AI MAX+ 395 "Strix Halo" / Radeon 8060S (gfx1151)**,
-128 GB unified LPDDR5X, **96 GB carved out as VRAM**. This is the realized, day-to-day server —
-the `..\Documents\ollama-strixhalo-bench\` folder is the research that led here.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
-llama.cpp **Vulkan** backend (build **b10338** as of 2026-08-10, win-vulkan-x64) serving an OpenAI-compatible API +
-web UI on `:8080`. Vulkan was chosen after measuring **1.79× faster token-gen than _Ollama's_ ROCm**
-(gpt-oss-20b: 71.7 vs 40.2 t/s). **Nuance (2026 community data):** vs **llama.cpp's own ROCm** it's
-only ~1.2× short-context, and **ROCm wins at long context (8K+) and prompt-processing** — re-test at
-128K for the coder before assuming "Vulkan always." Windows≈Linux Vulkan parity is unverified.
+Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
+Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
+**Vulkan** backend (build **b10431** — every published number is from it), serving an
+OpenAI-compatible API on `:8080`. **This is a public repo** (MIT, GitHub Pages at
+strix.lazarev.cloud); read `docs/PUBLISHING.md` before adding files or relaxing `.gitignore`.
+
+## Two things to know before touching anything
+
+**1. This checkout is not where the code runs.** The scripts are PowerShell/bash for the Windows
+Strix Halo box; `bin/`, `models/`, `evals/results/`, and eval cases are all gitignored, so a Linux
+checkout has *none* of them. You can edit and read here, but you cannot run a benchmark or an eval
+here — a change is unverified until it runs on the box. Say so rather than claiming it works.
+
+**2. The private eval content must never be committed.** `evals/tools/cases.jsonl`,
+`evals/code/tasks.json`, `evals/code/tests/`, `evals/code/reference/` are gitignored on purpose:
+the suites are trustworthy *because* they are unpublished (decontaminated SWE-rebench scores
+A3B-class models ~4× below their self-reported SWE-bench figures — that gap is leakage). The
+harness is public; the answers are not. Publishing them is irreversible and retroactively
+invalidates every number in the repo.
 
 ## Layout
+
 ```
-bin\                llama-server, llama-bench, llama-cli, ... (Vulkan binaries)
-models\             standard community GGUFs (ggml-org / unsloth / bartowski)
-                    incl. mmproj-F16.gguf (vision projector for Qwen3.6-35B-A3B)
-run-server.ps1      start the OpenAI server + web UI (Strix-tuned defaults; -Spec, -Mmproj, -NoKvQuant)
-run-qwen36.ps1      one-command launcher: MTP Qwen3.6 + vision + q8_0 KV, asserts VRAM residency
-run-ornith.ps1      launcher: Ornith-1.0-35B coding model as a 2nd VRAM-resident server on :8081
-keep-resident.ps1   daemon: watchdog (restart on death) + keep-warm (no VRAM trim), run until stop
-bench.ps1           measure pp/tg t/s for a model
-bench-spec.ps1      A/B a model baseline vs speculative (--spec-type)
-download-model.ps1  fetch a GGUF from Hugging Face into models\
-README.md           full reference (quick start, MTP, vision, bench table, troubleshooting)
-docs/OPTIMIZATION.md     tuning playbook (RAM XMP, sleep, --fit, mmap/mlock, expert offload)
-vbench_*.txt        raw llama-bench outputs per model (source of the README table)
-*-proof.txt         MTP / speculative speedup evidence
+scripts/windows/    PowerShell 5.1 — supported; every number came from here
+  run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (-DryRun prints the cmdline)
+  fetch-llamacpp.ps1  step zero: prebuilt Vulkan release -> bin\
+  fetch-models.ps1    resume-capable GGUF downloader, byte-verifies against the HF API
+  bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0)
+  bench-spec.ps1      A/B baseline vs --spec-type
+  bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
+  legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
+scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform
+evals/              ⭐ the harness (see "Evals" below) — where most active work happens
+docs/               INSTALL · EXPLAIN · RESULTS · GOING-FASTER · OPTIMIZATION · BENCHMARKS ·
+                    FLEET · MULTI-USER · PUBLISHING · index.html (the Pages report)
+archive/coding-eval/  superseded first-gen eval, kept for history
 ```
 
-## Run / bench
+Path conventions differ by tree and this bites: `scripts/windows/*` resolve the repo root by
+climbing out of `$PSScriptRoot` (windows/ climbs 2, windows/legacy/ climbs 3 — fix the chain if you
+move a file), but **`evals/*.ps1` hardcode `D:\llamacpp-vulkan\...` and `C:\llm-router\models\...`**.
+Don't assume either style; check the file.
+
+## Serve
+
 ```powershell
-cd D:\llamacpp-vulkan
-.\run-server.ps1                                          # serve default model on :8080
-.\run-server.ps1 -Model .\models\<file>.gguf             # serve a specific model
-.\run-server.ps1 -Model .\models\<mtp>.gguf -Spec draft-mtp   # speculative (MTP head)
-# MTP Qwen3.6-35B-A3B WITH vision (image input) — the production daily driver:
-.\run-server.ps1 -Model .\models\MTP-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf -Spec draft-mtp -Mmproj .\models\mmproj-F16.gguf
-.\run-qwen36.ps1                                          # ^ same thing in one command, asserts VRAM residency
-.\keep-resident.ps1                                       # keep it loaded+resident+alive forever (until stop)
-.\bench.ps1 -Model .\models\<file>.gguf                  # tg/pp throughput
-.\bench-spec.ps1 -Model .\models\<mtp>.gguf -Spec draft-mtp   # baseline vs spec speedup
+.\scripts\windows\fetch-llamacpp.ps1 -Build b10431     # engine into bin\, nothing to compile
+.\scripts\windows\fetch-models.ps1 -Only qwen38        # -List to see the registry
+.\scripts\windows\run-solo.ps1                         # -> :8080, /v1 OpenAI API + web UI
+.\scripts\windows\run-solo.ps1 -Model .\models\X.gguf -Ctx 131072 -Spec draft-mtp
+.\scripts\windows\run-solo.ps1 -DryRun                 # print the llama-server invocation only
 ```
-API base URL for clients (Pi, Open WebUI, any OpenAI SDK): `http://127.0.0.1:8080/v1` (no key).
-Reachable on LAN at `<lan-ip>:8080` and over NetBird at `<inference-host>:8080` (firewall
-already allows the llama-server binary inbound on any port; covers the `<netbird-cidr>` overlay).
-**Vision:** Qwen3.6-35B-A3B is a VL model — image input needs `-Mmproj .\models\mmproj-F16.gguf`,
-else the API returns *"image input is not supported"*. (Its answers go to `content`; chain-of-thought
-goes to `reasoning_content` — a small `max_tokens` can return empty `content` while it's still thinking.)
+
+`run-solo.ps1` enforces **solo occupancy** (stops any other llama-server, waits for the GPU to
+drain), `--parallel 1`, max context, `-lm none`, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`. Two big models
+genuinely cannot co-reside — WDDM does not trim the incumbent, the newcomer just OOMs.
+
+## Evals
+
+Two private suites: **tool-calling** (29 cases, `run-tools-eval.ps1`) and **agentic coding**
+(easy tier 4 tasks/70 tests, hard tier 3 tasks/89 tests, every turn scored, `code/run-code-eval.py`).
+
+```powershell
+docker build -f evals\code\Dockerfile.sandbox -t llm-eval-sandbox evals\code
+python evals\code\smoke.py                  # ⭐ harness self-test, ~30s, no GPU — run this first
+python evals\test-rescore.py                # unit test for the turn-selection rule, no GPU
+.\evals\run-guarded.ps1 -Models ornith-q5   # smoke-gated; holds :8082/:8088; one model at a time
+.\evals\run-guarded.ps1 -Models qwen122b -Tasks hard_semver -SkipTools   # a single task
+.\evals\run-full-bench.ps1 -Phase hard -Only qwen38   # the 18-24h stack: speed -> hard -> easy
+python evals\summarize-bench.py             # a completed run -> the published table
+python evals\rescore.py --tier hard         # re-derive scores from stored runs; no GPU, no Docker
+```
+
+`run-guarded.ps1` refuses to start if `smoke.py` fails, and `run-model-suite.ps1` refuses to start
+if anything else holds GPU memory. Both guards exist because every harness bug so far produced a
+*believable wrong number*, never a crash.
+
+**Read `docs/BENCHMARKS.md` and `evals/README.md` before quoting any eval number.** Thirteen harness
+bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 100%`, `92.2%`,
+`70/70` for four models at once). Current rules that came out of them:
+
+- **Quality scores are withdrawn and being re-measured.** The four-way tie came from temperature 0
+  sending thinking models into repetition loops plus a truncation rule that rescued the empty turns.
+  Do not quote the tie — and do not conclude the opposite either; relative quality is *unmeasured*.
+  Speed and size numbers never depended on the sampler and still stand.
+- **Never quote one score alone.** Every task reports `strict` / `rescued` / `best`; the gap between
+  them is the finding. Effective n is the **task** count, not the test count.
+- Tiers are reported separately — a combined percentage is dominated by the tier that separates
+  nothing.
+- Sampling is `temp 0.3`, seed recorded per row. Bug 13 is open: temp 0.3 still loops on some
+  turn 1s, and a turn-1 loop zeroes the whole multi-turn task.
 
 ## Hard-won facts (don't re-derive)
-- **Ollama's AMD-bundle blobs do NOT load in stock llama.cpp** — they declare custom arch names
-  (`gptoss`, `gemma4`, `qwen3.6`). Always use standard community GGUFs (`download-model.ps1`).
-- **The "32 GB Windows ROCm VRAM cap" does NOT apply to this UMA box** — empirically refuted.
-  The real ceiling was **commit charge**, fixed by a **160 GB pagefile** (commit limit ~192 GB).
-  Rule of thumb: ~1.1 GB commit per GB of VRAM weights.
-- **⭐ The usable memory ceiling is ~109 GB, NOT the 96 GB carve-out (MEASURED 2026-07-30).**
-  Vulkan sees `114507 MiB` = 96 GB dedicated + ~15.8 GB WDDM shared (half the 32 GB Windows
-  partition). Spilling past 96 GB into shared **costs zero tg** — same physical LPDDR5X. Measured on
-  235B Q2_K_XL: 99.3 GB→16.71 t/s, 105.6 GB→17.04, **109.0 GB→16.77**, 113 GB→OOM. So ~26 GB more
-  headroom than the docs assumed — enough to run a **Q3-class 235B (~104 GB) instead of Q2_K_XL**.
-  Past ~105 GB the binding constraint is **RAM free** (9.7 GB at the 109 GB point), not VRAM.
-  Full table + caveats in docs/OPTIMIZATION.md.
-- **`--fit on` / `llama-fit-params` are useless on this box.** `-ngl 999` aborts the fit
-  (`n_gpu_layers already set by user to 999, abort`), and llama.cpp's reported free VRAM is a
-  **constant** (`108782 MiB` whether 0 or 42 GB is in use), so the fit sizes against a fiction.
-  Size manually from the measured ceiling table.
-- **`ErrorOutOfDeviceMemory` usually means a stale process still holds VRAM**, not "too big" —
-  3 configs "failed" then passed on a clean baseline. Check `\GPU Adapter Memory(...)\dedicated usage`
-  is <2 GB first. **Elevated** llama-servers can't be killed from a non-elevated shell (Access denied).
-- **Prefer MoE over dense.** Token-gen is memory-bandwidth-bound; dense ≥30B is slow (~7–9 t/s),
-  MoE of similar size is 50–90 t/s because only a few experts are active.
-- **Speculative decoding — model-dependent, not blanket "free" (MEASURED 2026-06-29):**
-  - **Native MTP head (`--spec-type draft-mtp`) is a BIG win on the MoEs**: Qwen3.6-35B-A3B
-    **67.9 vs 50.2 t/s = +35%** (production draft acceptance ~0.78). Keep it on (needs an MTP-head GGUF).
-  - **Generic `ngram-mod` ≈ neutral on code** (Ornith 59.4 vs 57.6 = noise); community data shows
-    generic draft/ngram **net-negative (−3 to −12%) on general MoE text**. Use only for code.
-  - Dense coder still **2.22×** with draft-mtp (7.3 → 16.2) — different regime. Rule: draft-mtp = yes;
-    separate draft model = no on these MoEs; ngram-mod = code-only.
-- **Batch: `-b 2048 -ub 1024`** (MEASURED) — pp sweet spot (pp8192 921 t/s @ub1024 vs 817 @512, 744 @2048),
-  ~+10-13% prompt-processing vs the old `-b 256`. **tg is bandwidth-bound — batch doesn't change it**
-  (~68 t/s); the tg lever is RAM XMP (7500→8533). Now the run-server.ps1 default.
-- **Sampling for quality (Qwen3.x): `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0`, NEVER greedy**
-  (greedy → endless repetition). Set server-side in the launchers; gpt-oss needs neutral sampling instead.
-- **Thinking mode = the fast↔quality lever.** These MoEs reason at length by default (~2500 reasoning
-  tokens before the answer → answer in `reasoning_content`/`content` split). Best quality but needs
-  `max_tokens ≥ ~2500`, else `content` comes back empty. `/no_think` gives fast direct answers on
-  Qwen3.6 (8080) but is IGNORED by Ornith (8081) — Ornith needs the budget (or enable_thinking=false kwarg).
-- **Flash attention (`-fa on`) + KV `q8_0`** are default-on wins (smaller KV, equal quality).
-  run-server.ps1 now adds `--cache-type-k/v q8_0` by default (`-NoKvQuant` to disable).
-- Memory was found running at **7500 MT/s vs rated 8533** — user-side BIOS/XMP fix pending (~+14%).
-- **Sleep = the real cause of "model offloaded from VRAM after a while"** (2026-06-27). Windows
-  modern-standby slept the box after **10 min idle (AC) / 4 min (DC)**, which suspends the GPU and
-  **drops all VRAM**. Fixed at OS level: `powercfg /change standby-timeout-ac 0` (+`-dc 0`, hibernate 0).
-  Idle alone (≤5 min) does NOT evict — verified. Keep sleep disabled.
-- **NEVER use `--mlock` on this Vulkan/UMA box.** It pins weights in the ~32 GB system-RAM partition
-  and BLOCKS the Vulkan upload to the 96 GB carve-out → `-ngl 999` silently runs from host RAM
-  (GPU dedicated ~0.1 GB, RAM ~1 GB free, slow). Measured 2026-06-26.
-- **Keep `--no-mmap` (the default); do NOT switch to mmap.** Measured: `--no-mmap` keeps only
-  ~1.4 GB physically resident (weights in VRAM, host copy paged out) → RAM ~24 GB free; **mmap pins
-  a ~21 GB file-cache mirror in physical RAM → RAM free crashes to ~3.7 GB ("RAM 100%")**. Watch
-  *physical RAM / WorkingSet*, not committed bytes (committed is ~27 GB either way but mostly paged).
-- **`draft-mtp` + vision (`--mmproj`) coexist fine**, and build b9771 supports the `qwen3_5_moe`
-  vision encoder. Measured: MTP Qwen3.6-35B-A3B with q8_0 KV ran ~60–75 t/s and read images correctly.
 
-## Measured throughput (Vulkan, fa=on) — keep README table as source of truth
-gpt-oss-20b MoE **71.7** · Qwen3.6-35B-A3B MoE **56.4** · **Ornith-1.0-35B Q4_K_M MoE 67.4 (pp 964)** ·
-gemma-4-26B-A4B MoE **49.2** · dense coder 27B **7.3→16.2 (MTP)** ·
-**Qwen3-235B-A22B Q2_K_XL 17.3** (82.7 GB; re-measured 2026-07-30: **16.7–17.0 t/s flat at
-32K–224K ctx**, up to 109 GB total — no offload, no shared-memory penalty).
+- **The usable ceiling is ~109 GB, not the 96 GB carve-out** — 96 GB dedicated + ~13.4 GB WDDM
+  shared heap. tg is *flat* from 89 GB to 109 GB; spilling past the carve-out costs nothing on a UMA
+  APU. 113 GB OOMs, and past ~105 GB the binding constraint is free system RAM, not VRAM.
+- **Measure with `\GPU Process Memory(*)\Total Committed`, never `Dedicated Usage`.** WDDM trims an
+  idle model's dedicated bytes to ~0 while it still holds the reservation — that counter
+  under-reported two resident servers by 42.5 GB, which is how the box blew past its ceiling with
+  the console showing plenty of room.
+- **`-b 2048 -ub 256`**, not 1024. `-ub` is the most architecture-specific flag here: 256 is +29%
+  prefill over 1024 on gfx1151 because a 256-row tile fits its 32 KB of shared memory. 128 measured
+  0.9% higher on one run — the curve is flat below 256, so 256 is the knee. **Sweep it on other
+  hardware, don't copy it.** ⚠️ Live inconsistency: `scripts/windows/run-solo.ps1` and
+  `evals/code/run-code-eval.py` still default to `-ub 1024`; `evals/run-model-suite.ps1` moved to
+  256 on 2026-08-16. Every eval before that date paid the 29%.
+- **Speculative decoding is model-dependent, and depth is not monotonic.** `draft-mtp` at
+  `--spec-draft-n-max 3` is the peak (Qwen3.8-27B: 11.33 → 20.27 t/s, 1.79×); n=5 collapses to
+  **0.68× — worse than no speculation at all**. Generic `ngram-mod` is neutral-to-negative; a
+  separate draft model loses on these MoEs.
+- **`--mlock`: never on this box.** It pins weights in the ~32 GB system-RAM partition and blocks
+  the Vulkan upload, so `-ngl 999` silently runs from host RAM. Related: b10182 deprecated
+  `--no-mmap`/`--mlock` in favour of `--load-mode`, **which defaults to mmap** — use `-lm none`.
+  mmap pins a ~21 GB host file-cache mirror in physical RAM ("RAM 100%"); watch WorkingSet, not
+  committed bytes.
+- **Bigger is not better.** bf16 is **5.6× slower** than Q5_K_M (11.17 vs ~58 t/s) and pp collapses
+  too (241 vs 698). A bigger Ornith is a bigger *quant*, not a better model. Prefer MoE over dense:
+  tg is bandwidth-bound on *active* params, so A3B@35B beats A13B@120B here.
+- **`--fit on` / `llama-fit-params` are useless here** — `-ngl 999` aborts the fit, and llama.cpp's
+  reported free VRAM is a constant regardless of actual use, so it sizes against a fiction.
+  **`--cache-reuse` is a silent no-op** on these MoEs (needs KV shifting); plain prefix caching
+  already avoids re-prefill on append-only conversations.
+- **`ErrorOutOfDeviceMemory` usually means a stale process still holds VRAM**, not "too big". Check
+  dedicated usage is <2 GB first. **Elevated llama-servers cannot be killed from a non-elevated
+  shell.** llama-server binds its port *before* loading weights, which is why the eval scripts
+  defend themselves by holding :8082/:8088 — a respawn dies in 0.6 s having allocated nothing.
+- **Sleep drops all VRAM.** Windows modern standby suspends the GPU (10 min AC / 4 min DC). Fixed at
+  OS level with `powercfg /change standby-timeout-ac 0`; keep it disabled. Idle alone does not evict.
+- **Sampling: `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0` for Qwen3.x, never greedy** (greedy →
+  endless repetition; Qwen ships the warning on its own model cards). gpt-oss wants neutral sampling.
+- `-fa on` + KV `q8_0` are default-on wins (half the KV, equal quality). `draft-mtp` and `--mmproj`
+  vision coexist fine. Ollama's AMD-bundle blobs do **not** load in stock llama.cpp (custom arch
+  names) — always use standard community GGUFs.
+- Memory runs at **7500 MT/s vs rated 8533**; a BIOS/XMP fix is pending (~+14% on tg, which is the
+  only lever that moves tg — batch size does not).
 
-## SOLO MODE is the current setup (2026-07-30) — `scripts/windows/run-solo.ps1`
-User chose **one model at a time**. `scripts/windows/run-solo.ps1` serves a single model with the whole ~109 GB
-budget: solo-occupancy enforcement, `--parallel 1`, max context, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`.
-**VERIFIED RUNNING:** Ornith-1.0-35B Q5_K_M at **262144 ctx** (8× the old 32768), 29.94 GB total
-GPU, **63.3 t/s** (empty-cache solo verification, 2026-07-30; expect **~58 t/s** under eval load at
-depth — see docs/BENCHMARKS.md), RAM free 22.3 GB. Two big models genuinely cannot co-reside (Ornith 24 GB + 235B
-83 GB = ~107 GB of weights → the newcomer OOMs; WDDM does NOT trim the incumbent to make room).
-⚠️ **"Next quality step = a bigger quant/model" was TESTED AND DISPROVED (2026-08-04).** Do not
-re-suggest it:
-- **bf16 is 5.6x SLOWER, not better** — measured 11.17 t/s vs Q5_K_M's ~58, and pp collapses too
-  (241 vs 698). A bigger Ornith is a bigger *quant*, not a better model.
-- ⚠️ **The "Laguna and Qwen3.5-122B TIE Ornith" claim is WITHDRAWN (2026-08-15).** It came from a
-  run at temperature 0 where models looped instead of answering and the truncation rule let empty
-  turns inherit the previous turn's score. Raw, Qwen122b has a 0/20 and a 0/18 inside its "70/70".
-  **Do not quote the tie, and do not conclude the opposite either** — relative quality is currently
-  unmeasured. A hard tier (3 tasks, 89 tests) is running to settle it.
-- **Ornith remains the default on COST** — a quarter the size, several times faster. That half was
-  never contaminated. Reach for a bigger model for a **capability**: `draft-mtp` (Qwen) or >262K
-  ctx (Laguna).
+## Conventions
 
-Read **docs/BENCHMARKS.md before quoting any eval number** — **eleven** harness bugs have each
-produced a believable wrong figure (numbers 10 and 11 are the temperature-0 loop and the saturation
-above), and `evals\code\smoke.py` now gates every run. The multi-model section below is retained for
-reference only.
-
-## ⚠️ The old bench stack on :8082–:8088 is RETIRED (2026-08-04)
-An elevated PowerShell left running since 2026-07-31 was restoring those servers within ~2 minutes
-of any being killed, stealing ~42 GiB, pushing the box past its ceiling (requests 500) and twice
-killing a live model server mid-eval. It was killed; no respawn in the 7-minute watch after. If
-foreign `llama-server` processes reappear, check for another such shell before anything else, and
-note `evals\run-guarded.ps1` defends itself by **holding :8082/:8088** — llama-server binds its port
-before loading weights, so a respawn dies in 0.6s having allocated nothing.
-
-## Two-model serving (both fully in VRAM, both vision-enabled) — SUPERSEDED by solo mode
-`:8080` MTP Qwen3.6-35B-A3B (vision) + `:8081` Ornith-1.0-35B (coding, vision) run **simultaneously** —
-measured 25.0 GB + ~23 GB = ~48 GB of the 96 GB carve-out, RAM ~18 GB free. `keep-resident.ps1`
-keeps BOTH warm/alive. **Ornith vision:** official GGUF body is text-only, so image input uses
-bartowski's `mmproj-deepreinforce-ai_Ornith-1.0-35B-f16.gguf` — the mmproj pairs across quant repos
-since it's the same base model (verified). **Gotcha:** loading/benching a 3rd big GPU process (or one
-model loading) transiently trims an idle model to ~0.1 GB (WDDM pressure); it pages back on the next
-request/keep-warm (~6 s ramp).
-
-## Operational caution
-Only restart `llama-server` when **Pi is idle (0 active slots)** — a mid-task restart kills its
-in-flight request (`run-qwen36.ps1` enforces this; `-Force` overrides). Context is set to 128K/slot.
-Don't let `pip`/installers overwrite a ROCm torch elsewhere on this machine with CPU torch
-(separate gotcha, see user memory).
-
-**Keeping them resident "forever":** `keep-resident.ps1` is a daemon that manages BOTH servers
-(:8080 Qwen3.6 + :8081 Ornith) = watchdog (relaunch on death) + keep-warm (tiny inference every
-45 s per idle server so WDDM never trims VRAM) + residency log (`keep-resident.log`, flags when a
-model is trimmed). It does NOT survive a reboot yet — register it as a logon Scheduled Task for
-that. Sleep is disabled (see hard-won facts) so the GPU isn't suspended. To stop: stop the daemon
-process, then `Stop-Process` the :8080 / :8081 owners.
+- **PowerShell 5.1 only** — no `&&`, no ternary, no `??`. Deliberate: 5.1 ships with Windows.
+  Gotchas that have cost real time: `ConvertTo-Json` re-wrapping a collection as
+  `{"value":[...],"Count":n}`, `Add-Content -Encoding UTF8` emitting a BOM, PowerShell 5.1
+  `Tee-Object` writing UTF-16LE (decode by BOM, not by assumption), `[math]::Min(1, 0.98)` binding
+  the integer overload and rounding to 1, splatting an **array** binding positionally, and
+  `powershell.exe -File` handing `-Models a,b` over as one string.
+- **Every measurement needs context depth, quant, backend and build attached**, or it can't be
+  compared. A worse result is still a result — record it.
+- Where a claim didn't survive measurement, the repo keeps **both the claim and the refutation** —
+  the contrast is the useful part. Don't silently delete a superseded number; mark it withdrawn.
+- Linux/macOS ports live in their own trees, no PowerShell-on-Linux dependency, and are marked
+  unproven. **Port the method, not the numbers** — anything measured elsewhere goes in its own
+  column in `docs/OPTIMIZATION.md`, never merged into the Windows figures. The `~109 GB` ceiling,
+  `Total Committed` accounting, `--mlock` being harmful, sleep dropping VRAM and commit-charge
+  limits are all Windows/WDDM-specific and must be re-measured.

@@ -72,7 +72,7 @@ scripts/linux/fetch-llamacpp.sh              # step zero: the engine, into bin/
 scripts/linux/fetch-models.sh --list
 scripts/linux/fetch-models.sh --only qwen38
 scripts/linux/run-solo.sh --dry-run          # print the command line, launch nothing
-scripts/linux/run-solo.sh
+scripts/linux/run-solo.sh                    # no -m => lists models/ and asks which to serve
 ```
 
 Full first-run walkthrough for all three platforms: **[../../docs/INSTALL.md](../../docs/INSTALL.md)**.
