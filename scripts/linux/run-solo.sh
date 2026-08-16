@@ -39,7 +39,7 @@ run-solo.sh — serve ONE model with the whole memory budget (DRAFT, unverified 
   -m, --model PATH       GGUF to serve            (default: pick one from models/)
   -c, --ctx N            context size             (default: 262144)
   -p, --port N           listen port              (default: 8080)
-      --host ADDR        bind address             (default: 127.0.0.1)
+      --host ADDR        bind address             (default: 0.0.0.0 — SEE BELOW)
       --spec TYPE        --spec-type (draft-mtp | ngram-mod | ...)
       --spec-nmax N      --spec-draft-n-max       (default: 3)
       --reasoning MODE   off | on | auto          (default: auto)
@@ -47,6 +47,12 @@ run-solo.sh — serve ONE model with the whole memory budget (DRAFT, unverified 
       --force            stop other llama-servers without asking
       --dry-run          print the command line and exit
   -h, --help
+
+THE DEFAULT BIND IS 0.0.0.0, NOT LOOPBACK. That matches the Windows launcher, whose whole point
+is being reachable from the other machines on the LAN and the overlay — but it does mean the
+model answers anyone who can route to this port, and llama-server has no authentication of any
+kind. Pass --host 127.0.0.1 for a local-only server. (The eval runners bind loopback on purpose:
+a stray client request landing in the slot under measurement silently changes the number.)
 
 With no -m/--model this lists the GGUFs in models/ and asks which to serve. Set MODELS_DIR
 to look somewhere else. There is no built-in default model on purpose: the previous one was a

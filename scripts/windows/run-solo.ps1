@@ -49,7 +49,11 @@ param(
     [int]    $Ctx    = 262144,      # measured OK for Ornith Q5_K_M (29.93 GB total). Lower for bigger weights.
     [int]    $Port   = 8080,
     [int]    $Batch  = 2048,        # measured pp sweet spot on gfx1151
-    [int]    $Ubatch = 1024,
+    # MEASURED OPTIMUM on gfx1151, and the most architecture-specific flag in this repo: a 256-row
+    # tile fits its 32 KB of shared memory, which is worth +29% prefill over the 1024 this used to
+    # default to (167 vs 129 t/s). 128 measured 0.9% higher on one run -- the curve is flat below
+    # 256, so this is the knee, not the maximum. SWEEP IT on other hardware, do not copy it.
+    [int]    $Ubatch = 256,
     # none | draft-dflash | draft-mtp | draft-eagle3 | ngram-mod | ... (see --spec-type in --help)
     [string] $Spec   = 'none',
     [string] $SpecDraftModel = '',  # separate draft GGUF, e.g. laguna-s-2.1-DFlash-BF16.gguf

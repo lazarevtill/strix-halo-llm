@@ -50,7 +50,7 @@ A result is only meaningful with four attributes: **context depth, quant, backen
 |---|---|
 | Vulkan vs Ollama-ROCm, same model | **71.7 vs 40.2 t/s → 1.79x** — use Vulkan |
 | Ornith Q5_K_M vs bf16 | **58 vs 11.17 t/s** — bf16 is 5.6x SLOWER, and pp collapses too (698 → 241) |
-| pp sweet spot on gfx1151 | `-b 2048 -ub 1024` |
+| pp sweet spot on gfx1151 | `-b 2048 -ub 256` — **not 1024**, which costs 29% (167 vs 129 t/s prefill). `-ub 128` measured 0.9% higher on one run, so 256 is the knee, not the maximum. See §"the fastest row is not the recommended one" below |
 | tg from 89 GB → 109 GB of weights | **flat** — spilling past the carve-out costs nothing on this UMA APU |
 | `--cache-reuse` | **no-op** on these MoEs; prefix caching already works |
 | speculative decoding | `draft-mtp` helps Qwen; `ngram-mod` measured **neutral** (14.34/14.07 vs 14.17 baseline) |
