@@ -45,7 +45,14 @@ if (-not (Test-Path $Bench)) { Say "llama-bench not found: $Bench" Red; exit 1 }
 $models = @(
     @{ n='UD-Q4_K_XL (mixed, current)'; f="$MDIR\Qwen3.8-27B-UD-Q4_K_XL.gguf"; b=17923394624 },
     @{ n='Q4_K_M (pure K-quant)';       f="$MDIR\Qwen3.8-27B-Q4_K_M.gguf";     b=17106775008 },
-    @{ n='Q5_K_M (pure K-quant)';       f="$MDIR\Qwen3.8-27B-Q5_K_M.gguf";     b=19834055648 }
+    @{ n='Q5_K_M (pure K-quant)';       f="$MDIR\Qwen3.8-27B-Q5_K_M.gguf";     b=19834055648 },
+    # Added 2026-08-16. Round 3 showed Q5_K_M is already past the peak, so these two are expected
+    # to be slower still -- which is exactly why they are worth running rather than assuming. Four
+    # projections have been refuted on this box this week, including the one that motivated THIS
+    # script (13% of prefill predicted, 0.7% delivered). Q8_0 also barely dequantises, so if ALU
+    # cost is the mechanism it is the one quant that could break the trend.
+    @{ n='Q6_K (pure K-quant)';         f="$MDIR\Qwen3.8-27B-Q6_K.gguf";       b=22884408288 },
+    @{ n='Q8_0 (near-lossless)';        f="$MDIR\Qwen3.8-27B-Q8_0.gguf";       b=29047086048 }
 )
 
 Say "`n=== prefill / generation by quant (llama-bench, -ub $Ub) ===" Cyan
