@@ -16,7 +16,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-MODEL="${REPO_ROOT}/models/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+MODEL=""                                    # empty => pick interactively from MODELS_DIR
+MODELS_DIR="${MODELS_DIR:-${REPO_ROOT}/models}"   # same env override as fetch-models.sh
 CTX=131072
 PORT=8080
 BATCH=2048
@@ -32,7 +33,7 @@ usage() {
   cat <<'EOF'
 run-solo.sh (macOS/Metal) — serve ONE model with the whole memory budget (DRAFT)
 
-  -m, --model PATH       GGUF to serve
+  -m, --model PATH       GGUF to serve         (default: pick one from models/)
   -c, --ctx N            context size          (default: 131072)
   -p, --port N           listen port           (default: 8080)
       --host ADDR        bind address          (default: 127.0.0.1)
@@ -52,7 +53,55 @@ first thing to check when a model that should fit refuses to load:
 
 Leave several GB for the OS. Setting it to your full RAM will hang the machine,
 not speed anything up.
+
+With no -m/--model this lists the GGUFs in models/ and asks which to serve. Set MODELS_DIR
+to look somewhere else. There is no built-in default model on purpose: the previous one was a
+path that only existed on the machine this repo was written on.
 EOF
+}
+
+# Interactive picker. Only reached when no -m/--model was given.
+# NOTE: no `((i++))` anywhere below -- it evaluates to the PRE-increment value, so the first
+# call returns 0, which is a non-zero exit status, which `set -e` turns into a silent abort.
+pick_model() {
+  local dir="$1" f choice
+  local -a found=()
+  for f in "${dir}"/*.gguf; do
+    [[ -f "$f" ]] && found+=("$f")     # unquoted glob stays literal when nothing matches
+  done
+
+  if [[ ${#found[@]} -eq 0 ]]; then
+    echo "no .gguf files in ${dir}" >&2
+    echo "  fetch one with ${REPO_ROOT}/scripts/linux/fetch-models.sh --list, pass -m/--model, or set MODELS_DIR" >&2
+    exit 1
+  fi
+  if [[ ${#found[@]} -eq 1 ]]; then
+    MODEL="${found[0]}"
+    echo "only one model in ${dir}, using $(basename "$MODEL")" >&2
+    return
+  fi
+  # Refuse to block forever when there is nobody to answer -- read on a closed stdin returns
+  # instantly and would otherwise spin this loop at full tilt under launchd or CI.
+  if [[ ! -t 0 ]]; then
+    echo "${#found[@]} models in ${dir} and no terminal to choose with." >&2
+    echo "  pass -m/--model explicitly." >&2
+    exit 1
+  fi
+
+  echo "select a model to serve:" >&2
+  local i=1
+  for f in "${found[@]}"; do
+    printf '  %2d) %s\n' "$i" "$(basename "$f")" >&2
+    i=$((i + 1))
+  done
+  while true; do
+    read -rp "model [1-${#found[@]}]: " choice || { echo >&2; exit 1; }
+    if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#found[@]})); then
+      MODEL="${found[choice - 1]}"
+      return
+    fi
+    echo "  enter a number between 1 and ${#found[@]}" >&2
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -81,6 +130,10 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
   fi
 fi
+
+# Picked AFTER the binary check: there is no point asking which model to serve when there is
+# nothing to serve it with.
+[[ -n "$MODEL" ]] || pick_model "$MODELS_DIR"
 [[ -f "$MODEL" ]] || { echo "model not found: $MODEL" >&2
                        echo "  get one with scripts/linux/fetch-models.sh --list" >&2; exit 1; }
 

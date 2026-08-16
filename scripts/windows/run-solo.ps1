@@ -29,8 +29,15 @@
 
   Do NOT "upgrade" to bf16: measured 11.17 t/s, 5.6x slower than Q5_K_M, and pp collapses too.
 
+  NO DEFAULT MODEL, ON PURPOSE. This used to default to a path that existed only on the machine
+  the repo was written on, so every other clone died with "Model not found" before printing
+  anything useful. With no -Model it lists the GGUFs in models\ and asks. Set $env:MODELS_DIR
+  (same variable the bash fetchers honour) to point at a models directory somewhere else --
+  which is what this box does, since its weights live on C:\ and D:\ rather than in the checkout.
+
 .EXAMPLE
-  .\run-solo.ps1                                    # Ornith-1.0-35B Q5_K_M at full 262144 ctx
+  .\run-solo.ps1                                    # pick from models\ interactively
+  $env:MODELS_DIR = 'D:\llamacpp-vulkan\models'; .\run-solo.ps1
   .\run-solo.ps1 -Model .\models\<big>.gguf -Ctx 131072
   .\run-solo.ps1 -Spec draft-mtp                    # if the GGUF carries an MTP head (+35%)
   .\run-solo.ps1 -Reasoning off                     # fast direct answers (router/tool-call use)
@@ -38,11 +45,15 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Model  = 'C:\llm-router\models\ornith-1.0-35b-Q5_K_M.gguf',
+    [string] $Model  = '',          # empty => pick interactively from models\ (see $env:MODELS_DIR)
     [int]    $Ctx    = 262144,      # measured OK for Ornith Q5_K_M (29.93 GB total). Lower for bigger weights.
     [int]    $Port   = 8080,
     [int]    $Batch  = 2048,        # measured pp sweet spot on gfx1151
-    [int]    $Ubatch = 1024,
+    # MEASURED OPTIMUM on gfx1151, and the most architecture-specific flag in this repo: a 256-row
+    # tile fits its 32 KB of shared memory, which is worth +29% prefill over the 1024 this used to
+    # default to (167 vs 129 t/s). 128 measured 0.9% higher on one run -- the curve is flat below
+    # 256, so this is the knee, not the maximum. SWEEP IT on other hardware, do not copy it.
+    [int]    $Ubatch = 256,
     # none | draft-dflash | draft-mtp | draft-eagle3 | ngram-mod | ... (see --spec-type in --help)
     [string] $Spec   = 'none',
     [string] $SpecDraftModel = '',  # separate draft GGUF, e.g. laguna-s-2.1-DFlash-BF16.gguf
@@ -64,9 +75,44 @@ param(
     [switch] $Force                 # stop other servers even if they have a request in flight
 )
 $ErrorActionPreference = 'Stop'
-$bin = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\bin\llama-server.exe"
+$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
+$bin = "$repoRoot\bin\llama-server.exe"
 $gpu = 'luid_0x00000000_0x01c3ed4a_phys_0'
 if (-not (Test-Path $bin))   { Write-Error "llama-server.exe not found: $bin"; exit 1 }
+
+# ---- 0) pick a model, if one was not named ------------------------------------------------------
+# Asked AFTER the binary check: no point choosing a model when there is nothing to serve it with.
+if (-not $Model) {
+    $modelsDir = if ($env:MODELS_DIR) { $env:MODELS_DIR } else { Join-Path $repoRoot 'models' }
+    $found = @(Get-ChildItem -LiteralPath $modelsDir -Filter *.gguf -File -EA SilentlyContinue | Sort-Object Name)
+    if ($found.Count -eq 0) {
+        Write-Error "No .gguf files in $modelsDir. Pass -Model, set `$env:MODELS_DIR, or fetch one with fetch-models.ps1."
+        exit 1
+    }
+    if ($found.Count -eq 1) {
+        $Model = $found[0].FullName
+        Write-Host "only one model in $modelsDir, using $($found[0].Name)" -ForegroundColor DarkGray
+    }
+    else {
+        # Checked BEFORE the menu is printed: a scheduled task should fail with a usable message,
+        # not emit a list it has no way to answer. Non-interactive hosts return immediately from
+        # Read-Host, so without this the do/until below spins instead of blocking.
+        if ([Console]::IsInputRedirected) {
+            Write-Error "$($found.Count) models in $modelsDir and no console to choose with. Pass -Model."
+            exit 1
+        }
+        # Multi-part GGUFs are listed whole rather than filtered to shard 1: llama.cpp wants the
+        # -00001-of-000NN file and finds its siblings itself, but hiding the others would make a
+        # partially-downloaded split set look complete. Seeing all three shards is the signal.
+        Write-Host 'select a model to serve:' -ForegroundColor Cyan
+        for ($i = 0; $i -lt $found.Count; $i++) {
+            Write-Host ('  {0,2}) {1,-58} {2,8:N1} GB' -f ($i + 1), $found[$i].Name, ($found[$i].Length / 1GB))
+        }
+        do { $choice = Read-Host "model [1-$($found.Count)]" }
+        until ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $found.Count)
+        $Model = $found[[int]$choice - 1].FullName
+    }
+}
 if (-not (Test-Path $Model)) { Write-Error "Model not found: $Model"; exit 1 }
 $Model = (Resolve-Path $Model).Path
 

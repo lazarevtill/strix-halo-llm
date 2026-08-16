@@ -401,9 +401,17 @@ def main():
     if not endpoint:
         if not a.model:
             sys.exit("need --endpoint or --model")
+        # These now match run-model-suite.ps1 exactly. They did not, and both differences were
+        # silent losses rather than errors:
+        #   --ubatch-size was 1024, which is 29% slower at prefill than the measured 256 on
+        #     gfx1151. Prefill time only, so no score moved -- but every medMs recorded through
+        #     this path before 2026-08-16 is inflated and is not comparable with a 256 run.
+        #   --no-mmap was DEPRECATED in b10182 in favour of --load-mode, WHICH DEFAULTS TO MMAP.
+        #     A deprecated flag that still parses today is exactly how this box ends up pinning a
+        #     ~21 GB host file-cache mirror in RAM again without anything appearing to change.
         args = [str(BIN), "-m", a.model, "-ngl", "999", "--ctx-size", str(a.ctx),
-                "--batch-size", "2048", "--ubatch-size", "1024", "-fa", "on",
-                "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--no-mmap", "--jinja",
+                "--batch-size", "2048", "--ubatch-size", "256", "-fa", "on",
+                "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "-lm", "none", "--jinja",
                 "--parallel", "1", "--host", "127.0.0.1", "--port", str(a.port), "--no-warmup"]
         print("launching:", a.model, flush=True)
         srv = sp.Popen(args, stdout=sp.DEVNULL, stderr=sp.DEVNULL)

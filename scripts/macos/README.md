@@ -11,7 +11,7 @@ chmod +x scripts/macos/*.sh
 ./scripts/macos/fetch-llamacpp.sh            # Homebrew; Metal is on by default
 ./scripts/linux/fetch-models.sh --only qwen38
 ./scripts/macos/run-solo.sh --dry-run
-./scripts/macos/run-solo.sh
+./scripts/macos/run-solo.sh                  # no -m => lists models/ and asks which to serve
 ```
 
 Model downloading has nothing platform-specific about it, so macOS reuses
