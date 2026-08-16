@@ -272,6 +272,33 @@ mid-sweep: a turn that emits **no code at all** is a sampler pathology, not an a
 probably be retried on a different seed before the task is written off — the same reasoning that
 made `env` failures distinguishable from wrong answers in bug 9.
 
+> ### ⚗️ Tested 2026-08-16, and the diagnosis above is WRONG
+>
+> The obvious fix was anti-repetition sampling, so it was run: qwen38, same seed, same temperature,
+> same server flags, DRY on (`dry_multiplier 0.8`, `dry_base 1.75`, `dry_allowed_length 8`). Phase D
+> had already established the harness is deterministic, so any difference is the sampler.
+>
+> **DRY did exactly what it promises, and it changed nothing that mattered.**
+>
+> | `hard_semver` turn 1 | longest single-char run | most-repeated 60-char block | content |
+> |---|---|---|---|
+> | control | **13,422** | ×222 | **empty** |
+> | DRY | **0** | ×1 | **empty** |
+>
+> The repetition is gone — completely. The model still emitted **no answer**: 65 KB of
+> `reasoning_content` and zero bytes of `content`, with `finish_reason: stop`, meaning it decided it
+> was finished. Scored end to end, DRY's `hard_semver` is **0/27**, identical to the control, and its
+> turns 3 and 4 are fragments where the control's were whole files.
+>
+> **So repetition was a symptom, not the cause.** The real failure is that the model spends its
+> entire budget in the reasoning channel and never transitions to an answer — and a loop is only the
+> most visible way to do that. Bug 13's framing (and the fix that followed from it) treated the
+> symptom. Kept here unedited, because a plausible diagnosis that survives until someone tests it is
+> the exact failure this list exists to record.
+>
+> What this does *not* say: that qwen38 cannot do the task. It says the harness gets no answer out
+> of it, and the reason is still open.
+
 **14. A flag you believe is performance-only can change your scores.** `--ubatch-size` controls how
 many prompt tokens are processed per pass. It is a *speed* knob — 256 is 29% faster at prefill than
 1024 on this GPU — and nothing about it suggests it touches output. Correcting the eval server from
