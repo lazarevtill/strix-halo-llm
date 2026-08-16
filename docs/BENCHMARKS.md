@@ -149,6 +149,40 @@ Dequantisation ALU cost outweighs the bandwidth saved: `Q4_K` unpacks cheaply, `
 not. Below ~Q4_K you spend compute to save bandwidth you were not short of. **Do not shrink the
 quant for speed on this box.**
 
+### Round 3 (2026-08-16, b10431): the other side of the curve — and a better default
+
+Every quant above was at or below `UD-Q4_K_XL`, so "Q4_K_XL is optimal" only ever meant *it was the
+largest one tried* — the same error the `-ub` sweep made calling 512 optimal before anyone tested
+256. Measured upward, and against a **pure** K-quant, with `llama-bench` (no speculation, so `tg`
+here is the unaccelerated figure — multiply by ~1.79 for served throughput):
+
+| quant | GiB | pp4096 | pp16384 | tg128 |
+|---|---:|---:|---:|---:|
+| UD-Q4_K_XL *(mixed, previous default)* | 16.68 | 192.6 | 182.7 | 11.41 |
+| **Q4_K_M** *(pure)* | **15.92** | **195.3** | **184.0** | **12.04** |
+| Q5_K_M *(pure)* | 18.46 | 180.9 | 173.5 | 10.57 |
+
+**`Q4_K_M` wins on every axis at once** — +0.7% prefill, **+5.5% generation**, and 0.76 GiB
+*smaller*. Errors are ±0.01–0.7, so the generation gap is ~500× the run-to-run spread.
+
+**Q5_K_M settles the open question: Q4 really is the peak, not just the edge of the tested range.**
+Going up costs 5.7% of prefill and 12.2% of generation against Q4_K_M. Above Q4 bandwidth reclaims
+the lead; below it dequantisation cost does. The curve has a top and we are standing on it.
+
+**The hypothesis that motivated this was mostly wrong, which is the useful part.** A per-op profile
+showed `UD-Q4_K_XL`'s `iq4_xs` tensors were the slowest matmul in the prefill — 878 ms of a 2990 ms
+ubatch at half the GFLOPS of the `q5_K` tensors beside them — and projected up to **13%** of prefill
+from removing them. Actual prefill gain: **0.7%**. The slow matmul was real and eliminating it
+bought almost nothing, because prefill here is not bound by that term. What *did* move was
+**generation**, which the hypothesis never mentioned.
+
+> ⚠️ **Do not switch the default on this alone.** `UD-Q4_K_XL` is an Unsloth *Dynamic* quant, which
+> spends extra bits on the tensors most sensitive to quantisation — that is the entire reason it
+> exists, and it is why it carries the `iq4_xs` tensors that cost the speed. **The quality delta
+> between it and plain `Q4_K_M` is unmeasured here.** 5.5% of generation is a poor trade for an
+> unknown quality regression, and this repo has been burned by exactly that shape of assumption.
+> Run both through the eval suites before changing what `run-solo.ps1` serves.
+
 **Other flags** (baseline = UD-Q4_K_XL, `draft-mtp` n=3, f16 KV, 20.06 t/s):
 
 | change | tg | verdict |
