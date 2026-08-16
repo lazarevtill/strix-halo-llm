@@ -19,6 +19,11 @@ param(
     [Parameter(Mandatory)] [string] $Model,
     [int]    $Ctx  = 131072,
     [int]    $Port = 8080,
+    # MEASURED OPTIMUM, not a default worth inheriting. 256 is +29% prefill over 1024 on gfx1151
+    # because a 256-row tile fits its 32 KB of shared memory -- the most architecture-specific flag
+    # in this repo. It is a parameter precisely so a different GPU can sweep it rather than copy it;
+    # see docs/BENCHMARKS.md. Every eval before 2026-08-16 ran at 1024 and paid that 29%.
+    [int]    $UBatch = 256,
     [string] $Reasoning = 'auto',
     [string] $Spec = '',
     [int]    $SpecNMax = 5,
@@ -63,14 +68,14 @@ if ($held.Count) {
 
 # ---- serve --------------------------------------------------------------------------------------
 $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
-$a = @('-m',$Model,'-ngl','999','--ctx-size',"$Ctx",'--batch-size','2048','--ubatch-size','1024',
+$a = @('-m',$Model,'-ngl','999','--ctx-size',"$Ctx",'--batch-size','2048','--ubatch-size',"$UBatch",
        '-fa','on','-lm','none','--jinja','--parallel','1','--host',$Bind,'--port',"$Port",
        '--no-warmup','--cache-type-k','q8_0','--cache-type-v','q8_0',
        '--reasoning',$Reasoning,'--reasoning-preserve')
 if ($Spec) { $a += @('--spec-type',$Spec,'--spec-draft-n-max',"$SpecNMax") }
 
 Write-Host "=== $Label ===" -ForegroundColor Cyan
-Write-Host ("serving: {0}`n  ctx={1} reasoning={2} spec={3}" -f (Split-Path $Model -Leaf), $Ctx, $Reasoning, $(if($Spec){$Spec}else{'none'})) -ForegroundColor DarkGray
+Write-Host ("serving: {0}`n  ctx={1} ub={2} reasoning={3} spec={4}" -f (Split-Path $Model -Leaf), $Ctx, $UBatch, $Reasoning, $(if($Spec){$Spec}else{'none'})) -ForegroundColor DarkGray
 $proc = Start-Process $bin -ArgumentList $a -WindowStyle Minimized -PassThru
 
 $t0 = Get-Date; $ok = $false
