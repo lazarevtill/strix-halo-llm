@@ -22,6 +22,7 @@ REGISTRY=(
   "qwen122b-1|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf|10943808"
   "qwen122b-2|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf|49667346080"
   "qwen122b-3|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf|28968190016"
+  "qwen3-8b|unsloth/Qwen3-8B-GGUF|Qwen3-8B-Q4_K_M.gguf|5400921374"
 )
 # All four byte counts are VERIFIED against files on disk (2026-08-04). Worth stating because
 # the first draft of this table had ornith-q5 off by ~9 MB from a guessed value — a size that
@@ -46,26 +47,59 @@ confusing error, which is much worse than failing here.
 EOF
 }
 
-MODE=""; ONLY=""
+MODE=""
+ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --list)   MODE=list; shift ;;
-    --all)    MODE=all; shift ;;
-    --only)   MODE=only; ONLY="$2"; shift 2 ;;
-    --dest)   DEST="$2"; shift 2 ;;
-    --verify) MODE=verify; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "unknown option: $1" >&2; usage; exit 2 ;;
+  --list)
+    MODE=list
+    shift
+    ;;
+  --all)
+    MODE=all
+    shift
+    ;;
+  --only)
+    MODE=only
+    ONLY="$2"
+    shift 2
+    ;;
+  --dest)
+    DEST="$2"
+    shift 2
+    ;;
+  --verify)
+    MODE=verify
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "unknown option: $1" >&2
+    usage
+    exit 2
+    ;;
   esac
 done
-[[ -z "$MODE" ]] && { usage; exit 0; }
+[[ -z "$MODE" ]] && {
+  usage
+  exit 0
+}
 
-command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
+command -v curl >/dev/null || {
+  echo "curl is required" >&2
+  exit 1
+}
 mkdir -p "$DEST"
 
 human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"; }
 
-entry_fields() { IFS='|' read -r KEY REPO RPATH WANT <<<"$1"; FNAME="$(basename "$RPATH")"; }
+entry_fields() {
+  IFS='|' read -r KEY REPO RPATH WANT <<<"$1"
+  FNAME="$(basename "$RPATH")"
+}
 
 if [[ "$MODE" == "list" || "$MODE" == "verify" ]]; then
   printf '%-12s %-14s %-14s %s\n' KEY EXPECTED ONDISK STATUS
@@ -76,7 +110,8 @@ if [[ "$MODE" == "list" || "$MODE" == "verify" ]]; then
       have=$(stat -c%s "$local_path")
       if [[ "$have" == "$WANT" ]]; then status="OK"; else status="SIZE MISMATCH — re-fetch"; fi
     else
-      have=0; status="missing"
+      have=0
+      status="missing"
     fi
     printf '%-12s %-14s %-14s %s\n' "$KEY" "$(human "$WANT")" "$(human "$have")" "$status"
   done
@@ -97,7 +132,7 @@ for e in "${REGISTRY[@]}"; do
   echo "[get ] ${KEY} -> ${local_path}"
   # -C - resumes; --retry survives the flaky-link case this was written for.
   curl -L -C - --retry 8 --retry-delay 5 --retry-all-errors \
-       --progress-bar -o "$local_path" "$url"
+    --progress-bar -o "$local_path" "$url"
 
   have=$(stat -c%s "$local_path")
   if [[ "$have" != "$WANT" ]]; then
