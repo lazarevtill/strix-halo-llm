@@ -121,17 +121,43 @@ $REG = [ordered]@{
             @{ p='Qwen3.8-27B-IQ4_XS.gguf';      b=15705861088 },
             @{ p='Qwen3.8-27B-UD-Q3_K_XL.gguf';  b=13441059904 }
         )
-        # Smaller quants of qwen38, for the SPEED axis. This model is DENSE: every token reads
-        # every weight, so tg scales ~1/filesize -- unlike the MoE models here, where shrinking the
-        # quant mostly buys memory rather than speed. Projected from the MEASURED 20.27 t/s at
-        # UD-Q4_K_XL (16.69 GiB): IQ4_XS (14.63 GiB) ~23 t/s, UD-Q3_K_XL (12.52 GiB) ~27 t/s.
-        # Memory is NOT the constraint at these sizes (109 GiB ceiling) -- BANDWIDTH is, which is
-        # why the smaller quant is the faster one and why it is worth testing at all.
-        # Q5_K_XL (18.83 GiB) is deliberately NOT here: it is bigger, therefore SLOWER (~18 t/s),
-        # and the whole point of this entry is the speed axis.
-        # QUALITY COST IS UNMEASURED. Q3 on a 27B dense model is a real risk -- run the eval suites
-        # before serving one of these, or the speed win is bought with silent quality loss.
-        note  = 'qwen38 speed quants: IQ4_XS + UD-Q3_K_XL. Dense => tg ~ 1/size. Quality untested.'
+        # ⚠️ THE PREDICTION THAT MOTIVATED THIS ENTRY WAS REFUTED. It projected "tg scales ~1/filesize
+        # because the model is dense": IQ4_XS ~23 t/s, UD-Q3_K_XL ~27 t/s. Measured 2026-08-14, both
+        # came back SLOWER than the bigger quant they were supposed to beat:
+        #
+        #     UD-Q4_K_XL  16.69 GiB   20.06 t/s   <- biggest AND fastest
+        #     IQ4_XS      14.63 GiB   19.63 t/s   (predicted ~23)
+        #     UD-Q3_K_XL  12.52 GiB   18.17 t/s   (predicted ~27)
+        #
+        # Dequantisation ALU cost outweighs the bandwidth saved: Q4_K unpacks cheaply, IQ4_XS and
+        # Q3_K do not. Below ~Q4_K you spend compute to save bandwidth you were not short of.
+        # The note about Q5_K_XL being "bigger, therefore SLOWER" was the same reasoning and is
+        # equally unsupported -- see the qwen38-highquants entry, which tests upward instead.
+        # KEPT, not deleted: these files are the evidence for the refutation.
+        # QUALITY COST IS UNMEASURED. Q3 on a 27B dense model is a real risk.
+        note  = 'qwen38 SMALLER quants. Both measured SLOWER than UD-Q4_K_XL -- kept as evidence.'
+    }
+    'qwen38-highquants' = @{
+        repo  = 'unsloth/Qwen3.8-27B-GGUF'
+        files = @(
+            @{ p='Qwen3.8-27B-Q6_K.gguf'; b=22884408288 },
+            @{ p='Qwen3.8-27B-Q8_0.gguf'; b=29047086048 }
+        )
+        # THE OTHER HALF OF THE SWEEP. Every quant measured so far sits at or below UD-Q4_K_XL, so
+        # "Q4_K_XL is optimal" only ever meant "it was the largest one tried" -- the identical error
+        # the -ub sweep made when it tested 512/1024/2048 and called 512 the optimum, before testing
+        # downward found 256. Smaller was measured slower; nobody has measured bigger.
+        #
+        # There is a real mechanism to test, not just symmetry. Q8_0 barely dequantises at all,
+        # so if ALU cost is what made Q3/IQ4 slow, the cost curve should keep improving upward
+        # even as bytes grow -- until bandwidth reclaims the lead. Where that crossover sits is the
+        # measurement.
+        #
+        # MEMORY IS NOT THE CONSTRAINT and it is worth being blunt about it: Q8_0 is 27.05 GiB and
+        # leaves ~74 GiB of the 109 GiB ceiling unused, even with the full 262K context at q8_0 KV
+        # (~8 GiB). This box has been serving a 16.7 GiB model on a 109 GiB budget.
+        # Q8_0 is also the quality endpoint -- ~99.3% fidelity to the unquantised model.
+        note  = 'qwen38 BIGGER quants: Q6_K + Q8_0. Tests upward, which no sweep here has done.'
     }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
