@@ -34,7 +34,7 @@ Linux and macOS are the same three steps in `scripts/linux/` and `scripts/macos/
 unproven**, so run them with `--dry-run` first. [Full walkthrough for all three →](docs/INSTALL.md)
 
 **Don't have this hardware?** Two parts of this repo are about measurement rather than about one
-GPU, and they transfer: **[the thirteen harness bugs](evals/README.md)** — each with the believable
+GPU, and they transfer: **[the fourteen harness bugs](evals/README.md)** — each with the believable
 wrong number it produced, including the pair that faked a four-way tie between models spanning
 16.7 GB to 89 GB — and **[how to benchmark without fooling yourself](docs/BENCHMARKS.md)**. The eval
 harness runs anywhere Python and Docker do; `python evals/code/smoke.py` scores it against itself in
@@ -112,7 +112,7 @@ contrast is the useful part.
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
-| 🧯 **A list of ways benchmarks lie** | **thirteen** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
+| 🧯 **A list of ways benchmarks lie** | **fourteen** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
 
 ---
 

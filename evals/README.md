@@ -271,3 +271,40 @@ measures coding ability, and the two are not correlated. Open, and deliberately 
 mid-sweep: a turn that emits **no code at all** is a sampler pathology, not an answer, and should
 probably be retried on a different seed before the task is written off — the same reasoning that
 made `env` failures distinguishable from wrong answers in bug 9.
+
+**14. A flag you believe is performance-only can change your scores.** `--ubatch-size` controls how
+many prompt tokens are processed per pass. It is a *speed* knob — 256 is 29% faster at prefill than
+1024 on this GPU — and nothing about it suggests it touches output. Correcting the eval server from
+1024 to 256 moved ornith's easy tier from **70/70 to 65/70** at an identical seed, temperature and
+token budget:
+
+| | `token_budget` turns | total |
+|---|---|---|
+| `-ub 1024`, 2026-08-15 | 12/12 · 20/20 · 20/20 | 70/70, strict 49 |
+| `-ub 256`, 2026-08-16 | 12/12 · **15/20 · 15/20** | 65/70, strict 44 |
+| `-ub 1024`, 2026-08-16 (control) | 12/12 · 20/20 · 20/20 | **70/70, strict 49** |
+
+Different batch shapes change the order of floating-point accumulation in the matmuls. Float
+addition is not associative, so the logits differ in the last bits, and eventually one token is
+sampled differently. After that the generations have diverged and the scores are simply two
+different samples.
+
+**The third row is the important one.** Re-running at the original 1024 reproduced the first run
+*exactly* — same total, same strict score, same per-turn counts, down to `quant_pick` turn 3
+truncating in both. So:
+
+- **The harness IS run-to-run deterministic.** Two runs 18 hours apart, spanning a `git pull` that
+  rewrote `run-code-eval.py`, produced identical results. Single runs need no error bar for
+  run-to-run noise, and that pull is empirically confirmed as scoring-neutral rather than merely
+  inspected.
+- **`-ub` is genuinely the cause**, not drift, not the sampler, not the box warming up.
+
+Two consequences worth keeping:
+
+1. **A results table must be built at ONE serving configuration**, and the configuration belongs in
+   the table. Ours now records `ub=` in the serving banner, because this was invisible for weeks.
+2. **Generation length decides whether you notice.** The tool-calling suite (~4k tokens) returned
+   byte-identical results at 1024 and 256 — same score, same failing case, same batching behaviour.
+   The coding suite (32k tokens of reasoning) diverged. One flipped token is near-certain over tens
+   of thousands; over a few hundred it may never happen. So short-form evals can look perfectly
+   stable while long-form ones quietly move underneath you.
