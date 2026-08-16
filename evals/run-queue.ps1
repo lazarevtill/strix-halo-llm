@@ -26,6 +26,7 @@
 param(
     [switch] $SkipA,
     [switch] $SkipB,
+    [switch] $SkipD,
     [switch] $SkipC,
     [int]    $Port = 8099,
     [int]    $Seed = 42
@@ -82,11 +83,42 @@ if (-not $SkipB) {
     Say "=== QUEUE PHASE B DONE ===" Green
 }
 
-# ---- C: laguna + deepseek hard tier, in full -----------------------------------------------------
-if (-not $SkipC) {
-    Say "=== QUEUE PHASE C: laguna + deepseek hard tier, full re-run ===" Yellow
+# ---- D: determinism control, and it must run BEFORE C --------------------------------------------
+# ornith-easy scored 70/70 at --ubatch-size 1024 and 65/70 at 256, on the SAME seed, temperature and
+# token budget. token_budget went 20/20 -> 15/20 on turns 2 and 3, with no FRAGMENT flags in either
+# run, so the model genuinely emitted different code. Two explanations fit, and they are not close
+# to equivalent:
+#
+#   1. -ub changes the numerics (different prompt batching -> different logits -> different tokens).
+#   2. The harness was never run-to-run deterministic, and every single-run number in this repo
+#      carries an error bar nobody has measured.
+#
+# This re-runs ornith's easy tier at the ORIGINAL 1024. Returning 70/70 implicates -ub; returning a
+# third number implicates determinism itself, and then the hard-tier gaps need error bars before any
+# of them can be published. Distinct label -- it is a control, not a replacement.
+if (-not $SkipD) {
+    Say "=== QUEUE PHASE D: determinism control, ornith easy @ ub 1024 ===" Yellow
     if (-not (Wait-GpuFree)) { exit 3 }
-    & "$root\run-full-bench.ps1" -Phase hard -Only laguna,deepseek -Port $Port -Seed $Seed 2>&1 |
+    $p = @{
+        Label = 'ornith-easy-ub1024'
+        Model = 'D:\llamacpp-vulkan\models\ornith-1.0-35b-Q5_K_M.gguf'
+        Ctx = 131072; Port = $Port; Seed = $Seed; UBatch = 1024; Bind = '127.0.0.1'
+        Tasks = 'token_budget,shard_planner,window_merge,quant_pick'
+        SkipTools = $true
+    }
+    & "$root\run-model-suite.ps1" @p 2>&1 |
+        Out-String -Stream | ForEach-Object { Write-Host $_; Add-Content $log $_ -Encoding utf8 }
+    Say "=== QUEUE PHASE D DONE -- compare against ornith-easy 70/70 (ub1024) and 65/70 (ub256) ===" Green
+}
+
+# ---- C: laguna + deepseek hard tier, in full -----------------------------------------------------
+# Pinned to 1024 so all five hard-tier rows share one batch setting. The other three were recorded
+# at 1024 on 2026-08-15; re-running two at 256 would make them incomparable with the three we
+# already have, which costs more than the prefill saving is worth.
+if (-not $SkipC) {
+    Say "=== QUEUE PHASE C: laguna + deepseek hard tier, full re-run @ ub 1024 ===" Yellow
+    if (-not (Wait-GpuFree)) { exit 3 }
+    & "$root\run-full-bench.ps1" -Phase hard -Only laguna,deepseek -Port $Port -Seed $Seed -UBatch 1024 2>&1 |
         Out-String -Stream | ForEach-Object { Write-Host $_; Add-Content $log $_ -Encoding utf8 }
     Say "=== QUEUE PHASE C DONE ===" Green
 }

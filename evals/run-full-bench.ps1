@@ -34,7 +34,11 @@ param(
     [string[]] $Only = @(),
     # Run identifier for the log and the speed JSONs. Defaults to now; pass it only to write into
     # an existing run's directory on purpose.
-    [string] $Stamp = ''
+    [string] $Stamp = '',
+    # Serving ubatch. 256 is the measured optimum, but -ub is NOT score-neutral: ornith's easy tier
+    # scored 70/70 at 1024 and 65/70 at 256 on an identical seed. So a table must be built at ONE
+    # setting. Pass 1024 to extend the hard-tier rows recorded on 2026-08-15.
+    [int] $UBatch = 256
 )
 $ErrorActionPreference = 'Continue'
 $root    = 'D:\llamacpp-vulkan\evals'
@@ -129,7 +133,7 @@ function Invoke-Suite($m, [string]$tasks, [switch]$WithTools, [string]$suffix) {
     # died instantly with "Cannot convert value '-Model' to type System.Int32".
     $p = @{
         Label = $label; Model = $m.file; Ctx = $m.ctx; Port = $Port; Seed = $Seed
-        Tasks = $tasks; Bind = '127.0.0.1'
+        Tasks = $tasks; Bind = '127.0.0.1'; UBatch = $UBatch
     }
     if ($m.spec) { $p.Spec = $m.spec; $p.SpecNMax = 3 }
     if (-not $WithTools) { $p.SkipTools = $true }
