@@ -14,10 +14,10 @@ Many tips there are CUDA/Linux-specific; below is only what applies to AMD 8060S
 | 4 | **q8_0 KV cache** (`-ctk q8_0 -ctv q8_0`) | ✅ | frees VRAM for more GPU layers. (Article marks [CUDA] but works on our Vulkan.) |
 | 5 | **`--parallel 1`** for single big model | ⬜ | Each slot = own KV. For the tight-fit 235B, drop 4→1 to reclaim VRAM for weights. |
 | 6 | **flash-attn on** | ✅ | required for big context; works on 8060S (coopmat). |
-| 7 | **`--no-mmap`** | ✅ KEEP | Correct & default. Weights in VRAM carve-out, host copy paged out (~1.4GB physically resident → RAM ~24GB free). **Do NOT switch to mmap** — measured 2026-06-26: mmap pins a ~21GB file-cache mirror in *physical* RAM → RAM free crashes to ~3.7GB ("RAM 100%"). Watch WorkingSet, not committed bytes. |
-| 8 | **`--mlock`** | ❌ HARMFUL | **Do NOT use on this Vulkan/UMA box.** Measured 2026-06-26: it pins weights in the ~32GB system-RAM partition and blocks the Vulkan upload to the 96GB VRAM carve-out → `-ngl 999` silently runs from host RAM (GPU dedicated ~0.1GB, RAM ~1GB free, slower). `--no-mmap` alone already gives permanent VRAM residency (no page-out/refetch until stop). |
+| 7 | **`-lm none`** (was `--no-mmap`) | ✅ KEEP, NEW SPELLING | The behaviour is right — weights in the VRAM carve-out, host copy paged out (~1.4GB physically resident → RAM ~24GB free). **Do NOT switch to mmap** — measured 2026-06-26: mmap pins a ~21GB file-cache mirror in *physical* RAM → RAM free crashes to ~3.7GB ("RAM 100%"). Watch WorkingSet, not committed bytes. ⚠️ **`--no-mmap` was DEPRECATED in b10182 in favour of `--load-mode`, WHICH DEFAULTS TO MMAP.** Passing the old flag is a trap: it still parses today, so nothing appears to change until it stops being honoured. The launchers pass `-lm none`. |
+| 8 | **`--mlock`** | ❌ HARMFUL | **Do NOT use on this Vulkan/UMA box.** Measured 2026-06-26: it pins weights in the ~32GB system-RAM partition and blocks the Vulkan upload to the 96GB VRAM carve-out → `-ngl 999` silently runs from host RAM (GPU dedicated ~0.1GB, RAM ~1GB free, slower). `-lm none` alone already gives permanent VRAM residency (no page-out/refetch until stop). |
 | 9 | **Sampling defaults (quality)** | ✅ set 2026-06-29 | **Qwen3.x thinking: `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0`. NEVER greedy** (endless repetition). Baked into run-qwen36/run-ornith/keep-resident. gpt-oss is different (neutral: temp 1.0/top-p 1.0/top-k 0). Clients may override. |
-| 10 | **batch/ubatch tuning** | ✅ MEASURED 2026-06-29 | **`-b 2048 -ub 1024`** is the pp sweet spot on gfx1151 (pp8192: 921 @ub1024 vs 817 @512, 744 @2048; pp512: 911 @b2048 vs 829 @b256). Old `-b 256` left ~10-13% pp on the table. **tg is unaffected by batch** (~68 t/s either way — tg is bandwidth-bound; the tg lever is RAM XMP). Now the run-server.ps1 default. |
+| 10 | **batch/ubatch tuning** | ✅ RE-MEASURED 2026-08-14 | **`-b 2048 -ub 256`** is the pp sweet spot on gfx1151, and it is the launchers' default. **The `-ub 1024` this table used to recommend costs 29%** (167 vs 129 t/s prefill on Qwen3.8-27B, b10431): a 256-row tile fits gfx1151's 32 KB of shared memory and a 1024-row one does not. `-ub 128` measured 0.9% higher still on one run, so 256 is the knee, not the maximum. The superseded 2026-06-29 MoE figures were pp8192 921 @ub1024 vs 817 @512, 744 @2048 — measured on a different model class, which is why they pointed the wrong way. **tg is unaffected by batch** (~68 t/s either way — tg is bandwidth-bound; the tg lever is RAM XMP). **`-ub` is the most architecture-specific flag in this repo — sweep it, do not copy it.** |
 | 11 | **`--prio` / `--no-warmup`** | ⬜ | minor; faster startup, less scheduler jitter. |
 | 12 | **Build from source (LTO/native)** | ⬜ later | we use prebuilt b9771; a `-DGGML_VULKAN=ON -DGGML_NATIVE=ON -DGGML_LTO=ON` build squeezes a few %. |
 
@@ -48,7 +48,7 @@ out around 13.4 GB (the rest of its 15.8 GB goes to desktop/compositor).
   previously wrote off, and it is enough to move the 235B from **Q2_K_XL up to a Q3-class quant**
   (~104 GB), which is a far bigger quality win than any flag in this file.
 - Watch **RAM free**, not VRAM, as the real constraint past ~105 GB: at 109 GB the Windows partition
-  is down to 9.7 GB. Keep `--no-mmap` (it keeps only ~1.4 GB host-resident) and don't run other
+  is down to 9.7 GB. Keep `-lm none` (it keeps only ~1.4 GB host-resident) and don't run other
   memory-hungry apps in that regime.
 - 262144 ctx does NOT fit for the 235B at Q2_K_XL. 229376 does.
 
@@ -106,7 +106,7 @@ NOT evict — verified. Fix once (OS level):
 powercfg /change standby-timeout-ac 0   ;  powercfg /change standby-timeout-dc 0
 powercfg /change hibernate-timeout-ac 0 ;  powercfg /change hibernate-timeout-dc 0
 ```
-Then run **`keep-resident.ps1`** = watchdog (relaunch on death) + keep-warm (tiny inference every
+Then run **`scripts\windows\legacy\keep-resident.ps1`** = watchdog (relaunch on death) + keep-warm (tiny inference every
 45s when idle so WDDM never trims VRAM) + residency log. There is no clean software "pin VRAM" API
 for an iGPU on Windows, so disable-sleep + keep-warm is the working approach. (To survive reboots,
 register keep-resident as a logon Scheduled Task — not done yet.)
@@ -314,7 +314,8 @@ srv load_model: cache_reuse is not supported by this context, it will be disable
 ```
 It requires KV shifting (`llama_memory_can_shift`), false for this MoE context. **Not** caused by
 q8_0 KV or `kv_unified` — both were tested and fail the same way. Removed from `scripts\windows\run-solo.ps1`;
-`run-server.ps1` and `ornith-router\serve-model.ps1` still pass it and should be cleaned up too.
+`scripts\windows\legacy\run-server.ps1` and `ornith-router\serve-model.ps1` still pass it and should
+be cleaned up too.
 
 **You don't need it.** Plain **prefix caching** already prevents re-prefill on append-only
 conversations — MEASURED over a 4-step agentic loop (1327-token system prompt + tool defs):
@@ -388,7 +389,7 @@ and several times faster, and those numbers are solid. Whether the big models bu
 as unproven rather than established. Reach for Qwen3.5-122B when you need its 262K context or
 `draft-mtp`, and Laguna when you need >262K context.
 
-`.\download-model.ps1 -Repo unsloth/Qwen3.5-122B-A10B-MTP-GGUF -File Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf`
+`.\scripts\windows\download-model.ps1 -Repo unsloth/Qwen3.5-122B-A10B-MTP-GGUF -File Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf`
 **Download to C: (1234 GB free), not D: (123 GB free).** Stop at Q4_K_XL — UD-Q5_K_XL (93.85 GB)
 leaves no room for real context, UD-Q6_K (104.12 GB) doesn't fit at all.
 
@@ -565,7 +566,7 @@ tg climbs sharply on later turns (13.5 → 43–52 t/s) because the prompt prefi
 |---|---|
 | `-lm none` | `--no-mmap` is DEPRECATED; `--load-mode` defaults to mmap, so the old flag silently did nothing |
 | `-fa on` + `--cache-type-k/v q8_0` | halves KV; flash-attn is a prerequisite |
-| `-b 2048 -ub 1024` | measured pp sweet spot on gfx1151 |
+| `-b 2048 -ub 256` | measured pp sweet spot on gfx1151 (+29% prefill vs the 1024 this used to say) |
 | `--parallel 1` | whole context to one agent; `-c` is SPLIT across slots |
 | `--reasoning on` + `--reasoning-preserve` | poolside explicitly recommend thinking enabled AND reasoning preserved in history for agentic coding |
 | SWA compact cache (`--swa-full` off) | `sliding_window 512` on 36 of 48 layers keeps KV cheap |
@@ -610,7 +611,7 @@ range needs a second box.
 | # | item | expected gain | notes |
 |---|------|---------------|-------|
 | 1 | **Memory 7500 → 8532 MT/s** | **~+14% tg** (the single biggest tg lever) | ⚠️ This is **soldered LPDDR5X — there is no XMP/EXPO profile to toggle**; earlier notes calling it "RAM XMP" were misleading. The realistic path is a **BIOS update** (yours is `EVO-X2 1.05`, 2025-07-16, ~1 yr stale). Verify a newer GMKtec BIOS actually claims improved memory training before expecting the number. |
-| 2 | **Raise the UMA carve-out above 96 GB** | more headroom above the measured 109 GB | Interacts with the ceiling: total = carve-out + (half of remaining Windows RAM). Going to 112/16 would give ~120 GB *if* the BIOS offers it, but leaves Windows only 16 GB — risky. `--no-mmap` keeps only ~1.4 GB host-resident, so it's *plausible*. Untested. |
+| 2 | **Raise the UMA carve-out above 96 GB** | more headroom above the measured 109 GB | Interacts with the ceiling: total = carve-out + (half of remaining Windows RAM). Going to 112/16 would give ~120 GB *if* the BIOS offers it, but leaves Windows only 16 GB — risky. `-lm none` keeps only ~1.4 GB host-resident, so it's *plausible*. Untested. |
 | 3 | **iGPU TDP / power limit** | pp lever | EVO-X2 exposes a TDP setting; check thermals under sustained load. |
 
 ## What does NOT apply to us (CUDA/Linux-only)
@@ -622,11 +623,12 @@ range needs a second box.
 ## Planned 235B launch (applies #3,#4,#5,#6,#7 — NOT #8: --mlock is harmful here)
 ```
 llama-server -m Qwen3-235B-...UD-Q2_K_XL-00001-of-00002.gguf \
-  --no-mmap -fa on \
+  -lm none -fa on \
   --fit on --fit-ctx 32768 --fit-target 1024 \
   --ctx-size 32768 --parallel 1 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --host 0.0.0.0 --port 8081 --jinja --alias qwen235
 ```
 (Separate port 8081 so it doesn't disturb the Pi coder on 8080.)
-⚠️ No `--mlock` (it blocks VRAM upload — see #8). `--no-mmap` only; disable sleep first (see above).
+⚠️ No `--mlock` (it blocks VRAM upload — see #8). Use `-lm none`, not the deprecated `--no-mmap`
+(`--load-mode` defaults to mmap); disable sleep first (see above).

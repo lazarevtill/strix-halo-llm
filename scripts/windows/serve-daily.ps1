@@ -19,8 +19,13 @@
   ELEVATED -- a non-elevated query silently returns nothing for SYSTEM tasks.
 
   WHAT IT SERVES: Ornith-1.0-35B Q5_K_M at full 262144 ctx with the flags measured optimal on
-  gfx1151 (see docs/OPTIMIZATION.md). Chosen because it TIES Laguna-S-2.1 and Qwen3.5-122B on both
-  private eval suites at a quarter the size and ~4x the speed.
+  gfx1151 (see docs/OPTIMIZATION.md). Chosen ON COST -- a quarter the size of the alternatives and
+  ~4x the speed, both of which are measured and stand.
+
+  ⚠️ NOT chosen on quality. This block used to say it TIED Laguna-S-2.1 and Qwen3.5-122B on both
+  private suites; that result was WITHDRAWN on 2026-08-15 (temperature-0 repetition loops, which
+  the truncation rule then rescued -- see evals/README.md bug 10). Relative quality is currently
+  unmeasured in either direction.
 
 .EXAMPLE
   .\serve-daily.ps1 -Install      # register the task + firewall, then start serving (needs admin)

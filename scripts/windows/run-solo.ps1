@@ -20,12 +20,18 @@
   Do NOT use --fit / llama-fit-params here: -ngl 999 aborts the fit, and llama.cpp's reported free
   VRAM is a constant, not a measurement. Size context from the table instead.
 
-  WHY ORNITH Q5_K_M IS THE DEFAULT (measured 2026-08-04, not assumed): scored against
-  Laguna-S-2.1 Q4_K_M and Qwen3.5-122B-A10B Q4_K_XL on two private uncontaminated suites, it TIES
-  both -- tool calling 28/29 vs 28/29 vs 27/29 (all CIs overlap, McNemar p=1.0), agentic coding
-  70/70 for all three -- at 23 GB instead of 78/89 GB and ~58 t/s instead of ~34/~14. Pick a bigger
-  model only for a capability you actually need (draft-mtp on Qwen, >262K ctx on Laguna), not for
-  expected quality. See BENCHMARKS.md.
+  WHY ORNITH Q5_K_M IS A REASONABLE PICK -- ON COST, NOT ON QUALITY. It is 23 GB against 78/89 GB
+  and ~58 t/s against ~34/~14, which is measured and still stands.
+
+  ⚠️ RELATIVE QUALITY IS UNMEASURED. This block used to assert that Ornith TIED Laguna-S-2.1 and
+  Qwen3.5-122B-A10B on two private suites (28/29 vs 28/29 vs 27/29 tool calling, 70/70 agentic
+  coding all round). THAT RESULT WAS WITHDRAWN ON 2026-08-15: it came from a temperature-0 sweep
+  in which models fell into repetition loops and emitted no answer, and the truncation rule then
+  rescued exactly those turns -- which is why four models spanning 16.7 GB to 89 GB all appeared
+  to tie. Unrescued, qwen122b's "70/70" contains a raw 0/20 and a 0/18. Do not quote the tie, and
+  do not conclude the opposite either. See docs/BENCHMARKS.md and evals/README.md bug 10.
+
+  Pick a bigger model for a capability you actually need (draft-mtp on Qwen, >262K ctx on Laguna).
 
   Do NOT "upgrade" to bf16: measured 11.17 t/s, 5.6x slower than Q5_K_M, and pp collapses too.
 

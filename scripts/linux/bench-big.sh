@@ -74,11 +74,11 @@ for m in "${MODELS[@]}"; do
   # -fa 1 and q8_0 KV mirror the serving config; benchmarking a config you do not serve
   # tells you nothing useful.
   "$BENCH" -m "$m" -ngl 999 -fa 1 -ctk q8_0 -ctv q8_0 \
-           -b 2048 -ub 1024 -d "$DEPTHS" -o csv 2>/dev/null \
+           -b 2048 -ub 256 -d "$DEPTHS" -o csv 2>/dev/null \
     | tail -n +2 | while IFS= read -r line; do
         echo "$line" >> "$OUT"
       done
-  "$BENCH" -m "$m" -ngl 999 -fa 1 -ctk q8_0 -ctv q8_0 -b 2048 -ub 1024 -d "$DEPTHS" 2>/dev/null \
+  "$BENCH" -m "$m" -ngl 999 -fa 1 -ctk q8_0 -ctv q8_0 -b 2048 -ub 256 -d "$DEPTHS" 2>/dev/null \
     | grep -E '\|\s*(pp|tg)' || true
   echo
 done

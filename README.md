@@ -94,7 +94,7 @@ contrast is the useful part.
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
-| 🧯 **A list of ways benchmarks lie** | **eleven** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
+| 🧯 **A list of ways benchmarks lie** | **thirteen** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
 
 ---
 
@@ -102,7 +102,8 @@ contrast is the useful part.
 
 ### The memory ceiling is ~109 GB, not 96 GB
 
-96 GB dedicated carve-out **+ ~13.4 GB of WDDM shared heap**, and token generation is *flat* from
+96 GB dedicated carve-out **+ a ~15.8 GB WDDM shared heap, of which ~13.4 GB is reachable** before
+the ceiling (the rest goes to the desktop and compositor), and token generation is *flat* from
 89 GB to 109 GB — spilling past the carve-out costs nothing on a UMA APU, because it's the same
 physical LPDDR5X either way. That's ~13 GB of free headroom most setups leave on the table.
 
@@ -317,7 +318,7 @@ case counts, what each isolates, each coding task's entry point and per-turn tes
 results are interpretable without handing over the answers.
 [docs/PUBLISHING.md](docs/PUBLISHING.md) shows the file shapes so you can author your own.
 
-**The most reusable part may be the failure list.** **Eleven** harness bugs each produced a
+**The most reusable part may be the failure list.** **Thirteen** harness bugs each produced a
 *believable* wrong number during development — `17.2%`, `"34/34 = 100%"`, `92.2%`, `44.3%`,
 `"first-shot 64.3%"`, and finally `70/70` for four models at once — and one task turned out to be
 **unsatisfiable**, quietly rewarding models that ignored the user. Each is written up with the fake

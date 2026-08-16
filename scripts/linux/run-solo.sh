@@ -22,7 +22,9 @@ MODELS_DIR="${MODELS_DIR:-${REPO_ROOT}/models}"   # same env override as fetch-m
 CTX=262144
 PORT=8080
 BATCH=2048          # MEASURED on gfx1151: pp sweet spot. Should be arch-, not OS-, dependent.
-UBATCH=1024
+UBATCH=256          # MEASURED on gfx1151: +29% prefill over 1024 (167 vs 129 t/s), because a
+                    # 256-row tile fits its 32 KB of shared memory. THE MOST ARCHITECTURE-SPECIFIC
+                    # FLAG IN THIS REPO -- sweep it on other hardware rather than copying it.
 PARALLEL=1          # one interactive agent gets the whole context; -c is SPLIT across slots
 SPEC=""
 SPEC_NMAX=3
@@ -59,9 +61,13 @@ to look somewhere else. There is no built-in default model on purpose: the previ
 path that only existed on the machine this repo was written on, so every other clone failed at
 startup with "model not found" before printing anything useful.
 
-A good first pick is Ornith-1.0-35B Q5_K_M: measured 2026-08-04 it TIES Laguna-S-2.1 and
-Qwen3.5-122B-A10B on two private eval suites, at a quarter the size and ~4x the speed.
-Do NOT "upgrade" to bf16 — measured 5.6x SLOWER on Windows/Vulkan. See docs/BENCHMARKS.md.
+A reasonable first pick is Ornith-1.0-35B Q5_K_M, on COST: a quarter the size of the alternatives
+and several times faster. Relative QUALITY is currently unmeasured — the 2026-08-04 "it ties
+Laguna-S-2.1 and Qwen3.5-122B" result was WITHDRAWN on 2026-08-15 (it came from a temperature-0
+run where models looped instead of answering and the scorer rescued the empty turns). Do not quote
+that tie, and do not assume the opposite either. See docs/BENCHMARKS.md.
+
+Do NOT "upgrade" to bf16 — measured 5.6x SLOWER on Windows/Vulkan.
 EOF
 }
 
