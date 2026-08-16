@@ -16,7 +16,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-MODEL="${REPO_ROOT}/models/Qwen3-8B-Q4_K_M.gguf"
+MODEL=""                                # empty => interactive pick from MODELS_DIR
+MODELS_DIR="${REPO_ROOT}/models"
 CTX=8192
 PORT=8080
 BATCH=2048
@@ -32,7 +33,7 @@ usage() {
   cat <<'EOF'
 run-solo.sh (macOS/Metal) — serve ONE model with the whole memory budget (DRAFT)
 
-  -m, --model PATH       GGUF to serve
+  -m, --model PATH       GGUF to serve         (default: pick interactively from models/)
   -c, --ctx N            context size          (default: 131072)
   -p, --port N           listen port           (default: 8080)
       --host ADDR        bind address          (default: 127.0.0.1)
@@ -52,7 +53,49 @@ first thing to check when a model that should fit refuses to load:
 
 Leave several GB for the OS. Setting it to your full RAM will hang the machine,
 not speed anything up.
+
+With no -m/--model, the script lists the GGUFs in models/ and asks which to serve.
 EOF
+}
+
+# Interactive picker: list *.gguf in MODELS_DIR and let the user choose one.
+pick_model() {
+  local dir="$1"
+  local -a found=()
+  local f
+  for f in "${dir}"/*.gguf; do
+    [[ -f "$f" ]] && found+=("$f")
+  done
+  if [[ ${#found[@]} -eq 0 ]]; then
+    echo "no .gguf files found in ${dir}" >&2
+    echo "  pass one explicitly with -m/--model, or fetch one with scripts/linux/fetch-models.sh --list" >&2
+    exit 1
+  fi
+  if [[ ${#found[@]} -eq 1 ]]; then
+    MODEL="${found[0]}"
+    echo "only one model in ${dir}, using: $(basename "$MODEL")" >&2
+    return
+  fi
+  if [[ ! -t 0 ]]; then
+    echo "multiple models in ${dir} but no interactive terminal to choose." >&2
+    echo "  pass one explicitly with -m/--model." >&2
+    exit 1
+  fi
+  echo "select a model to serve:" >&2
+  local i=1
+  for f in "${found[@]}"; do
+    printf '  %2d) %s\n' "$i" "$(basename "$f")" >&2
+    i=$((i+1))
+  done
+  local choice
+  while true; do
+    read -rp "model [1-${#found[@]}]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#found[@]} )); then
+      MODEL="${found[$((choice-1))]}"
+      return
+    fi
+    echo "  enter a number between 1 and ${#found[@]}" >&2
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -111,6 +154,10 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
   fi
 fi
+
+# No model given on the command line => pick one interactively from models/.
+[[ -z "$MODEL" ]] && pick_model "$MODELS_DIR"
+
 [[ -f "$MODEL" ]] || {
   echo "model not found: $MODEL" >&2
   echo "  get one with scripts/linux/fetch-models.sh --list" >&2

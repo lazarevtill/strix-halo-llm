@@ -17,7 +17,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-MODEL="${REPO_ROOT}/models/ornith-1.0-35b-Q5_K_M.gguf"
+MODEL=""                                # empty => interactive pick from MODELS_DIR
+MODELS_DIR="${REPO_ROOT}/models"
 CTX=262144
 PORT=8080
 BATCH=2048          # MEASURED on gfx1151: pp sweet spot. Should be arch-, not OS-, dependent.
@@ -35,7 +36,7 @@ usage() {
   cat <<'EOF'
 run-solo.sh — serve ONE model with the whole memory budget (DRAFT, unverified on Linux)
 
-  -m, --model PATH       GGUF to serve            (default: Ornith-1.0-35B Q5_K_M)
+  -m, --model PATH       GGUF to serve            (default: pick interactively from models/)
   -c, --ctx N            context size             (default: 262144)
   -p, --port N           listen port              (default: 8080)
       --host ADDR        bind address             (default: 127.0.0.1)
@@ -47,10 +48,51 @@ run-solo.sh — serve ONE model with the whole memory budget (DRAFT, unverified 
       --dry-run          print the command line and exit
   -h, --help
 
-Why Ornith-1.0-35B Q5_K_M is the default: measured 2026-08-04 it TIES Laguna-S-2.1 and
+With no -m/--model, the script lists the GGUFs in models/ and asks which to serve.
+A good default is Ornith-1.0-35B Q5_K_M: measured 2026-08-04 it TIES Laguna-S-2.1 and
 Qwen3.5-122B-A10B on two private eval suites, at a quarter the size and ~4x the speed.
 Do NOT "upgrade" to bf16 — measured 5.6x SLOWER on Windows/Vulkan. See docs/BENCHMARKS.md.
 EOF
+}
+
+# Interactive picker: list *.gguf in MODELS_DIR and let the user choose one.
+pick_model() {
+  local dir="$1"
+  local -a found=()
+  local f
+  for f in "${dir}"/*.gguf; do
+    [[ -f "$f" ]] && found+=("$f")
+  done
+  if [[ ${#found[@]} -eq 0 ]]; then
+    echo "no .gguf files found in ${dir}" >&2
+    echo "  pass one explicitly with -m/--model, or fetch one into models/" >&2
+    exit 1
+  fi
+  if [[ ${#found[@]} -eq 1 ]]; then
+    MODEL="${found[0]}"
+    echo "only one model in ${dir}, using: $(basename "$MODEL")" >&2
+    return
+  fi
+  if [[ ! -t 0 ]]; then
+    echo "multiple models in ${dir} but no interactive terminal to choose." >&2
+    echo "  pass one explicitly with -m/--model." >&2
+    exit 1
+  fi
+  echo "select a model to serve:" >&2
+  local i=1
+  for f in "${found[@]}"; do
+    printf '  %2d) %s\n' "$i" "$(basename "$f")" >&2
+    ((i++))
+  done
+  local choice
+  while true; do
+    read -rp "model [1-${#found[@]}]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#found[@]} )); then
+      MODEL="${found[$((choice-1))]}"
+      return
+    fi
+    echo "  enter a number between 1 and ${#found[@]}" >&2
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,6 +115,10 @@ done
 BIN="${LLAMA_BIN:-${REPO_ROOT}/bin/llama-server}"
 [[ -x "$BIN" ]]   || { echo "llama-server not found or not executable: $BIN" >&2
                        echo "  set LLAMA_BIN=/path/to/llama-server, or build into ${REPO_ROOT}/bin/" >&2; exit 1; }
+
+# No model given on the command line => pick one interactively from models/.
+[[ -z "$MODEL" ]] && pick_model "$MODELS_DIR"
+
 [[ -f "$MODEL" ]] || { echo "model not found: $MODEL" >&2; exit 1; }
 
 # ---- solo occupancy ---------------------------------------------------------

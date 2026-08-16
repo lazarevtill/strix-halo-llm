@@ -90,7 +90,7 @@ contrast is the useful part.
 
 | | |
 |---|---|
-| ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model, the whole memory budget, full context, measured-optimal flags |
+| ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model (prompts you to pick it), the whole memory budget, full context, measured-optimal flags |
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
@@ -200,7 +200,7 @@ cd strix-halo-llm
 .\scripts\windows\fetch-models.ps1 -List
 .\scripts\windows\fetch-models.ps1 -Only qwen38
 
-# 3. Serve it: whole memory budget, full context
+# 3. Serve it: whole memory budget, full context (prompts you to pick a model)
 .\scripts\windows\run-solo.ps1
 #    -> Web UI:     http://127.0.0.1:8080
 #    -> OpenAI API: http://127.0.0.1:8080/v1/chat/completions
@@ -270,7 +270,7 @@ strix-halo-llm/
 ├── scripts/                platform-separated -- see scripts/README.md
 │   ├── windows/            PowerShell 5.1 -- supported, and where every number came from
 │   │   ├── fetch-llamacpp.ps1  ⭐ step zero: the engine, into bin\
-│   │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget
+│   │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── bench-big.ps1       depth-aware benchmark
 │   │   ├── bench-spec.ps1      A/B baseline vs speculative decoding
@@ -278,13 +278,13 @@ strix-halo-llm/
 │   │   └── legacy/             superseded multi-model launchers
 │   ├── linux/              bash DRAFTS -- unproven, see its README
 │   │   ├── fetch-llamacpp.sh   download a prebuilt Vulkan release
-│   │   ├── run-solo.sh         serve one model (has --dry-run)
+│   │   ├── run-solo.sh         serve one model (prompts for model; has --dry-run)
 │   │   ├── fetch-models.sh     download + byte-verify (macOS uses this too)
 │   │   ├── bench-big.sh        depth-aware benchmark
 │   │   └── bench-spec.sh       A/B speculative decoding
 │   └── macos/              bash DRAFTS -- Apple silicon / Metal, unproven
 │       ├── fetch-llamacpp.sh   Homebrew, or the prebuilt macos-arm64 release
-│       └── run-solo.sh         serve one model on Metal (has --dry-run)
+│       └── run-solo.sh         serve one model on Metal (prompts for model; has --dry-run)
 │
 ├── evals/                  ⭐ the evaluation harness
 │   ├── run-full-bench.ps1  the whole stack: speed, then hard tier, then easy + tools
@@ -355,8 +355,8 @@ PowerShell-on-Linux dependency. Setup for all three platforms is in
 |---|---|---|---|
 | [`linux/fetch-llamacpp.sh`](scripts/linux/fetch-llamacpp.sh) | [`windows/fetch-llamacpp.ps1`](scripts/windows/fetch-llamacpp.ps1) | download a prebuilt Vulkan release into `bin/` | curl + unzip; **untested against a real driver stack** |
 | [`macos/fetch-llamacpp.sh`](scripts/macos/fetch-llamacpp.sh) | — | Homebrew, or the prebuilt `macos-arm64` release | **never run on macOS** |
-| [`macos/run-solo.sh`](scripts/macos/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve one model on Metal; has `--dry-run` | **never run on macOS**; `-ub` deliberately left at 512, not the Windows 256 |
-| [`run-solo.sh`](scripts/linux/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve ONE model with the whole memory budget; has `--dry-run` | flags ported 1:1; **GPU accounting unverified** |
+| [`macos/run-solo.sh`](scripts/macos/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve one model on Metal; prompts for model; has `--dry-run` | **never run on macOS**; `-ub` deliberately left at 512, not the Windows 256 |
+| [`run-solo.sh`](scripts/linux/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve ONE model with the whole memory budget; prompts for model; has `--dry-run` | flags ported 1:1; **GPU accounting unverified** |
 | [`fetch-models.sh`](scripts/linux/fetch-models.sh) | [`windows/fetch-models.ps1`](scripts/windows/fetch-models.ps1) | resume-capable download + byte verification | most portable; byte counts verified |
 | [`bench-big.sh`](scripts/linux/bench-big.sh) | [`windows/bench-big.ps1`](scripts/windows/bench-big.ps1) | depth-aware benchmark sweep | **dirty-GPU guard only warns, doesn't block** |
 | [`bench-spec.sh`](scripts/linux/bench-spec.sh) | [`windows/bench-spec.ps1`](scripts/windows/bench-spec.ps1) | A/B speculative decoding, classifies WIN/NEUTRAL/NEGATIVE | **output parsing is version-sensitive** |

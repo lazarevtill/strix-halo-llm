@@ -30,7 +30,7 @@
   Do NOT "upgrade" to bf16: measured 11.17 t/s, 5.6x slower than Q5_K_M, and pp collapses too.
 
 .EXAMPLE
-  .\run-solo.ps1                                    # Ornith-1.0-35B Q5_K_M at full 262144 ctx
+  .\run-solo.ps1                                    # pick a model from models\ interactively
   .\run-solo.ps1 -Model .\models\<big>.gguf -Ctx 131072
   .\run-solo.ps1 -Spec draft-mtp                    # if the GGUF carries an MTP head (+35%)
   .\run-solo.ps1 -Reasoning off                     # fast direct answers (router/tool-call use)
@@ -38,7 +38,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Model  = 'C:\llm-router\models\ornith-1.0-35b-Q5_K_M.gguf',
+    [string] $Model  = '',          # empty => pick interactively from models\
     [int]    $Ctx    = 262144,      # measured OK for Ornith Q5_K_M (29.93 GB total). Lower for bigger weights.
     [int]    $Port   = 8080,
     [int]    $Batch  = 2048,        # measured pp sweet spot on gfx1151
@@ -64,9 +64,28 @@ param(
     [switch] $Force                 # stop other servers even if they have a request in flight
 )
 $ErrorActionPreference = 'Stop'
-$bin = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\bin\llama-server.exe"
+$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
+$bin = "$repoRoot\bin\llama-server.exe"
 $gpu = 'luid_0x00000000_0x01c3ed4a_phys_0'
 if (-not (Test-Path $bin))   { Write-Error "llama-server.exe not found: $bin"; exit 1 }
+
+# No -Model given => pick one interactively from models\
+if (-not $Model) {
+    $modelsDir = Join-Path $repoRoot 'models'
+    $found = @(Get-ChildItem -Path $modelsDir -Filter *.gguf -File -EA SilentlyContinue | Sort-Object Name)
+    if ($found.Count -eq 0) {
+        Write-Error "No .gguf files in $modelsDir. Pass -Model, or fetch one with fetch-models.ps1."; exit 1
+    } elseif ($found.Count -eq 1) {
+        $Model = $found[0].FullName
+        Write-Host "only one model in $modelsDir, using: $($found[0].Name)" -ForegroundColor DarkGray
+    } else {
+        Write-Host 'select a model to serve:' -ForegroundColor Cyan
+        for ($i = 0; $i -lt $found.Count; $i++) { Write-Host ('  {0,2}) {1}' -f ($i + 1), $found[$i].Name) }
+        do { $choice = Read-Host "model [1-$($found.Count)]" }
+        until ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $found.Count)
+        $Model = $found[[int]$choice - 1].FullName
+    }
+}
 if (-not (Test-Path $Model)) { Write-Error "Model not found: $Model"; exit 1 }
 $Model = (Resolve-Path $Model).Path
 

@@ -130,18 +130,20 @@ Downloads are tens of GB. Start one and do something else.
 
 One model at a time, holding the whole memory budget. Every launcher here refuses to start when
 another model is resident — two models sharing one memory bus don't give you a slightly wrong
-number, they give you a meaningless one.
+number, they give you a meaningless one. With no model argument each launcher lists the GGUFs in
+`models/` and asks which to serve (or takes the only one if there is just one); pass `-Model` /
+`-m` to skip the prompt.
 
 ```powershell
-.\scripts\windows\run-solo.ps1                       # Windows
+.\scripts\windows\run-solo.ps1                       # Windows — prompts for the model
 ```
 
 ```bash
 ./scripts/linux/run-solo.sh --dry-run                # prints the command, launches nothing
-./scripts/linux/run-solo.sh                          # Linux
+./scripts/linux/run-solo.sh                          # Linux — prompts for the model
 
 ./scripts/macos/run-solo.sh --dry-run                # macOS
-./scripts/macos/run-solo.sh
+./scripts/macos/run-solo.sh                          # prompts for the model
 ```
 
 Use `--dry-run` first on the draft platforms. It prints the exact `llama-server` invocation without

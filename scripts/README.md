@@ -9,7 +9,7 @@ nothing to a working endpoint.
 scripts/
 ├── windows/     PowerShell 5.1  — supported, and where every number came from
 │   ├── fetch-llamacpp.ps1  ⭐ step zero: download the llama.cpp Vulkan release into bin\
-│   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget
+│   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
 │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   ├── download-model.ps1  fetch a single GGUF
 │   ├── bench-big.ps1       depth-aware benchmark (llama-bench -d)
@@ -22,13 +22,13 @@ scripts/
 ├── linux/       Bash  — DRAFTS, never run on Linux
 │   ├── fetch-llamacpp.sh   download a prebuilt Vulkan release into bin/
 │   ├── fetch-models.sh     download + byte-verify (also used on macOS)
-│   ├── run-solo.sh         serve one model; has --dry-run
+│   ├── run-solo.sh         serve one model; prompts for model; has --dry-run
 │   ├── bench-big.sh        depth-aware benchmark
 │   └── bench-spec.sh       A/B speculative decoding
 │
 └── macos/       Bash  — DRAFTS, never run on macOS (Apple silicon / Metal)
     ├── fetch-llamacpp.sh   Homebrew, or the prebuilt macos-arm64 release
-    └── run-solo.sh         serve one model on Metal; has --dry-run
+    └── run-solo.sh         serve one model on Metal; prompts for model; has --dry-run
 ```
 
 ## Windows
