@@ -69,18 +69,25 @@ the 512→256 step is worth 5%. `-ub 256` is shipped as the knee of that curve, 
 See [BENCHMARKS.md](BENCHMARKS.md#round-2-2026-08-14-b10431-the-flags-that-actually-matter) for the
 full table.
 
-### Quantisation — bigger is faster here
+### Quantisation — Q4 is the peak in both directions
 
 ```mermaid
 xychart-beta
-    title "Generation t/s by quant (smaller file is NOT faster)"
+    title "Generation t/s by quant, draft-mtp on (smaller file is NOT faster)"
     x-axis ["Q3_K_XL 12.5GB", "IQ4_XS 14.6GB", "Q4_K_XL 16.7GB"]
     y-axis "tokens/sec" 0 --> 22
     bar [18.17, 19.63, 20.06]
 ```
 
-Unpacking the more compressed formats costs more arithmetic than the bandwidth it saves.
-**Use `Q4_K_XL`.**
+**Below Q4, smaller is *slower*:** unpacking `IQ4_XS` / `Q3_K` costs more arithmetic than the bandwidth
+it saves. **Above Q4, bigger is slower too:** generation is bandwidth-bound (`tg ≈ 194 GiB/s ÷ file
+size`), so `Q5_K_M` / `Q6_K` only read more bytes per token for nothing. So **Q4 is the peak** — the
+full up-and-down sweep is in [BENCHMARKS.md](BENCHMARKS.md).
+
+At Q4 size two quants effectively tie on speed (within 5.5%): plain `Q4_K_M` (15.9 GB) is marginally
+faster, but **`UD-Q4_K_XL` is measurably closer to the `Q8_0` reference** — KL-divergence **−34% on the
+mean, −38% in the tail** ([the quality A/B](BENCHMARKS.md), n = tokens, not tasks). **Serve
+`UD-Q4_K_XL`:** it wins the quality axis and gives up almost nothing on speed.
 
 ### Everything else
 
@@ -208,6 +215,12 @@ The full re-run across all five models is **in progress** (speed → hard tier �
 Until it completes there is no defensible quality ranking here, and this page will not print one.
 
 **Pick on speed and size in the meantime** — §2 above is unaffected.
+
+This withdrawal is about the **cross-model** ranking (which model answers best). A narrower quality
+question *is* settled: for a single model, **which quant** to serve — measured by KL-divergence against
+the `Q8_0` reference, `UD-Q4_K_XL` beats `Q4_K_M` for Qwen3.8-27B (§2, and Round 5 in
+[BENCHMARKS.md](BENCHMARKS.md)). Quant fidelity and model answer-quality are different measurements;
+only the second is pending.
 
 ---
 

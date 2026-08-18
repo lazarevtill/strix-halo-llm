@@ -243,6 +243,52 @@ token budget, and it governs ANSWER length more than thinking length — on the 
 623 chars of thinking but 3045 of answer, `xhigh` 723 and only 1384. Setting `low` to save time makes
 hard requests **74% slower**. n=1 per cell; quality unmeasured.
 
+### Round 5 (2026-08-18, b10431): quality — which quant lands closest to the reference
+
+Rounds 2–4 answered *which quant is fastest* (Q4_K_M) but left the question that actually decides the
+default **unmeasured**: the round-3 note flagged that `UD-Q4_K_XL` (an Unsloth *Dynamic* quant, which
+keeps quality-sensitive tensors at higher bits) might be worth its 5.5% generation penalty over plain
+`Q4_K_M`, and that *"the quality difference between them is unmeasured here."* This round measures it.
+
+**Why not the eval suites.** Effective n is the **task** count — 7 code tasks + 29 tool cases. Two
+quants of the *same* 27B differ by a fraction of a percent; n=7 cannot resolve that. Running the
+generative suites would only manufacture a believable-but-noise winner — this repo's signature failure
+mode (see §2), and bug 13 (temp-0.3 turn-1 loops) is still open on top of it.
+
+**The instrument that can.** KL-divergence of each candidate's next-token distribution against the
+**Q8_0** reference (27.05 GiB, ~99.3% fidelity), via `llama-perplexity --kl-divergence`. Every token is
+a sample, so n is effectively unlimited; it is non-generative, so bug 13 cannot touch it; and it tests
+UD-Dynamic's *actual claim* directly — higher-bit sensitive tensors ⇒ distribution closer to reference.
+Corpus: ~48k tokens of **public** repo code + docs + synthetic tool-call JSON (never the private eval
+content — that is both a publishing hazard and contamination-adjacent). Identical corpus and flags
+(`-ngl 99 -fa on`, f16 KV) for all three arms.
+
+| vs Q8_0 reference | `Q4_K_M` | **`UD-Q4_K_XL`** | UD advantage |
+|---|---:|---:|---:|
+| **Mean KLD** | 0.016814 ± 0.000196 | **0.011165 ± 0.000149** | **−34%** |
+| Median KLD | 0.008432 | **0.005780** | −31% |
+| 99.0% KLD *(tail)* | 0.128438 | **0.079130** | −38% |
+| 99.9% KLD *(tail)* | 0.392617 | **0.279021** | −29% |
+| Maximum KLD | 1.663981 | **1.281838** | lower |
+| Top-1 token agreement | 93.57% | **94.37%** | higher |
+| PPL ratio to reference | 1.00623 | **1.00396** | closer |
+| RMS Δp | 3.96% | **3.31%** | lower |
+
+**`UD-Q4_K_XL` wins on every axis, most strongly in the tail** — the hard tokens where a quant is
+likeliest to diverge, and exactly where UD's higher-bit tensors should earn their keep. The mean-KLD
+gap (0.00565) is **~24× the combined standard error**, so this is not run-to-run noise: the pre-set
+threshold was ~2% relative separation; the actual separation is 34%. UD-Dynamic's mechanism is *present
+and paying off* on this model.
+
+**Decision:** serve **`UD-Q4_K_XL`**. The 5.5% generation it costs vs `Q4_K_M` buys 34% lower
+divergence from reference — a good trade for real work, and it **resolves the round-3 "unmeasured"
+warning**, vindicating the conservative call not to switch the default on speed alone. `Q4_K_M` stays a
+benchmark artifact, not the serving default.
+
+> **Scope, stated plainly.** This settles the *quant* choice for Qwen3.8-27B. It says nothing about the
+> **cross-model** quality ranking (the withdrawn four-way tie in §2) — that is a different measurement,
+> still open. KL is fidelity-to-`Q8_0`, not goodness-of-answers.
+
 ### Recommended serving config for Qwen3.8-27B (all MEASURED)
 
 ```
@@ -252,7 +298,8 @@ hard requests **74% slower**. n=1 per cell; quality unmeasured.
 -ctk q8_0 -ctv q8_0                            # free, halves KV to ~32 KiB/token
 -c 262144                                      # full context costs only ~3%
 ```
-Leave `reasoning_effort` alone.
+Leave `reasoning_effort` alone. `UD-Q4_K_XL` is the pick on **both** axes: fastest-tier on speed
+(within 5.5% of the fastest quant) and closest-to-`Q8_0` on quality (Round 5, KL-divergence).
 
 ```mermaid
 xychart-beta

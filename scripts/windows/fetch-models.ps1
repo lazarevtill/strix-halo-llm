@@ -159,6 +159,26 @@ $REG = [ordered]@{
         # Q8_0 is also the quality endpoint -- ~99.3% fidelity to the unquantised model.
         note  = 'qwen38 BIGGER quants: Q6_K + Q8_0. Tests upward, which no sweep here has done.'
     }
+    'qwen38-kl' = @{
+        repo  = 'unsloth/Qwen3.8-27B-GGUF'
+        files = @(
+            @{ p='Qwen3.8-27B-Q4_K_M.gguf'; b=17106775008 },
+            @{ p='Qwen3.8-27B-Q5_K_M.gguf'; b=19834055648 }
+        )
+        # THE QUALITY-A/B REPRODUCIBILITY SET (docs/BENCHMARKS.md Round 5, 2026-08-18). The A/B asked
+        # which quant to SERVE, not which is fastest, by KL-divergence vs the Q8_0 reference (already
+        # in qwen38-highquants) with `llama-perplexity --kl-divergence`. Fetch those two + this pair +
+        # the default UD-Q4_K_XL (in 'qwen38') to reproduce the whole sweep.
+        #
+        #   RESULT (mean KLD vs Q8_0, lower = closer to reference):
+        #     UD-Q4_K_XL  0.011165   <- WINNER, and it is already the serve default
+        #     Q4_K_M      0.016814      (+34% divergence; +38% in the 99th-pct tail)
+        #   Q4_K_M is 5.5% faster to generate but measurably further from reference, most on the hard
+        #   tokens. Serve UD-Q4_K_XL. Q5_K_M is here because rounds 3-4 cite it (the up-side of the
+        #   SPEED curve: -12% generation vs Q4_K_M for no measured quality gain over UD-Q4_K_XL).
+        # Byte counts verified against the HF API 2026-08-18.
+        note  = 'qwen38 quality-A/B arms: Q4_K_M (KL loser) + Q5_K_M. Reproduces BENCHMARKS Round 5.'
+    }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
         files = @(
