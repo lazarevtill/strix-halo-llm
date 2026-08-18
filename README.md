@@ -109,6 +109,7 @@ contrast is the useful part.
 | | |
 |---|---|
 | ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model (prompts you to pick it), the whole memory budget, full context, measured-optimal flags |
+| 🔀 **A two-model launcher** | `run-router.ps1` — serve two models at once from `:8080` via llama.cpp router mode (route by the `model` field); a fast MoE for big text alongside the dense coder, both VRAM-resident |
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
@@ -255,6 +256,10 @@ string as the API key (see [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)).
 .\scripts\windows\run-solo.ps1 -Model .\models\Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf `
                        -Ctx 131072 -Spec draft-mtp
 
+# TWO models at once from :8080 (router mode) -- route by the OpenAI `model` field.
+# Coding on the dense model, big-text on a faster MoE, both kept warm in VRAM.
+.\scripts\windows\run-router.ps1                      # -> :8080; curl -d '{"model":"qwen38",...}' or "ornith"
+
 # Benchmark at real context depths, not the misleading depth 0
 .\scripts\windows\bench-big.ps1
 
@@ -289,6 +294,7 @@ strix-halo-llm/
 │   ├── windows/            PowerShell 5.1 -- supported, and where every number came from
 │   │   ├── fetch-llamacpp.ps1  ⭐ step zero: the engine, into bin\
 │   │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
+│   │   ├── run-router.ps1      serve TWO models at once on :8080 (router mode; route by model name)
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── bench-big.ps1       depth-aware benchmark
 │   │   ├── bench-spec.ps1      A/B baseline vs speculative decoding

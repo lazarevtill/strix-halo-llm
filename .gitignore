@@ -121,3 +121,6 @@ evals/results/
 *.pfx
 secrets.*
 **/settings.local.json
+
+# router mode generated preset (paths are box-specific)
+scripts/windows/router-models.generated.ini

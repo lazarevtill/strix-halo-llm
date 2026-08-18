@@ -183,3 +183,54 @@ If that ever stops being acceptable:
 4. **Verify it survives a reboot** — the whole point, and the step most likely to fail (option A)
 5. Set up the backup, then restore it once to prove it
 6. In the same maintenance window, apply the `-Ctx 786432` change from section 5
+
+---
+
+## 8. Serving two models at once (router mode)
+
+Everything above serves **one** model. If your workload has two distinct shapes — say interactive
+coding *and* long-form text — one model is the wrong tool for at least one of them. A dense 27B is a
+good coder but generation-bound (~18–20 t/s), so a big-text answer that reasons for thousands of
+tokens can take **minutes**; an MoE of similar size generates 2.5–3× faster because only a fraction of
+its weights are active per token. You want both, at once.
+
+llama.cpp has this built in (**b10431+**): start `llama-server` with **no `-m`** and it runs in
+**router mode** — a coordinator that spawns a child server per model and routes each request by the
+OpenAI `model` field. `scripts\windows\run-router.ps1` wraps it:
+
+```powershell
+.\scripts\windows\run-router.ps1            # :8080, serves qwen38 (coding) + ornith (big-text)
+.\scripts\windows\run-router.ps1 -DryRun    # print the router cmdline and the generated preset
+```
+
+```jsonc
+// same endpoint, choose the model per request:
+{ "model": "qwen38", "messages": [...] }   // dense coder
+{ "model": "ornith", "messages": [...] }   // fast MoE for big text
+```
+
+**Measured on this box (2026-08-18, b10431):** both models stay **co-resident** — qwen38 24.6 GB +
+ornith 25.7 GB = ~50 GB of the 109 GB ceiling, host RAM 18 GB free — with **no reload between calls**
+and **no speed penalty** on the idle model (qwen38 held 18.3 t/s alongside a resident ornith). The
+`--models-max` flag caps how many stay resident; beyond it the router evicts least-recently-used.
+
+Three things the launcher handles that will bite you if you drive `llama-server` by hand:
+
+- **`load-mode = none` per model.** The default (mmap) pins a ~15 GB host-RAM file mirror *per model*.
+  This box has ~32 GB of system RAM — two mirrors exhaust it. `none` keeps weights in the VRAM
+  carve-out with the host copy paged out. This is the single biggest dual-model trap.
+- **Pre-loading.** Autoload does **not** fire on the first `/v1/chat/completions` call — it returns
+  `400 "model is not loaded"`. The launcher `POST`s `/models/load` for each model at startup, so
+  clients never see it.
+- **Context is split, not shared.** Two resident models divide the ~109 GB budget, so each gets
+  `-Ctx 131072` here, not the 262144 a solo model gets. Raise or lower it per your models' sizes.
+
+**The client contract changes:** router mode has **no default model**. Every request must name one;
+a request with no `model` field (or an unknown name) returns 400. Point each tool at the model it
+should use.
+
+**When *not* to use it:** router mode is about serving different *models*. If you instead want one
+model to serve several concurrent *users*, that is `--parallel` slots (sections 4–5), not this — and
+note two models both generating at the same instant do contend for memory bandwidth, exactly the
+interference measured in section 4. Router mode shines when the two models are used at different times
+or lightly overlapping, which is the usual coding-plus-text pattern.

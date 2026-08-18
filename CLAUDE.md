@@ -27,6 +27,7 @@ invalidates every number in the repo.
 ```
 scripts/windows/    PowerShell 5.1 — supported; every number came from here
   run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (-DryRun prints the cmdline)
+  run-router.ps1      serve TWO models at once on :8080 (llama.cpp router mode; route by model name)
   fetch-llamacpp.ps1  step zero: prebuilt Vulkan release -> bin\
   fetch-models.ps1    resume-capable GGUF downloader, byte-verifies against the HF API
   bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0)
@@ -61,8 +62,21 @@ says otherwise — **this box needs it set**, since its weights are on `C:\llm-r
 same paths, which is why every other clone died on startup.
 
 `run-solo.ps1` enforces **solo occupancy** (stops any other llama-server, waits for the GPU to
-drain), `--parallel 1`, max context, `-lm none`, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`. Two big models
-genuinely cannot co-reside — WDDM does not trim the incumbent, the newcomer just OOMs.
+drain), `--parallel 1`, max context, `-lm none`, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`. Two models each
+sized for the *full* budget cannot co-reside — WDDM does not trim the incumbent, the newcomer just
+OOMs — which is why solo mode gives one model everything.
+
+**Two right-sized models CAN co-reside, though**, and `run-router.ps1` is the supported way: llama.cpp
+**router mode** (start `llama-server` with no `-m`) spawns a child per model and routes by the OpenAI
+`model` field. MEASURED 2026-08-18 (b10431): `qwen38` (coding, 24.6 GB) + `ornith` (big-text MoE,
+25.7 GB) both resident = ~50 GB of 109, no reload between calls, no speed penalty on the idle model
+(qwen38 held 18.3 t/s). Gotchas the launcher handles — each proven the hard way: **`load-mode = none`
+per model** (default mmap pins a ~15 GB host mirror *per model*; two blow the ~32 GB system RAM);
+**pre-load each model** (autoload does not fire on the first `/v1/chat/completions` — it 400s
+`"model is not loaded"`); **context is split** across resident models (131072 each here, not 262144).
+Router mode has **no default model** — every request must name one. Per-model tuned flags live in a
+generated preset (`router-models.generated.ini`, gitignored); verify them via `GET /models`
+(`status.args`). See docs/MULTI-USER.md §8.
 
 ## Evals
 
