@@ -559,3 +559,25 @@ Learned the hard way. Each item corresponds to a wrong number that was actually 
    the numbers were unattributable afterwards. Timestamp, script mtime, model, server args.
 
 See `evals\README.md` for the full bug list with the fake number each one produced.
+
+### Benching a new model
+
+Drop the gguf in a model dir (`D:\llamacpp-vulkan\models` or `C:\llm-router\models`) and it is
+benchable immediately — no script edit. `bench-big.ps1` **auto-discovers** every gguf on the box
+(architecture read from the file's own header), so a model kept out of the registry — including a
+local/private one — is selectable by its slug:
+
+```powershell
+.\scripts\windows\bench-big.ps1 -List                       # curated registry + auto-discovered models
+.\scripts\windows\bench-big.ps1 -Only <slug> -Quick         # speed sweep (depths 0/8192, 1 rep)
+.\scripts\windows\bench-spec.ps1 -Model .\models\<file>.gguf -Spec draft-mtp   # A/B speculative decoding
+```
+
+Speculative decoding is per-model: use `draft-mtp` only when the gguf carries an MTP head (its header
+lists `nextn_predict_layers` / `qwen35moe` etc.) — `run-router.ps1` and `run-solo.ps1` detect this and
+set it automatically. Depth is not monotonic; sweep `--spec-draft-n-max` rather than copying `3`.
+
+The bench **stops any llama-server for a clean baseline** (a dirty baseline manufactures a bogus OOM),
+so it will evict a running router — bench when the box is otherwise idle. `-All` stays the curated set;
+discovered models are opt-in via `-Only`. Quality (eval suites) is a separate, heavier path —
+`run-full-bench.ps1` / `run-guarded.ps1` — and its scores are governed by the checklist above.

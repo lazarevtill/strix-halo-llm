@@ -57,6 +57,41 @@ $REG = [ordered]@{
 }
 # Scope (2026-07-30, user's call): 2026 releases only, Ornith-1.0-35B-tier agentic/coding or better.
 # gpt-oss-120b and other 2025-era models are deliberately excluded -- do not re-add.
+$coreKeys = @($REG.Keys)   # -All benches only these curated entries; discovered models need -Only
+
+# ---- auto-discover any OTHER gguf on the box so a NEW model is benchable WITHOUT editing this file.
+# A model dropped in a model dir (incl. a local/private one kept out of git) shows up in -List and is
+# selectable by its slug via -Only. arch is read from the gguf's own header; act is unknown for these.
+function Get-GgufArch([string]$path) {
+    try {
+        $fs = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $buf = New-Object byte[] 1048576; $n = $fs.Read($buf, 0, $buf.Length); $fs.Close()
+        $s = [Text.Encoding]::ASCII.GetString($buf, 0, $n)
+        foreach ($a in @('qwen35moe','qwen3moe','qwen3vl','qwen3','deepseek4','deepseek2','laguna','gemma3','llama4','llama')) {
+            if ($s -match [regex]::Escape($a)) { return $a }
+        }
+    } catch {}
+    return 'unknown'
+}
+function Get-BenchSlug([string]$name) {
+    $x = [IO.Path]::GetFileNameWithoutExtension($name)
+    $x = $x -replace '(?i)-(UD-)?(I?Q\d[_A-Za-z0-9]*|BF16|F16|MXFP4).*$','' -replace '(?i)-abliterated',''
+    ($x -replace '[^A-Za-z0-9]+','-').Trim('-').ToLower()
+}
+$regFiles = @($REG.Values | ForEach-Object { $_.file })
+foreach ($d in $ModelDirs) {
+    if (-not (Test-Path $d)) { continue }
+    $cand = Get-ChildItem $d -Filter '*.gguf' -EA SilentlyContinue |
+            Where-Object { $_.Name -notlike 'mmproj*' } |
+            Where-Object { $_.Name -notmatch '(?i)dflash|[-_]draft' } |
+            Where-Object { $_.Name -notmatch '-of-\d+\.gguf$' -or $_.Name -match '-0*1-of-\d+\.gguf$' }
+    foreach ($c in $cand) {
+        if ($regFiles -contains $c.Name) { continue }        # already a curated entry
+        $lbl = Get-BenchSlug $c.Name
+        if (-not $lbl -or $REG.Contains($lbl)) { continue }
+        $REG[$lbl] = @{ file = $c.Name; arch = (Get-GgufArch $c.FullName); act = '?'; note = '(auto-discovered)' }
+    }
+}
 
 function Get-GpuMem {
     $s = (Get-Counter "\GPU Adapter Memory($gpu)\*" -EA SilentlyContinue).CounterSamples
@@ -135,7 +170,7 @@ function Show-Reg {
 if ($List) { Show-Reg; return }
 
 if ($Quick) { $Depths = @(0, 8192); $Reps = 1 }
-$sel = if ($All) { @($REG.Keys) } elseif ($Only) { $Only } else { Write-Error "Specify -Only <label,...> / -All / -List"; exit 1 }
+$sel = if ($All) { @($coreKeys) } elseif ($Only) { $Only } else { Write-Error "Specify -Only <label,...> / -All / -List"; exit 1 }
 foreach ($s in $sel) { if (-not $REG.Contains($s)) { Write-Error "unknown label '$s'. Known: $($REG.Keys -join ', ')"; exit 1 } }
 
 $bench = Join-Path $Bin 'llama-bench.exe'
