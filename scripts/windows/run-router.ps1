@@ -44,11 +44,13 @@ $modelsDir = $env:MODELS_DIR
 if (-not $modelsDir) { $modelsDir = "$repoRoot\models" }
 
 # ---- per-model tuned presets (this box's serving models) ----------------------------------------
-# file is resolved under $modelsDir; 'spec' is the only per-model difference. Everything else is the
-# shared tuned baseline below. Add a model by adding an entry here.
+# file is resolved under $modelsDir; 'spec' is the per-model spec flag; 'mmproj' (optional) is a
+# multimodal projector under $modelsDir that turns the model into a vision (image+text) model --
+# MEASURED 2026-08-23: Qwen3.8-27B is a Qwen-VL, mmproj-F16.gguf loads and it reads images. Everything
+# else is the shared tuned baseline below. Add a model by adding an entry here.
 $models = [ordered]@{
-    'qwen38' = @{ file = 'Qwen3.8-27B-UD-Q4_K_XL.gguf'; spec = @('spec-type = draft-mtp','spec-draft-n-max = 3') }  # coding; KL-best quant (BENCHMARKS Round 5)
-    'ornith' = @{ file = 'ornith-1.0-35b-Q5_K_M.gguf';   spec = @('spec-type = ngram-mod') }                          # big-text; MoE A3B, ~2.5x faster
+    'qwen38' = @{ file = 'Qwen3.8-27B-UD-Q4_K_XL.gguf'; spec = @('spec-type = draft-mtp','spec-draft-n-max = 3'); mmproj = 'mmproj-F16.gguf' }  # coding+vision; KL-best quant (Round 5)
+    'ornith' = @{ file = 'ornith-1.0-35b-Q5_K_M.gguf';   spec = @('spec-type = ngram-mod'); mmproj = 'mmproj-deepreinforce-ai_Ornith-1.0-35B-f16.gguf' }  # big-text+vision; MoE A3B, ~2.5x faster
 }
 # shared tuned flags -- the measured optima for gfx1151 (see docs/BENCHMARKS.md, docs/OPTIMIZATION.md)
 $common = @(
@@ -70,6 +72,12 @@ foreach ($name in $models.Keys) {
     $lines.Add("model = $file")
     foreach ($c in $common) { $lines.Add($c) }
     foreach ($s in $models[$name].spec) { $lines.Add($s) }
+    $mm = $models[$name].mmproj
+    if ($mm) {
+        $mmPath = Join-Path $modelsDir $mm
+        if (Test-Path $mmPath) { $lines.Add("mmproj = $mmPath") }
+        else { Write-Warning "mmproj missing for [$name], serving text-only: $mmPath" }
+    }
     $lines.Add('')
 }
 Set-Content -Path $iniPath -Value $lines -Encoding ASCII
