@@ -16,11 +16,16 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DEST="${MODELS_DIR:-${REPO_ROOT}/models}"
 HF_BASE="${HF_ENDPOINT:-https://huggingface.co}"
 
-# key|repo|path|expected_bytes
+# key|repo|path|expected_bytes[|save_as]   (save_as: see entry_fields note below)
 REGISTRY=(
   "ornith-q5|deepreinforce-ai/Ornith-1.0-35B-GGUF|ornith-1.0-35b-Q5_K_M.gguf|24729130848"
   "qwen38|unsloth/Qwen3.8-27B-GGUF|Qwen3.8-27B-UD-Q4_K_XL.gguf|17923394624"
   "qwen38-mmproj|unsloth/Qwen3.8-27B-GGUF|mmproj-F16.gguf|927607488"
+  # abliterated (uncensored) options. save_as gives distinct on-disk names the launchers match.
+  "qwen38-uncensored|huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF|Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL.gguf|17378626464|Qwen38-uncensored-UD-Q4_K_XL.gguf"
+  "qwen38-uncensored-mmproj|huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF|mmproj-model-bf16.gguf|931145888|mmproj-Qwen38-uncensored-bf16.gguf"
+  "cyberstrike|huihui-ai/Huihui-CyberStrike-OffSec-35B-abliterated-GGUF|Huihui-CyberStrike-OffSec-35B-abliterated-Q5_K.gguf|25347531968|CyberStrike-OffSec-35B-abliterated-Q5_K.gguf"
+  "cyberstrike-mmproj|huihui-ai/Huihui-CyberStrike-OffSec-35B-abliterated-GGUF|mmproj-model-bf16.gguf|902822080|mmproj-CyberStrike-OffSec-35B-bf16.gguf"
   "qwen122b-1|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf|10943808"
   "qwen122b-2|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf|49667346080"
   "qwen122b-3|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf|28968190016"
@@ -75,7 +80,9 @@ mkdir -p "$DEST"
 
 human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"; }
 
-entry_fields() { IFS='|' read -r KEY REPO RPATH WANT <<<"$1"; FNAME="$(basename "$RPATH")"; }
+# key|repo|path|expected_bytes[|save_as]   -- save_as (optional) overrides the on-disk name, needed
+# when two repos ship an identically-named file (both huihui GGUFs have mmproj-model-bf16.gguf).
+entry_fields() { IFS='|' read -r KEY REPO RPATH WANT AS <<<"$1"; FNAME="${AS:-$(basename "$RPATH")}"; }
 
 if [[ "$MODE" == "list" || "$MODE" == "verify" ]]; then
   printf '%-14s %-14s %-14s %s\n' KEY EXPECTED ONDISK STATUS

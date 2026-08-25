@@ -179,6 +179,31 @@ $REG = [ordered]@{
         # Byte counts verified against the HF API 2026-08-18.
         note  = 'qwen38 quality-A/B arms: Q4_K_M (KL loser) + Q5_K_M. Reproduces BENCHMARKS Round 5.'
     }
+    'qwen38-uncensored' = @{
+        repo  = 'huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF'
+        files = @(
+            @{ p='Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL.gguf'; b=17378626464; as='Qwen38-uncensored-UD-Q4_K_XL.gguf' },
+            @{ p='mmproj-model-bf16.gguf';                         b=931145888;   as='mmproj-Qwen38-uncensored-bf16.gguf' }
+        )
+        # Abliterated (refusal-removed) Qwen3.8-27B -- SAME dense arch + quant as 'qwen38', so it
+        # inherits qwen38's MEASURED tuning (draft-mtp, UD-Q4_K_XL/KL-best, +vision). 'as' gives it a
+        # distinct on-disk name so it does not collide with the censored qwen38 quants. Byte counts
+        # verified against the HF API 2026-08-25. run-router label: qwen38-uncensored.
+        note  = 'Qwen3.8-27B ABLITERATED (uncensored) UD-Q4_K_XL + vision. Dense; inherits qwen38 tuning.'
+    }
+    'cyberstrike' = @{
+        repo  = 'huihui-ai/Huihui-CyberStrike-OffSec-35B-abliterated-GGUF'
+        files = @(
+            @{ p='Huihui-CyberStrike-OffSec-35B-abliterated-Q5_K.gguf'; b=25347531968; as='CyberStrike-OffSec-35B-abliterated-Q5_K.gguf' },
+            @{ p='mmproj-model-bf16.gguf';                              b=902822080;   as='mmproj-CyberStrike-OffSec-35B-bf16.gguf' }
+        )
+        # Abliterated offensive-security / pentest model. Arch is qwen35moe (MoE) -- SAME family as
+        # Ornith, so the registered spec follows Ornith's MEASURED choice, ngram-mod. It DOES carry an
+        # MTP head (header lists nextn_predict_layers), so draft-mtp also loads, but it is UNMEASURED
+        # here -- A/B it with bench-spec.ps1 before preferring it. Byte counts verified 2026-08-25.
+        # run-router label: cyberstrike.
+        note  = 'CyberStrike-OffSec-35B ABLITERATED (uncensored, pentest) Q5_K + vision. MoE (qwen35moe).'
+    }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
         files = @(
@@ -218,7 +243,7 @@ function Show-Reg {
         $tot = 0; foreach ($f in $REG[$k].files) { if ($f.b -gt 0) { $tot += $f.b } }
         $have = 0
         foreach ($f in $REG[$k].files) {
-            $lp = Join-Path $Dest ([IO.Path]::GetFileName($f.p))
+            $lp = Join-Path $Dest $(if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) })
             if (Test-Path $lp) { $have += (Get-Item $lp).Length }
         }
         $pct = if ($tot -gt 0) { [math]::Round(100*$have/$tot) } else { 0 }
@@ -253,7 +278,10 @@ foreach ($s in $sel) {
     Write-Host "`n=============== $s ===============" -ForegroundColor Cyan
     Write-Host "  $($m.note)" -ForegroundColor DarkGray
     foreach ($f in $m.files) {
-        $name = [IO.Path]::GetFileName($f.p)
+        # 'as' (optional) saves under a clean/distinct name -- needed when two repos ship an
+        # identically-named file (e.g. both huihui GGUFs have mmproj-model-bf16.gguf) and so a
+        # model resolves to the same on-disk name the launchers expect.
+        $name = if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) }
         $out  = Join-Path $Dest $name
         $url  = "https://huggingface.co/$($m.repo)/resolve/main/$($f.p)"
 

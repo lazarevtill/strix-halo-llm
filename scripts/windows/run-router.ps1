@@ -61,8 +61,10 @@ if (-not $modelsDir) { $modelsDir = "$repoRoot\models" }
 # match is the DISTINCTIVE filename stem (incl. the quant) so it binds to exactly one gguf -- a bare
 # 'Qwen3.8-27B' would also grab every other qwen38 quant on disk.
 $known = @(
-    @{ match = 'Qwen3.8-27B-UD-Q4_K_XL'; label = 'qwen38'; spec = @('spec-type = draft-mtp','spec-draft-n-max = 3'); mmproj = 'mmproj-F16.gguf' }                          # coding+vision; KL-best quant (Round 5)
-    @{ match = 'ornith-1.0-35b-Q5_K_M';  label = 'ornith'; spec = @('spec-type = ngram-mod');                        mmproj = 'mmproj-deepreinforce-ai_Ornith-1.0-35B-f16.gguf' }  # big-text+vision; MoE A3B
+    @{ match = 'Qwen3.8-27B-UD-Q4_K_XL';            label = 'qwen38';            spec = @('spec-type = draft-mtp','spec-draft-n-max = 3'); mmproj = 'mmproj-F16.gguf' }                          # coding+vision; KL-best quant (Round 5)
+    @{ match = 'ornith-1.0-35b-Q5_K_M';             label = 'ornith';            spec = @('spec-type = ngram-mod');                        mmproj = 'mmproj-deepreinforce-ai_Ornith-1.0-35B-f16.gguf' }  # big-text+vision; MoE A3B
+    @{ match = 'Qwen38-uncensored-UD-Q4_K_XL';      label = 'qwen38-uncensored'; spec = @('spec-type = draft-mtp','spec-draft-n-max = 3'); mmproj = 'mmproj-Qwen38-uncensored-bf16.gguf' }         # abliterated qwen38; same dense arch -> inherits qwen38's MEASURED tuning
+    @{ match = 'CyberStrike-OffSec-35B-abliterated'; label = 'cyberstrike';       spec = @('spec-type = ngram-mod');                        mmproj = 'mmproj-CyberStrike-OffSec-35B-bf16.gguf' }          # abliterated pentest MoE (qwen35moe); ngram-mod per Ornith. draft-mtp loads but is UNMEASURED -- A/B first
 )
 # shared tuned flags -- the measured optima for gfx1151 (see docs/BENCHMARKS.md, docs/OPTIMIZATION.md)
 $common = @(

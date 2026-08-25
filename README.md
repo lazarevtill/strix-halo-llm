@@ -303,6 +303,7 @@ strix-halo-llm/
 │   ├── linux/              bash DRAFTS -- unproven, see its README
 │   │   ├── fetch-llamacpp.sh   download a prebuilt Vulkan release
 │   │   ├── run-solo.sh         serve one model (prompts for model; has --dry-run)
+│   │   ├── run-router.sh       serve TWO models at once (router mode; asks on start; --dry-run)
 │   │   ├── fetch-models.sh     download + byte-verify (macOS uses this too)
 │   │   ├── bench-big.sh        depth-aware benchmark
 │   │   └── bench-spec.sh       A/B speculative decoding
