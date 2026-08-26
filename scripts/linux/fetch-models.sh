@@ -26,6 +26,14 @@ REGISTRY=(
   "qwen38-uncensored-mmproj|huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF|mmproj-model-bf16.gguf|931145888|mmproj-Qwen38-uncensored-bf16.gguf"
   "cyberstrike|huihui-ai/Huihui-CyberStrike-OffSec-35B-abliterated-GGUF|Huihui-CyberStrike-OffSec-35B-abliterated-Q5_K.gguf|25347531968|CyberStrike-OffSec-35B-abliterated-Q5_K.gguf"
   "cyberstrike-mmproj|huihui-ai/Huihui-CyberStrike-OffSec-35B-abliterated-GGUF|mmproj-model-bf16.gguf|902822080|mmproj-CyberStrike-OffSec-35B-bf16.gguf"
+  # PENDING ENGINE SUPPORT (docs/ROADMAP.md): Qwen3.8-Flash-Next, arch qwen4exp. NOT loadable until
+  # llama.cpp PR #27742 merges + ships. flashnext = UD-IQ4_XS (recommended fit); flashnext-iq1 = 1.58-bit floor.
+  "flashnext-1|unsloth/Qwen3.8-Flash-Next-GGUF|UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf|10946624"
+  "flashnext-2|unsloth/Qwen3.8-Flash-Next-GGUF|UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf|49835229856"
+  "flashnext-3|unsloth/Qwen3.8-Flash-Next-GGUF|UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf|43836407744"
+  "flashnext-iq1-1|unsloth/Qwen3.8-Flash-Next-GGUF|UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf|10946624"
+  "flashnext-iq1-2|unsloth/Qwen3.8-Flash-Next-GGUF|UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf|49990818368"
+  "flashnext-iq1-3|unsloth/Qwen3.8-Flash-Next-GGUF|UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf|22544696352"
   "qwen122b-1|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf|10943808"
   "qwen122b-2|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf|49667346080"
   "qwen122b-3|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf|28968190016"

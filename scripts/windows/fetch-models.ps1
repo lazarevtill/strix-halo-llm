@@ -204,6 +204,30 @@ $REG = [ordered]@{
         # run-router label: cyberstrike.
         note  = 'CyberStrike-OffSec-35B ABLITERATED (uncensored, pentest) Q5_K + vision. MoE (qwen35moe).'
     }
+    'flashnext' = @{
+        repo  = 'unsloth/Qwen3.8-Flash-Next-GGUF'
+        files = @(
+            @{ p='UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf'; b=10946624 },
+            @{ p='UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf'; b=49835229856 },
+            @{ p='UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf'; b=43836407744 }
+        )
+        # PENDING ENGINE SUPPORT -- see docs/ROADMAP.md. arch=qwen4exp (Qwen4 preview, 180B MoE+SSM).
+        # NOT loadable on b10431 or any current release; needs llama.cpp PR #27742 merged + shipped.
+        # UD-IQ4_XS (87.2 GB) is the recommended fit under the ~109 GB ceiling (best quality that
+        # still leaves ~22 GB for KV/compute). Byte counts verified vs HF API 2026-08-26.
+        note  = 'Qwen3.8-Flash-Next UD-IQ4_XS (qwen4exp preview). PENDING llama.cpp PR #27742 -- cannot run yet.'
+    }
+    'flashnext-iq1' = @{
+        repo  = 'unsloth/Qwen3.8-Flash-Next-GGUF'
+        files = @(
+            @{ p='UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf'; b=10946624 },
+            @{ p='UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf'; b=49990818368 },
+            @{ p='UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf'; b=22544696352 }
+        )
+        # The 1.58-bit floor (67.6 GB) -- smallest fit, lowest quality on a 180B model. Kept as the
+        # cheap fallback; prefer 'flashnext' (IQ4_XS). Same PENDING gate (PR #27742). Verified 2026-08-26.
+        note  = 'Qwen3.8-Flash-Next UD-IQ1_S (1.58-bit fallback). PENDING llama.cpp PR #27742 -- cannot run yet.'
+    }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
         files = @(
