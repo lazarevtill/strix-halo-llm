@@ -37,7 +37,8 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform
 evals/              ⭐ the harness (see "Evals" below) — where most active work happens
 docs/               INSTALL · EXPLAIN · RESULTS · GOING-FASTER · OPTIMIZATION · BENCHMARKS ·
-                    MULTI-USER · PUBLISHING · index.html (the Pages report)
+                    MULTI-USER · MULTI-BOX (Ethernet cluster design) · ROADMAP (pending models) ·
+                    PUBLISHING · index.html (the Pages report)
 ```
 
 Path conventions differ by tree and this bites: `scripts/windows/*` resolve the repo root by

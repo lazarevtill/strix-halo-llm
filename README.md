@@ -17,7 +17,7 @@
 
 ### 📊 [**strix.lazarev.cloud**](https://strix.lazarev.cloud/) — the charts, without the reading
 
-[**Install & first run →**](docs/INSTALL.md) · [What the terms mean](docs/EXPLAIN.md) · [Results](docs/RESULTS.md) · [Go faster](docs/GOING-FASTER.md) · [Benchmarking](docs/BENCHMARKS.md)
+[**Install & first run →**](docs/INSTALL.md) · [What the terms mean](docs/EXPLAIN.md) · [Results](docs/RESULTS.md) · [Go faster](docs/GOING-FASTER.md) · [Benchmarking](docs/BENCHMARKS.md) · [Add machines (Ethernet)](docs/MULTI-BOX.md) · [Roadmap](docs/ROADMAP.md)
 
 **Windows · Linux · macOS** — [installation for all three](docs/INSTALL.md)
 
