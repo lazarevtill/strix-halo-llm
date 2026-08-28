@@ -84,7 +84,10 @@ find_mmproj() {  # sibling projector sharing the model's first filename token
     case "$f" in *"$tok"*) printf '%s\n' "$f"; return 0 ;; esac
   done
 }
-emit_spec() { local s="$1"; [[ -z "$s" ]] && return 0; echo "spec-type = $s"; [[ "$s" == "draft-mtp" ]] && echo "spec-draft-n-max = 3"; }
+# NB: the trailing `return 0` is load-bearing. Without it, a non-draft-mtp spec (e.g. ngram-mod)
+# makes the final `[[ ]] &&` false, so the function returns 1 -- and called bare under `set -e` that
+# aborts the whole launch AFTER a partial preset is written (caught by the Docker harness 2026-08-28).
+emit_spec() { local s="$1"; [[ -z "$s" ]] && return 0; echo "spec-type = $s"; [[ "$s" == "draft-mtp" ]] && echo "spec-draft-n-max = 3"; return 0; }
 
 # ---- build the catalog: known (tuned) first, then discovered (auto-tuned) -----------------------
 declare -A CAT_FILE CAT_SPEC CAT_MM
