@@ -30,6 +30,8 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
   run-router.ps1      serve TWO models at once on :8080 (llama.cpp router mode; route by model name)
   fetch-llamacpp.ps1  step zero: prebuilt Vulkan release -> bin\
   fetch-models.ps1    resume-capable GGUF downloader, byte-verifies against the HF API
+  stage-nextgen.ps1   isolated test-load of a pending model (docs/ROADMAP.md): arch-check -> :8099 ->
+                      #27805 determinism diff; stops+restarts the router only if it can't co-reside
   bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0)
   bench-spec.ps1      A/B baseline vs --spec-type
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
@@ -159,6 +161,27 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   names) — always use standard community GGUFs.
 - Memory runs at **7500 MT/s vs rated 8533**; a BIOS/XMP fix is pending (~+14% on tg, which is the
   only lever that moves tg — batch size does not).
+- **Qwen3.8-27B context = 262144 is the serve ceiling, split by provenance.** *Measured here:* the
+  full 262144 window fits in **28.0 GB of 109** (UD-Q4_K_XL 16.7 GB + KV q8_0, b10431, solo) — memory
+  is not the limiter. *Sourced, not measured:* 262144 is the model's **native** window with **no YaRN**
+  (GGUF has `freq_base=1e7` and *no* `rope.scaling`; Qwen's card lists 262144 native, 1M only via YaRN
+  factor 4.0), so a large `n_ctx` does **not** penalise short prompts and there's no reason to cap
+  below it — serve solo at 262144. *Unmeasured:* long-context *retrieval* quality on this box (the
+  research verifier pass was rate-limited). Router mode splits the budget → **131072 per model**, still
+  inside native.
+- **`draft-mtp` on Vulkan is deterministic — NOT hit by the #27805 spec bug.** Verified 2026-08-28:
+  6/6 byte-identical greedy (temp 0, fixed seed) raw completions on the live router. The Vulkan
+  `ggml_vk_graph_optimize` correctness bug ([#27805](https://github.com/ggml-org/llama.cpp/issues/27805),
+  open) that silently accepts wrong tokens is specific to other op patterns — notably **`draft-dflash`
+  (DFlash2)**, which is therefore **unusable on this box until #27805 lands**, even though its arch
+  merged (PR #27342) and in llama.cpp its ~1.8× ≈ our draft-mtp anyway. New hybrid/SSM arches
+  (`qwen4exp`, `glm5_next`) carry the same view-aliased-state risk — Vulkan-verify before trusting.
+  See `docs/ROADMAP.md`, `scripts/windows/stage-nextgen.ps1`.
+- **The router auto-starts at logon** via a Startup-folder launcher
+  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models qwen38,ornith`), NOT a Scheduled Task or
+  service: Vulkan/WDDM needs an interactive desktop session, and a Startup item runs in it with no
+  kill-on-close job. Needs an **interactive logon** (autologin not configured) → router up ~20 s after
+  login. See docs/MULTI-USER.md §8.
 
 ## Conventions
 

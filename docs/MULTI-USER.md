@@ -234,3 +234,27 @@ model to serve several concurrent *users*, that is `--parallel` slots (sections 
 note two models both generating at the same instant do contend for memory bandwidth, exactly the
 interference measured in section 4. Router mode shines when the two models are used at different times
 or lightly overlapping, which is the usual coding-plus-text pattern.
+
+### Auto-starting the router at boot
+
+The router does not survive a reboot on its own. Persist it with a **Startup-folder launcher** — *not*
+a Windows service or a Scheduled Task. Vulkan/WDDM needs an interactive desktop session (a Session-0
+service can't reach the GPU), and a Startup item runs in the real logon session with no kill-on-close
+job object around its detached child. Create
+`…\Microsoft\Windows\Start Menu\Programs\Startup\StrixHalo-Router.cmd`:
+
+```bat
+@echo off
+cd /d D:\llamacpp-vulkan
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models qwen38,ornith
+```
+
+Two caveats, both learned the hard way:
+
+- **It fires at *logon*, not at power-on** — Vulkan needs the interactive session. With no autologin
+  (the default here) the router comes up ~20 s *after you log in*, not at the lock screen. For a truly
+  headless box, enable Windows autologin (it stores the password — a deliberate security tradeoff).
+- **A logon Scheduled Task was tried and rejected:** it exited non-zero because `run-router` kills the
+  incumbent then waits only 3 s before relaunching, and WDDM hadn't freed the ~55 GB, so the new
+  llama-server failed its GPU allocation (a hot-restart VRAM race — harmless at a real boot with no
+  incumbent, but the task's session/job semantics are a poor fit for a detached GPU server).

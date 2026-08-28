@@ -639,3 +639,37 @@ llama-server -m Qwen3-235B-...UD-Q2_K_XL-00001-of-00002.gguf \
 (Separate port 8081 so it doesn't disturb the Pi coder on 8080.)
 ⚠️ No `--mlock` (it blocks VRAM upload — see #8). Use `-lm none`, not the deprecated `--no-mmap`
 (`--load-mode` defaults to mmap); disable sleep first (see above).
+
+---
+
+## Sourced, NOT measured here — Vulkan-vs-ROCm & driver on Strix Halo (2026-08-28)
+
+Everything above is measured on **this** Windows / gfx1151 / Vulkan / b10431 box. This section is
+**external, single-box, mostly-Linux evidence** from an Opus-5 deep-research pass (6 confirmed
+findings, 19 refuted). Per the repo rule — *port the method, not the numbers* — none of it is a
+verified result here, and its figures are **not comparable** with the Windows numbers above: the
+corpus's "27B dense" is Qwen **3.5**-27B Dense (not Qwen3.8-27B), run at `-ub 2048` / f16 KV / no
+speculation. Kept as a separate column, deliberately.
+
+- **No drop-in Windows speed lever exists.** Every confirmed lever is Linux-only — Mesa RADV, the
+  kernel `ttm.pages_limit` GTT tunable, apt/TheRock ROCm — none reachable from Windows + Adrenalin.
+- **Vulkan wins generation, ROCm wins prefill — phase-dependent, not a single winner.** Across 6
+  models Vulkan led tg (+5–19%) and ROCm led long-context pp (+2–48%). For a *generation-bound dense
+  27B* the Vulkan tg lead is the smallest in the set, so a backend switch is expected **net-negative:
+  stay on Vulkan.** (The ROCm prefill edge was all at `-ub 2048`; unknown whether it survives this
+  box's `-ub 256`.)
+- **RADV > AMDVLK on prompt processing at parity generation** (Linux Vulkan drivers only), mechanism =
+  64 KB vs 32 KB workgroup shared memory (AMDVLK #420) — the same 32 KB constant behind the `-ub 256`
+  knee. Irrelevant on Windows.
+- **GTT is a Linux-only memory lever:** GPU-visible RAM is capped by `/sys/module/ttm/parameters/pages_limit`
+  (~50% of system RAM by default; reboot to change). With this box's 96 GB carve-out the arithmetic
+  lands ~112 GB total — *consistent with* the measured ~109 GB ceiling, not a new lever.
+- **Vulkan's lead is architecture-contingent:** on ops Vulkan doesn't implement (e.g. sparse
+  attention) it can collapse ~8× vs ROCm — so pending [ROADMAP](ROADMAP.md) models must be
+  backend-re-measured per model, not assumed Vulkan.
+- **Open, worth a LOCAL A/B (not trusting the corpus):** does a newer build beat b10431 on Vulkan?
+  The build-delta claims (b8119 MMQ +25%, b8298→b8460 +25%) all failed verification — test locally via
+  `bench-big.ps1` at fixed `-ub 256` rather than build-chasing on faith.
+
+Bottom line for this box: **already at the practical Windows optimum; the only remaining tg lever is
+the 7500→8533 memory clock (BIOS/XMP)** — Windows-agnostic, tracked in CLAUDE.md's hard-won facts.

@@ -228,6 +228,33 @@ $REG = [ordered]@{
         # cheap fallback; prefer 'flashnext' (IQ4_XS). Same PENDING gate (PR #27742). Verified 2026-08-26.
         note  = 'Qwen3.8-Flash-Next UD-IQ1_S (1.58-bit fallback). PENDING llama.cpp PR #27742 -- cannot run yet.'
     }
+    'glm53-flash' = @{
+        repo  = 'unsloth/GLM-5.3-Flash-GGUF'
+        files = @(
+            @{ p='UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00001-of-00003.gguf'; b=9429859 },
+            @{ p='UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00002-of-00003.gguf'; b=49621122496 },
+            @{ p='UD-IQ1_S/GLM-5.3-Flash-UD-IQ1_S-00003-of-00003.gguf'; b=43456692608 }
+        )
+        # PENDING ENGINE SUPPORT -- see docs/ROADMAP.md. arch=glm5_next (320B-A18B). Only the 1-bit
+        # quant fits the ~109 GB ceiling: UD-IQ1_S 93.1 GB; everything >= IQ3 is 120-200 GB (over).
+        # 1-bit on a 320B MoE is a harsh cut -- quality UNMEASURED. llama.cpp PR #27752 is
+        # ready-for-review but NOT merged (glm5_next absent from b10665). Do NOT download 93 GB until
+        # it merges AND Vulkan (#27805) is trustworthy. Byte counts verified vs HF API 2026-08-28.
+        note  = 'GLM-5.3-Flash UD-IQ1_S (1-bit, 93.1 GB, glm5_next). PENDING llama.cpp PR #27752 -- cannot run yet.'
+    }
+    'dflash2-qwen38' = @{
+        repo  = 'incoai/Qwen3.8-27B-DFlash2-GGUF'
+        files = @(
+            @{ p='Qwen3.8-27B-DFlash2-Q4_K_M.gguf'; b=1143006752 }
+        )
+        # DFlash2 block-diffusion DRAFT model for Qwen3.8-27B speculative decoding -- NOT a standalone
+        # model (the router discovery loop excludes 'dflash' files from serving targets). Use as a draft
+        # with --spec-type draft-dflash. arch support MERGED (PR #27342) BUT BLOCKED on Vulkan by issue
+        # #27805 (verifier accepts wrong tokens) -- do NOT use on this box until #27805 is fixed. And in
+        # llama.cpp its ~1.8x decode ~= our existing draft-mtp anyway. Q8_0 (2.06 GB) / BF16 (3.86 GB)
+        # also exist; Q4_K_M is smallest. See docs/ROADMAP.md. Byte count vs HF API 2026-08-28.
+        note  = 'DFlash2 DRAFT for qwen38 (Q4_K_M 1.1 GB). PENDING Vulkan fix #27805 -- do not use on Vulkan yet.'
+    }
     'qwen122b' = @{
         repo  = 'unsloth/Qwen3.5-122B-A10B-MTP-GGUF'
         files = @(
