@@ -71,15 +71,18 @@ min-p = 0"
 slug() {
   local x="${1%.gguf}"
   x="$(printf '%s' "$x" | sed -E 's/-(UD-)?(I?Q[0-9][_A-Za-z0-9]*|BF16|F16|MXFP4).*$//I; s/-abliterated//I')"
-  printf '%s' "$x" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' | tr 'A-Z' 'a-z'
+  printf '%s' "$x" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' | tr '[:upper:]' '[:lower:]'
 }
 detect_spec() {  # echo draft-mtp if the gguf header carries an MTP head, else nothing
   if head -c 3000000 "$1" 2>/dev/null | grep -aqm1 'nextn_predict_layers'; then echo "draft-mtp"; fi
 }
 find_mmproj() {  # sibling projector sharing the model's first filename token
-  local tok; tok="$(printf '%s' "${1%.gguf}" | cut -d- -f1)"
+  local tok f; tok="$(printf '%s' "${1%.gguf}" | cut -d- -f1)"
   [[ -z "$tok" ]] && return 0
-  ls "$MODELS_DIR"/mmproj*.gguf 2>/dev/null | grep -F "$tok" | head -1 || true
+  for f in "$MODELS_DIR"/mmproj*.gguf; do
+    [[ -e "$f" ]] || continue          # glob matched nothing -> skip the literal pattern
+    case "$f" in *"$tok"*) printf '%s\n' "$f"; return 0 ;; esac
+  done
 }
 emit_spec() { local s="$1"; [[ -z "$s" ]] && return 0; echo "spec-type = $s"; [[ "$s" == "draft-mtp" ]] && echo "spec-draft-n-max = 3"; }
 
