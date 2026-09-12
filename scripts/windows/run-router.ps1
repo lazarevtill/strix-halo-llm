@@ -66,7 +66,7 @@ $known = @(
     @{ match = 'Qwen38-uncensored-UD-Q4_K_XL';      label = 'qwen38-uncensored'; spec = @('spec-type = draft-mtp','spec-draft-n-max = 3'); mmproj = 'mmproj-Qwen38-uncensored-bf16.gguf' }         # abliterated qwen38; same dense arch -> inherits qwen38's MEASURED tuning
     @{ match = 'CyberStrike-OffSec-35B-abliterated'; label = 'cyberstrike';       spec = @('spec-type = ngram-mod');                        mmproj = 'mmproj-CyberStrike-OffSec-35B-bf16.gguf' }          # abliterated pentest MoE (qwen35moe); ngram-mod per Ornith. draft-mtp loads but is UNMEASURED -- A/B first
     @{ match = 'creative-writer-plus-35b';          label = 'writer';            spec = @();                                              mmproj = $null }                                             # Command-R prose finetune (no MTP head, text-only); NOT abliterated. Serve at writing sampling (temp 0.7-0.9) per request. NB: Command-R tool-use format leaks in the web UI (Action: json ...) -- disable tools client-side, or prefer 'gemma'
-    @{ match = 'gemma4-26B-A4B-abliterated-Q6_K';    label = 'gemma';             spec = @();                                              mmproj = $null }                                             # ABLITERATED Gemma-4-26B-A4B MoE (gemma4, GQA -> small KV -> large ctx cheap); uncensored prose, text-only. Q6_K won the fast-vs-good A/B (2026-09-12): clean Q8-grade prose @50 t/s vs Q4's 60 t/s-but-corrupted, Q8's 43 t/s-no-gain. Thinking model -> ample max-tokens; temp ~1.0 top-p 0.95
+    @{ match = 'gemma4-26B-A4B-abliterated-Q6_K';    label = 'gemma';             spec = @();                                              mmproj = 'mmproj-gemma-4-26B-A4B-f16.gguf' }                  # ABLITERATED Gemma-4-26B-A4B MoE (gemma4, GQA -> small KV -> large ctx cheap); uncensored prose + VISION (mmproj from base repo -- abliteration doesn't touch the vision tower). Q6_K won the fast-vs-good A/B (2026-09-12): clean Q8-grade prose @50 t/s vs Q4's 60 t/s-but-corrupted, Q8's 43 t/s-no-gain. Thinking model -> ample max-tokens; temp ~1.0 top-p 0.95
 )
 # shared tuned flags -- the measured optima for gfx1151 (see docs/BENCHMARKS.md, docs/OPTIMIZATION.md)
 $common = @(
@@ -222,9 +222,13 @@ foreach ($o in $others) {
         }
         if ($busy -gt 0) { Write-Error "llama-server PID $($o.Id) has $busy active request(s). Wait, or use -Force."; exit 1 }
     }
+    if (-not (Get-Process -Id $o.Id -EA SilentlyContinue)) { continue }   # already exited (e.g. a child/worker that died with its parent) -- not an error
     Write-Host "  stopping llama-server PID $($o.Id)" -ForegroundColor Yellow
     try { Stop-Process -Id $o.Id -Force -EA Stop }
-    catch { Write-Error "Cannot stop PID $($o.Id): $($_.Exception.Message). Probably elevated -- run as Administrator."; exit 1 }
+    catch {
+        if (Get-Process -Id $o.Id -EA SilentlyContinue) { Write-Error "Cannot stop PID $($o.Id): $($_.Exception.Message). Probably elevated -- run as Administrator."; exit 1 }
+        # else: it exited between the check and the kill -- goal achieved, carry on
+    }
 }
 Start-Sleep -Seconds 3
 

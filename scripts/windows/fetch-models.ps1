@@ -279,6 +279,17 @@ $REG = [ordered]@{
         # lineage as the Q4_K_M). Q6_K = near-lossless. Byte verified vs HF API 2026-09-12.
         note  = 'Gemma-4-26B-A4B ABLITERATED Q6_K, 22.6 GB (near-lossless). Quality arm of the fast-vs-good A/B.'
     }
+    'gemma4-mmproj' = @{
+        repo  = 'unsloth/gemma-4-26B-A4B-it-GGUF'
+        files = @(
+            @{ p='mmproj-F16.gguf'; b=1193058784; as='mmproj-gemma-4-26B-A4B-f16.gguf' }
+        )
+        # Vision projector for gemma4-ablit -- the abliterated GGUF repo (bullerwins/Huihui) ships NO
+        # mmproj, but abliteration only edits the LM (refusal directions), NOT the vision tower, so the
+        # BASE gemma-4-26B-A4B projector pairs with the abliterated Q6_K weights. Enables image input on
+        # the 'gemma' router model. Byte verified vs HF API 2026-09-13. run-router 'gemma' entry -> mmproj.
+        note  = 'Gemma-4-26B-A4B vision mmproj (F16, 1.19 GB, from base repo). Pairs with the abliterated LM.'
+    }
     'gemma4-ablit-q8' = @{
         repo  = 'bullerwins/Huihui-gemma-4-26B-A4B-it-abliterated-GGUF'
         files = @(
