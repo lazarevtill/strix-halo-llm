@@ -228,6 +228,66 @@ $REG = [ordered]@{
         # cheap fallback; prefer 'flashnext' (IQ4_XS). Same PENDING gate (PR #27742). Verified 2026-08-26.
         note  = 'Qwen3.8-Flash-Next UD-IQ1_S (1.58-bit fallback). PENDING llama.cpp PR #27742 -- cannot run yet.'
     }
+    'coder-next' = @{
+        repo  = 'unsloth/Qwen3-Coder-Next-GGUF'
+        files = @(
+            @{ p='Qwen3-Coder-Next-UD-Q4_K_XL.gguf'; b=49608478720 }
+        )
+        # Qwen3-Coder-Next: 80B-total / 3B-active coding-agent MoE (512 experts, 10 active), 262K ctx,
+        # NO vision (text-only), NO MTP head in config (spec via ngram-mod or a separate draft model).
+        # Base model_type=qwen3_next -> llama.cpp arch qwen4exp (SAME family as Flash-Next); confirm from
+        # the GGUF header on load. arch PRESENT in bin-b10677. CAVEAT: qwen4exp is a linear-attention/SSM
+        # hybrid -- the exact #27805 Vulkan-correctness risk class, and NOT yet Vulkan-verified on this
+        # box. Gate behind the pending Flash-Next determinism test (stage-nextgen.ps1) before trusting
+        # output. UD-Q4_K_XL is a single 49.6 GB file (fits solo w/ room; ~50 GB could co-reside). Byte
+        # count verified vs HF API 2026-09-12.
+        note  = 'Qwen3-Coder-Next UD-Q4_K_XL (80B/A3B coding MoE, qwen4exp). Vulkan-UNVERIFIED -- correctness-test before trusting.'
+    }
+    'writer-plus-35b' = @{
+        repo  = 'mradermacher/creative-writer-plus-35b-preview-01-2025-i1-GGUF'
+        files = @(
+            @{ p='creative-writer-plus-35b-preview-01-2025.i1-Q4_K_M.gguf'; b=21527052480; as='creative-writer-plus-35b-Q4_K_M.gguf' }
+        )
+        # Dedicated CREATIVE-WRITING finetune (jukofyork 'Control Adapters' method), base = Command-R 35B
+        # -> arch 'command-r' (PRESENT in bin-b10677; standard attention, NOT a next-gen/SSM arch, so NO
+        # #27805 Vulkan risk -- safe to serve as-is). Dense 35B; i1 (imatrix) Q4_K_M 21.5 GB co-resides
+        # with the router (~20 GB alongside qwen38+ornith). Tuned for prose/fiction, weak at code by
+        # design. Serve at writing sampling (--temp 0.7-0.9), NOT Qwen greedy. Quality is SUBJECTIVE and
+        # unmeasured here (repo withdrew quality scores) -- A/B by eye vs Ornith. Byte verified 2026-09-12.
+        note  = 'creative-writer-plus-35b i1-Q4_K_M (Command-R prose finetune, 21.5 GB, co-resident). Text-focused; A/B vs Ornith.'
+    }
+    'gemma4-ablit' = @{
+        repo  = 'bullerwins/Huihui-gemma-4-26B-A4B-it-abliterated-GGUF'
+        files = @(
+            @{ p='Huihui-gemma-4-26B-A4B-it-abliterated-Q4_K_M.gguf'; b=16796011168; as='gemma4-26B-A4B-abliterated-Q4_K_M.gguf' }
+        )
+        # ABLITERATED (huihui, refusal-removed) Gemma-4-26B-A4B-it -- 26B-total/4B-active MoE, arch
+        # gemma4 (PRESENT in bin-b10677; standard attention, NO #27805 Vulkan risk). Strong general
+        # PROSE + uncensored: the abliterated writing counterpart to creative-writer-plus-35b (which is
+        # NOT abliterated, only a permissive Command-R base). 4B active -> fast tg; ~16.8 GB Q4_K_M
+        # co-resides easily; gemma4 KV is GQA (small), so it does NOT have command-r's huge-KV problem.
+        # Text-only GGUF (no mmproj in this repo). Serve at writing sampling (temp 0.7-0.9). Same huihui
+        # abliteration lineage as qwen38-uncensored/cyberstrike. Byte verified vs HF API 2026-09-12.
+        note  = 'Gemma-4-26B-A4B ABLITERATED (huihui) Q4_K_M, 16.8 GB MoE. Uncensored prose, fast (A4B), co-resident. arch gemma4.'
+    }
+    'gemma4-ablit-q6' = @{
+        repo  = 'bullerwins/Huihui-gemma-4-26B-A4B-it-abliterated-GGUF'
+        files = @(
+            @{ p='Huihui-gemma-4-26B-A4B-it-abliterated-Q6_K.gguf'; b=22638394528; as='gemma4-26B-A4B-abliterated-Q6_K.gguf' }
+        )
+        # Higher-quality quant of gemma4-ablit for the quality/speed A/B (same huihui abliteration
+        # lineage as the Q4_K_M). Q6_K = near-lossless. Byte verified vs HF API 2026-09-12.
+        note  = 'Gemma-4-26B-A4B ABLITERATED Q6_K, 22.6 GB (near-lossless). Quality arm of the fast-vs-good A/B.'
+    }
+    'gemma4-ablit-q8' = @{
+        repo  = 'bullerwins/Huihui-gemma-4-26B-A4B-it-abliterated-GGUF'
+        files = @(
+            @{ p='Huihui-gemma-4-26B-A4B-it-abliterated-Q8_0.gguf'; b=26859854496; as='gemma4-26B-A4B-abliterated-Q8_0.gguf' }
+        )
+        # Max-quality practical quant (Q8_0 ~ reference) for the A/B. Biggest -> slowest tg (more bytes
+        # per token on the 4B active set), so it is the 'good' extreme vs Q4's 'fast'. Verified 2026-09-12.
+        note  = 'Gemma-4-26B-A4B ABLITERATED Q8_0, 26.9 GB (max quality). Slow/good extreme of the A/B.'
+    }
     'glm53-flash' = @{
         repo  = 'unsloth/GLM-5.3-Flash-GGUF'
         files = @(
