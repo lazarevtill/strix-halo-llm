@@ -169,14 +169,16 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   below it — serve solo at 262144. *Unmeasured:* long-context *retrieval* quality on this box (the
   research verifier pass was rate-limited). Router mode splits the budget → **131072 per model**, still
   inside native.
-- **`draft-mtp` on Vulkan is deterministic — NOT hit by the #27805 spec bug.** Verified 2026-08-28:
-  6/6 byte-identical greedy (temp 0, fixed seed) raw completions on the live router. The Vulkan
-  `ggml_vk_graph_optimize` correctness bug ([#27805](https://github.com/ggml-org/llama.cpp/issues/27805),
-  open) that silently accepts wrong tokens is specific to other op patterns — notably **`draft-dflash`
-  (DFlash2)**, which is therefore **unusable on this box until #27805 lands**, even though its arch
-  merged (PR #27342) and in llama.cpp its ~1.8× ≈ our draft-mtp anyway. New hybrid/SSM arches
-  (`qwen4exp`, `glm5_next`) carry the same view-aliased-state risk — Vulkan-verify before trusting.
-  See `docs/ROADMAP.md`, `scripts/windows/stage-nextgen.ps1`.
+- **The Vulkan `ggml_vk_graph_optimize` correctness bug (#27805) is FIXED** — closed by
+  [PR #27812](https://github.com/ggml-org/llama.cpp/pull/27812), shipped in **b10677** (commit
+  b387ddfd8, staged in `bin-b10677\`). It silently accepted wrong tokens on view-aliased-state
+  (SSM/linear-attention) models at temp 0 on gfx1151. Before the fix, `draft-mtp` was verified clear
+  anyway (6/6 byte-identical greedy on the live router, 2026-08-28) while `draft-dflash` (DFlash2) was
+  blocked; **DFlash2 is now Vulkan-unblocked on b10677** (worth an A/B, though its ~1.8× ≈ our
+  draft-mtp). New hybrid/SSM arches (`qwen4exp`/Flash-Next, `qwen3next`/Coder-Next,
+  `nemotron_h_moe`/Nemotron, `glm5-next`/GLM) still get a one-time fixed-seed temp-0 N≥10 determinism
+  **confirmation** on b10677 before trusting (expected to pass post-#27805). See `docs/ROADMAP.md`,
+  `scripts/windows/stage-nextgen.ps1`.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models qwen38,ornith`), NOT a Scheduled Task or
   service: Vulkan/WDDM needs an interactive desktop session, and a Startup item runs in it with no

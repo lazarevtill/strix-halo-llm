@@ -1,113 +1,108 @@
-# Next-gen models — staged, pending engine support
+# Next-gen models — staged, tracked, and the exact gate on each
 
-Two 2026 frontier-preview models are **downloaded / tracked but not yet runnable** on this box:
-their architectures are so new that no build in this repo can load them yet. This page records the
-exact gate for each so the status is honest — the repo's rule is to publish the claim *and* the
-thing blocking it, not a promise. (Status refreshed 2026-08-28: **Flash-Next** is now
-engine-ready — b10665 carries `qwen4exp` and its GGUF is staged — leaving only Vulkan-correctness;
-**GLM** moved draft → ready-for-review but is still unmerged and absent from every build. The emergent
-blocker for both is the **Vulkan** gate — see below.)
+This page is the "not yet fully cleared" list. Everything runnable today is in
+[RESULTS.md](RESULTS.md). The repo's rule is to publish the claim *and* the thing blocking it —
+so each model below records its exact gate, honestly.
 
-Everything runnable today is in [RESULTS.md](RESULTS.md); this is the "not yet" list.
+**Status refreshed 2026-09-12 — the big change since the last revision: the Vulkan correctness
+gate CLEARED.** The `ggml_vk_graph_optimize` bug
+([#27805](https://github.com/ggml-org/llama.cpp/issues/27805)) that silently corrupted
+view-aliased-state (SSM/linear-attention) models at temp 0 on gfx1151 was **fixed by
+[PR #27812](https://github.com/ggml-org/llama.cpp/pull/27812) and shipped in release b10677**
+(commit `b387ddfd8`, staged here in `bin-b10677\`). That bug was the emergent blocker for *every*
+hybrid arch below. With it fixed, the remaining step for the arch-supported models is a **one-time
+Vulkan determinism *confirmation*** (N≥10 fixed-seed temp-0 diff), not an open blocker.
 
-## Why they can't run yet
+## What "runnable on this box" requires
 
-The Strix Halo stack is **llama.cpp Vulkan** and needs **GGUF** with an architecture the engine
-recognises. A brand-new model needs *three* upstream things to line up:
+llama.cpp **Vulkan** + a **GGUF** whose architecture the engine recognises. A brand-new model needs
+three upstream things to line up:
 
 1. a **GGUF** build published (FP8 / safetensors do not load in llama.cpp),
-2. **architecture support** merged into llama.cpp and shipped in a release, and
-3. that support **actually working on the Vulkan backend** — new arches land CUDA/Metal-first and
-   Vulkan correctness lags. A merge is necessary but *not sufficient* for this gfx1151 box: e.g. the
-   DFlash2 speculative path merged ([#27342](https://github.com/ggml-org/llama.cpp/pull/27342)) but a
-   Vulkan graph-optimizer bug ([#27805](https://github.com/ggml-org/llama.cpp/issues/27805), open)
-   makes its verifier silently accept wrong tokens — so its Vulkan numbers are invalid until fixed.
+2. **architecture support** merged into llama.cpp and shipped in a release, **and**
+3. that support **working on the Vulkan backend** — new arches land CUDA/Metal-first and Vulkan
+   correctness has historically lagged (that was #27805, now fixed).
 
-Until all three land, a download is just staged bytes.
+The current engine for new arches is **`bin-b10677`** (carries `qwen4exp`, `qwen3next`,
+`nemotron_h_moe`, `deepseek4`, `laguna`, `muse-glimmer`, `dflash` **plus** the #27805 fix). The
+pinned **`b10431`** stays the engine for every *published* number (a build change breaks
+comparability) and for the live `:8080` router.
 
-## Qwen3.8-Flash-Next  (arch `qwen4exp`)
+## Arch-supported on b10677, pending only a Vulkan confirmation
 
+These load on `bin-b10677` today. Because they are linear-attention / SSM hybrids — the exact class
+#27805 used to corrupt — each still gets one **fixed-seed, temp-0, N≥10 raw-completion diff** on an
+isolated port before being trusted (byte-identical = safe; any divergence = a *new* correctness
+issue). Post-#27805 these are expected to pass; the check is confirmation, not a blocker. It needs
+the router **stopped** for the big ones, so it's a human-approved, router-down operation — the pinned
+`b10431` engine and `:8080` router stay untouched until then. See `scripts/windows/stage-nextgen.ps1`.
+
+### Qwen3.8-Flash-Next  (arch `qwen4exp`) — closest to runnable
 - **What:** Qwen's "Qwen4 architecture preview" — 180 B, MoE + hybrid SSM/attention, natively
   multimodal, 1 M context. Base + FP8 are safetensors (won't load); community GGUFs exist.
 - **GGUF:** [unsloth/Qwen3.8-Flash-Next-GGUF](https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF)
-  — full quant ladder from `UD-IQ1_S` (67.6 GB) to `UD-Q4_K_XL` (103.7 GB). Fetchable via the
-  `flashnext` / `flashnext-iq1` registry keys (see `fetch-models`).
-  **Recommended fit for the ~109 GB ceiling: `UD-IQ4_XS` (87.2 GB)** — best quality that still
-  leaves ~22 GB for KV/compute; `UD-Q4_K_XL` (103.7 GB) is weights-alone near the ceiling and
-  likely too tight to serve with usable context.
-- **Engine gate: CLEARED.** llama.cpp **[PR #27742](https://github.com/ggml-org/llama.cpp/pull/27742)**
-  ("model: add Qwen3.8-Flash-Next (qwen4exp)") **MERGED 2026-08-27**, and build **b10665** (2026-08-28)
-  is verified to carry the arch (`qwen4exp` present in `llama.dll`, compiled `models/qwen4exp.cpp`).
-  The pinned `b10431` predates it, so b10665 is staged in a *separate* `bin-b10665\`. GGUF `UD-IQ4_XS`
-  (87.2 GB) is already downloaded. **What remains is gate 3 — Vulkan *correctness*, not merge:** the
-  qwen4exp graph is a hybrid **SSM** model (view-aliased state), exactly what bug
-  [#27805](https://github.com/ggml-org/llama.cpp/issues/27805) can silently corrupt on Vulkan.
-- **Plan:** test-load `UD-IQ4_XS` on b10665 on an **isolated port (:8099)**, then run the **Vulkan
-  correctness check that is actually feasible here** — a full CPU reference is impossible (87 GB GGUF
-  vs ~32 GB system RAM), so instead **repeat one fixed-seed, temp-0 raw completion N≥10× and diff the
-  outputs**: byte-identical = safe; any divergence = #27805 corruption (this is the exact signature,
-  and it's how draft-mtp on the live router was cleared — 6/6 identical). The test needs the router
-  **stopped** (87 GB can't co-reside with the ~55 GB router under the 109 GB ceiling), so it is a
-  human-approved, router-down operation — the proven `b10431` engine and `:8080` router stay untouched
-  until then. This is the closest of the two to runnable.
+  — `UD-IQ4_XS` (87.2 GB) is downloaded and is the recommended fit under the ~109 GB ceiling
+  (leaves ~22 GB for KV/compute). Registry keys `flashnext` / `flashnext-iq1`.
+- **Gate:** arch **merged** ([PR #27742](https://github.com/ggml-org/llama.cpp/pull/27742)) and present
+  in b10677; Vulkan fix **landed**. Only the confirmation diff remains (router-down).
 
-## GLM-5.3-Flash  (arch `glm5_next`)
+### Qwen3-Coder-Next  (arch `qwen3next`) — downloaded 2026-09-12
+- **What:** coding-agent MoE, **80 B total / 3 B active** (512 experts, 10/token), 262 K context, no
+  vision, no MTP head. Same qwen3_next model family as Flash-Next but a *different* arch string
+  (`qwen3next`, confirmed from the GGUF header — not `qwen4exp`).
+- **GGUF:** `UD-Q4_K_XL` (49.6 GB, single file) downloaded; registry key `coder-next`. Fits solo with
+  room; ~50 GB could co-reside.
+- **Gate:** arch present in b10677. Linear-attention hybrid → same Vulkan confirmation diff as
+  Flash-Next (they share the qwen3_next lineage — one clears the class). Spec via `ngram-mod` or a
+  draft model (no native MTP).
 
-- **What:** Z.ai's first multimodal GLM-5 — **320 B-A18B**, MIT, sparse+linear hybrid attention,
-  1 M context ([zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash)). Weights are
-  safetensors; an [FP8 build](https://huggingface.co/unsloth/GLM-5.3-Flash-FP8) exists — neither
-  loads in llama.cpp.
-- **GGUF:** **now published** (as of 2026-08-28) — [unsloth/GLM-5.3-Flash-GGUF](https://huggingface.co/unsloth/GLM-5.3-Flash-GGUF)
-  has a real quant ladder. But at **320 B-A18B** only the smallest quants fit the ~109 GB ceiling:
+### NVIDIA Nemotron-3.5-Lightning-30B-A3B  (arch `nemotron_h_moe`) — fetchable
+- **What:** hybrid **Mamba-2 + MoE + attention** (only ~6 attention layers of 52 → tiny KV even at
+  long context), **30 B / 3 B active**, 262 K context, **MTP draft head built in**
+  (`--spec-type draft-mtp`).
+- **GGUF:** [bartowski/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF](https://huggingface.co/bartowski/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF)
+  — Q4_K_M ~25.5 GB (IQ4_XS 18.9). Not yet downloaded. Needs b10362+; b10677 qualifies and carries
+  `nemotron_h_moe`.
+- **Gate:** arch present in b10677. Mamba-2 state is view-aliased → run the Vulkan confirmation diff
+  before trusting. Small enough (~25 GB) to **co-reside in the router** — the most interesting new
+  fetch once verified.
 
-  | quant | size | fit under ~109 GB |
-  |---|---|---|
-  | `UD-IQ1_S`  | 93.1 GB | ✅ tight (~16 GB left for KV/compute) |
-  | `UD-IQ1_M`  | 97.6 GB | ⚠️ very tight (~11 GB left) |
-  | `UD-Q2_K_XL`| 109 GB  | ❌ weights alone = the whole ceiling |
-  | `UD-IQ3_XXS` → `UD-Q4_K_XL` | 120–200 GB | ❌ over the ceiling |
+## Still engine-gated (arch NOT in any build here)
 
-  So the only *servable* quants are **1-bit** — a harsh cut on a 320 B MoE; quality is dubious and
-  unmeasured. **Don't fetch the 93 GB `UD-IQ1_S` until the engine gate clears and 1-bit is judged
-  worth it** (recall bigger-quant / bf16 lost badly here; 1-bit is a much deeper cut).
-- **Engine gate:** llama.cpp **[PR #27752](https://github.com/ggml-org/llama.cpp/pull/27752)**
-  ("model: add GLM-5.3-Flash (glm5next)") — now **ready-for-review (2026-08-28), not yet merged**
-  (needs 2 code-owner approvals; MTP head not numerically validated; text-only, no vision). Confirmed
-  **absent from b10665** (`glm5_next` not in `llama.dll`), so no engine can load it yet. **Vulkan
-  untested** (gate 3) — and being a hybrid model it faces the same #27805 risk.
-- **Plan:** the GGUF gate is clear; wait for #27752 to **merge + ship in a release with Vulkan
-  working**, then weigh whether 1-bit GLM (the sole fitting quant) actually beats the models already
-  runnable on this box before downloading 90 GB+. Fetchable via the `glm53-flash` registry key once
-  it's worth it.
+### GLM-5.3-Flash  (arch `glm5-next`)
+- **What:** Z.ai multimodal GLM-5 — **320 B-A18B**, MIT, sparse+linear hybrid, 1 M context. Weights
+  are safetensors / FP8 — neither loads in llama.cpp.
+- **GGUF:** [unsloth/GLM-5.3-Flash-GGUF](https://huggingface.co/unsloth/GLM-5.3-Flash-GGUF) exists,
+  but at 320 B-A18B only **1-bit** quants fit the ~109 GB ceiling (`UD-IQ1_S` 93.1 GB; everything
+  ≥ IQ3 is 120–200 GB). A harsh cut on a 320 B MoE — quality dubious and unmeasured. Registry key
+  `glm53-flash`; **don't fetch 93 GB until it's runnable and 1-bit is judged worth it.**
+- **Gate:** the canonical upstream PR is now **[#27773](https://github.com/ggml-org/llama.cpp/pull/27773)**
+  (`glm5-next`) — upstream is converging on it, superseding the earlier
+  [#27752](https://github.com/ggml-org/llama.cpp/pull/27752). **Still open, not merged; `glm5-next`
+  absent from every build here.** Wait for merge + a shipped release, then weigh whether 1-bit GLM
+  beats what already runs on this box.
 
-## Also drafting: DFlash2 (a speed lever, not a model)
-
-[`incoai/dflash-2`](https://huggingface.co/collections/incoai/dflash-2) ships **2–3 B block-diffusion
-*draft* models** for speculative decoding, including one purpose-built for **Qwen3.8-27B**
-([GGUF](https://huggingface.co/incoai/Qwen3.8-27B-DFlash2-GGUF); Q4_K_M just 1.14 GB). Support merged
-in llama.cpp ([#27342](https://github.com/ggml-org/llama.cpp/pull/27342), 2026-08-27) as
-`--spec-type draft-dflash`. **But it's blocked on Vulkan** by [#27805](https://github.com/ggml-org/llama.cpp/issues/27805)
-(above), and in llama.cpp its ~1.8× decode ≈ our existing `draft-mtp` (1.79×) anyway — the headline
-3.43× is vLLM/SGLang + FlashAttention-3 on datacenter GPUs, which doesn't transfer here. Revisit only
-after #27805 lands; expect draft-mtp-level gains, not 3.43×.
+## DFlash2 — a speed lever, not a model (Vulkan gate now cleared)
+[`incoai/dflash-2`](https://huggingface.co/collections/incoai/dflash-2) ships 2–3 B block-diffusion
+**draft** models for speculative decoding, incl. one for Qwen3.8-27B
+([GGUF](https://huggingface.co/incoai/Qwen3.8-27B-DFlash2-GGUF), Q4_K_M 1.14 GB, registry
+`dflash2-qwen38`). Support merged ([#27342](https://github.com/ggml-org/llama.cpp/pull/27342)) as
+`--spec-type draft-dflash`. It **was** blocked on Vulkan by #27805 — **now fixed in b10677**, so it's
+worth an A/B. Temper expectations: in llama.cpp its ~1.8× decode ≈ our existing `draft-mtp` (1.79×);
+the headline 3.43× is vLLM/SGLang + FA-3 on datacenter GPUs and doesn't transfer here. Verify on
+b10677, expect draft-mtp-level gains.
 
 ## Watching
 
-Public upstream signals you can check yourself:
+- **[#27805](https://github.com/ggml-org/llama.cpp/issues/27805)** — Vulkan `ggml_vk_graph_optimize`
+  correctness bug: **CLOSED**, fixed by [#27812](https://github.com/ggml-org/llama.cpp/pull/27812),
+  shipped in **b10677**. This was the bellwether for hybrid/SSM arches on gfx1151.
+- **[#27742](https://github.com/ggml-org/llama.cpp/pull/27742) `qwen4exp`** — MERGED; in b10677.
+- **[#27773](https://github.com/ggml-org/llama.cpp/pull/27773) `glm5-next`** — OPEN, the PR upstream
+  is converging on for GLM-5.3-Flash (supersedes #27752); absent from all builds.
 
-- **[#27742](https://github.com/ggml-org/llama.cpp/pull/27742) `qwen4exp`** — MERGED; engine (b10665)
-  and GGUF both ready. Only a **Vulkan correctness** test remains (router-down, human-approved).
-- **[#27752](https://github.com/ggml-org/llama.cpp/pull/27752) `glm5next`** — **ready-for-review**, not
-  merged; absent from every build. GGUFs exist, so only the engine merge + a fitting-quant/Vulkan
-  decision remain.
-- **[#27805](https://github.com/ggml-org/llama.cpp/issues/27805)** — the Vulkan `ggml_vk_graph_optimize`
-  correctness bug. It's the bellwether for whether these hybrid/SSM arches (and DFlash2) run
-  **correctly** on gfx1151, not merely whether they merge. (Note: plain `draft-mtp` on the live router
-  was tested clear — 6/6 identical greedy runs — so the bug is specific op patterns, not all spec.)
-
-The moment a gate clears, the model is fetched (if needed) and test-loaded on an **isolated port with a
-separate engine build**. Vulkan correctness is checked the feasible way — **repeat one fixed-seed,
-temp-0 raw completion N≥10× and diff** (a full CPU reference is impossible for 87–93 GB GGUFs against
-~32 GB system RAM); any non-determinism is #27805. A test that needs the model resident **stops the
-router first and restarts it after** — the pinned `b10431` engine and the `:8080` router are never left
-disturbed. See `scripts/windows/stage-nextgen.ps1`.
+The moment a gate clears, the model is fetched (if needed) and test-loaded on an **isolated port with
+`bin-b10677`**; Vulkan correctness is confirmed with the fixed-seed/temp-0 N≥10 diff (a full CPU
+reference is impossible for 50–93 GB GGUFs vs ~32 GB system RAM). A test that needs the model resident
+**stops the router first and restarts it after** — the pinned `b10431` engine and the `:8080` router
+are never left disturbed. See `scripts/windows/stage-nextgen.ps1`.
