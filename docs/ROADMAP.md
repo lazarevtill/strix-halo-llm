@@ -74,17 +74,35 @@ issue). Post-#27805 these are expected to pass; the check is confirmation, not a
 the router **stopped** for the big ones, so it's a human-approved, router-down operation. See
 `scripts/windows/stage-nextgen.ps1`.
 
-### NVIDIA Nemotron-3-Puzzle-75B-A9B  (`NemotronHPuzzle`) — best new fit, not yet fetched
-- **What:** NAS-derived ("Puzzle") Nemotron-H variant, **75 B total / 9 B active**. Arch support
-  merged [#25444](https://github.com/ggml-org/llama.cpp/pull/25444), in the b10677→b11003 range.
-- **GGUF:** [RemySkye/…-GGUF](https://huggingface.co/RemySkye/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-GGUF)
-  — **Q4_K_M 48.1 GB, Q5_K_M 54.7 GB, Q6_K 62.6 GB**. All three fit the ~109 GB ceiling with real
-  headroom, which makes **Q6_K affordable here** in a way it is not on a 24–48 GB card.
-- **Why it's interesting:** it is the one genuinely new model that *fits the box's shape* — big total,
-  low-ish active, and room to spend on quant rather than on context.
-- **Gate:** confirm the arch string resolves (it appears to map onto `nemotron_h_moe` rather than
-  carrying a distinct id — **verify by loading**, don't assume), then the determinism diff.
-  ⚠️ 9 B active is 3× the coder's; expect materially lower tg. Measure before adopting.
+### NVIDIA Nemotron-3-Puzzle-75B-A9B  (`nemotron_h_moe`) — ❌ TESTED 2026-09-16, DOES NOT LOAD
+- **What:** NAS-derived ("Puzzle") Nemotron-H variant, **75 B total / 9 B active**, 1 M context
+  (256 K default), thinking model, **has an MTP head**, no vision. **License: OpenMDW v1.1** — not
+  Apache/MIT like the rest of this list.
+- **GGUF:** Q4_K_M 48.1 GB, Q5_K_M 54.7 GB, Q6_K 62.6 GB — all fit the ceiling with real headroom,
+  which is exactly why it looked like the best new fit for this box.
+- **Result: Q6_K was fetched (62.6 GB, byte-verified) and b11003 refuses it.**
+  ```
+  load_arch_tensors: layer 88 declares neither expert_feed_forward_length
+  nor expert_used_count, cannot determine the expert FFN size
+  ```
+- **This is an upstream packaging problem, not a bad quant and not a config error.** Decoding the
+  GGUF header here shows the file is internally *consistent*: Puzzle is genuinely heterogeneous, so
+  `expert_feed_forward_length` / `expert_used_count` are **per-layer arrays of 90**, of which 49 are
+  legitimately `0` (Mamba-2 / attention layers with no expert FFN). `block_count = 90` and
+  `nextn_predict_layers = 2`, so layers 88–89 are the MTP block — and layer 88 holds `nextn.*` plus
+  attention tensors and **no** `ffn_*_exps`, so its `0` is the correct description of that layer.
+- **Root cause:** every published Puzzle GGUF was converted from the **#25444 review branch** and uses
+  an MTP layout master does not read. [PR #28779](https://github.com/ggml-org/llama.cpp/pull/28779)
+  (merged 2026-09-13, already in b11003) only turns the former SIGFPE into this clean error; its own
+  description states the files *"need reconverting with the current converter."*
+  **So a newer build will not fix this.** All four publishers predate the fix (checked 2026-09-16):
+  RemySkye 07-14, YanissAmz 07-08, MRockatansky 08-03, Myric 09-09.
+- **Gate:** a **re-upload converted after 2026-09-13**, or a local conversion from the BF16
+  safetensors (~150 GB). Re-check publisher `lastModified` before spending the bandwidth again.
+- **Lesson worth keeping:** the arch string resolving (`nemotron_h_moe`, confirmed by range-fetching
+  the first 1 MiB of the file *before* downloading) is **necessary but not sufficient** — the engine
+  can know an arch and still reject a specific file's tensor layout. The 1 MiB header preflight was
+  still worth it; it just can't catch this class. Only a load attempt can.
 
 ### Qwen3.8-Flash-Next  (arch `qwen4exp`) — downloaded, unverified
 - **What:** Qwen's "Qwen4 architecture preview" — MoE + hybrid SSM/attention, natively multimodal,

@@ -235,13 +235,52 @@ $REG = [ordered]@{
         )
         # Qwen3-Coder-Next: 80B-total / 3B-active coding-agent MoE (512 experts, 10 active), 262K ctx,
         # NO vision (text-only), NO MTP head in config (spec via ngram-mod or a separate draft model).
-        # Base model_type=qwen3_next -> llama.cpp arch qwen4exp (SAME family as Flash-Next); confirm from
-        # the GGUF header on load. arch PRESENT in bin-b10677. CAVEAT: qwen4exp is a linear-attention/SSM
-        # hybrid -- the exact #27805 Vulkan-correctness risk class, and NOT yet Vulkan-verified on this
-        # box. Gate behind the pending Flash-Next determinism test (stage-nextgen.ps1) before trusting
-        # output. UD-Q4_K_XL is a single 49.6 GB file (fits solo w/ room; ~50 GB could co-reside). Byte
-        # count verified vs HF API 2026-09-12.
-        note  = 'Qwen3-Coder-Next UD-Q4_K_XL (80B/A3B coding MoE, qwen4exp). Vulkan-UNVERIFIED -- correctness-test before trusting.'
+        # Base model_type=qwen3_next -> llama.cpp arch **qwen3next** (CORRECTED 2026-09-16 from the GGUF
+        # header; this comment used to say qwen4exp, which is Flash-Next's arch, not this one -- same
+        # family, different arch string). REQUIRES bin-b11003 (or b10677); will NOT load on pinned bin\.
+        # qwen3next is a linear-attention/SSM hybrid -- the #27805 risk class -- and is now VULKAN-VERIFIED
+        # here: 12/12 byte-identical on b11003 at the serving ubatch, 2026-09-16. UD-Q4_K_XL is a single
+        # 49.6 GB file (fits solo w/ room; ~50 GB could co-reside). Byte count verified vs HF API 2026-09-12.
+        # SERVED on :8080 at -ub 1024 (a per-model override worth +34.8% deep prefill; see OPTIMIZATION.md).
+        note  = 'Qwen3-Coder-Next UD-Q4_K_XL (80B/A3B coding MoE, qwen3next). SERVING on :8080; Vulkan-verified.'
+    }
+    'nemotron-puzzle-q6' = @{
+        repo  = 'RemySkye/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-GGUF'
+        files = @(
+            @{ p='NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-Q6_K.gguf'; b=67243104384; as='Nemotron-3-Puzzle-75B-A9B-Q6_K.gguf' }
+        )
+        # NVIDIA Nemotron-3-Puzzle: NAS-derived ("Puzzle") Nemotron-H variant, 75B total / 9B ACTIVE.
+        # arch = 'nemotron_h_moe' -- CONFIRMED before downloading by HTTP range-fetching the first 1 MiB
+        # of this exact file and reading general.architecture out of the GGUF header (cheap preflight;
+        # do this before committing to any 60 GB+ pull). Present in bin-b11003 AND bin-b10677.
+        # Arch support merged upstream in PR #25444; it maps onto the existing nemotron_h_moe id rather
+        # than carrying a distinct 'puzzle' string.
+        # WHY Q6_K and not Q4: 62.6 GB of a ~109 GB ceiling leaves ~45 GB for KV/compute, so the usual
+        # reason to drop to Q4 (fit) does not apply on this box -- spend the headroom on quant instead.
+        #
+        # !! DOES NOT LOAD -- DO NOT RE-DOWNLOAD (measured 2026-09-16, 62.6 GB pulled and byte-verified) !!
+        # b11003 refuses it:
+        #   load_arch_tensors: layer 88 declares neither expert_feed_forward_length nor
+        #   expert_used_count, cannot determine the expert FFN size
+        # This is NOT a bad quant and NOT our config. Puzzle is NAS-derived and genuinely heterogeneous:
+        # the GGUF stores per-layer arrays (90 entries) in which 49 layers are legitimately 0 because they
+        # are Mamba-2/attention layers with no expert FFN. block_count=90, nextn_predict_layers=2, so
+        # layers 88-89 are the MTP block; 88 holds nextn.* + attention tensors and NO ffn_*_exps, so its 0
+        # is correct. Verified by decoding the header here.
+        # ROOT CAUSE (upstream, confirmed): every published Puzzle GGUF was converted from the #25444
+        # REVIEW BRANCH and uses an MTP layout master does not read. PR #28779 (merged 2026-09-13, present
+        # in b11003) only converts the old SIGFPE into this clean error -- its own description says the
+        # files "need reconverting with the current converter". A NEWER BUILD WILL NOT HELP.
+        # All four publishers predate the fix (lastModified checked 2026-09-16): RemySkye 07-14,
+        # YanissAmz 07-08, MRockatansky 08-03, Myric 09-09. Re-check for a post-2026-09-13 re-upload
+        # before spending the bandwidth again; otherwise the only path is converting from the BF16
+        # safetensors (~150 GB) with a current convert_hf_to_gguf.py.
+        # LICENSE: OpenMDW v1.1 -- NOT Apache/MIT like the rest of this registry.
+        # If it ever loads: Mamba-2 state is view-aliased -> #27805 risk class -> run the stage-nextgen.ps1
+        # determinism diff first. 9B active is 3x the coder's, so expect materially LOWER tg than the
+        # coder's 44 t/s (tg is bandwidth-bound on ACTIVE params). It DOES have an MTP head
+        # (nextn_predict_layers=2) so draft-mtp would be available. Byte count verified 2026-09-16.
+        note  = 'Nemotron-3-Puzzle-75B-A9B Q6_K (62.6 GB, nemotron_h_moe). !! WILL NOT LOAD -- all published GGUFs use a stale MTP layout; needs reconversion upstream. Do not re-fetch. !!'
     }
     'writer-plus-35b' = @{
         repo  = 'mradermacher/creative-writer-plus-35b-preview-01-2025-i1-GGUF'
