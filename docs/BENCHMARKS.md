@@ -50,7 +50,7 @@ A result is only meaningful with four attributes: **context depth, quant, backen
 |---|---|
 | Vulkan vs Ollama-ROCm, same model | **71.7 vs 40.2 t/s → 1.79x** — use Vulkan |
 | Ornith Q5_K_M vs bf16 | **58 vs 11.17 t/s** — bf16 is 5.6x SLOWER, and pp collapses too (698 → 241) |
-| pp sweet spot on gfx1151 | `-b 2048 -ub 256` — **not 1024**, which costs 29% (167 vs 129 t/s prefill). `-ub 128` measured 0.9% higher on one run, so 256 is the knee, not the maximum. See §"the fastest row is not the recommended one" below |
+| pp sweet spot on gfx1151 | `-b 2048 -ub 256` **on dense** — **not 1024**, which costs 29% (167 vs 129 t/s prefill). `-ub 128` measured 0.9% higher on one run, so 256 is the knee, not the maximum. **MoE inverts this: `qwen3next` wants `-ub 1024` (+34.8%)** — see §"the fastest row is not the recommended one" below |
 | tg from 89 GB → 109 GB of weights | **flat** — spilling past the carve-out costs nothing on this UMA APU |
 | `--cache-reuse` | **no-op** on these MoEs; prefix caching already works |
 | speculative decoding | `draft-mtp` helps Qwen; `ngram-mod` measured **neutral** (14.34/14.07 vs 14.17 baseline) |
@@ -130,6 +130,24 @@ this sweep does not settle it.
 **`-ub 256` is +29% over the `-b 2048 -ub 1024` recorded in §1 of this document**,
 which was measured on **MoE** models. Neither figure is wrong; the optimum is architecture-dependent,
 so re-measure per model class rather than inheriting it.
+
+**CONFIRMED 2026-09-16 — that warning was right, and here is the number.** Swept `-ub` on
+**Qwen3-Coder-Next 80B/A3B (`qwen3next`, MoE), solo, b11003**, `-b 2048`, KV q8_0, 2 reps:
+
+| `-ub` | pp4096 @ d0 | **pp4096 @ d32768** | tg128 | tg128 @ d32768 | peak GPU |
+|---|---|---|---|---|---|
+| 256 | 453.75 ± 1.02 | 297.75 ± 5.55 | 44.02 | 38.37 | 49.97 GiB |
+| 512 | 566.39 ± 2.07 | 356.18 ± 3.55 | 44.00 | 37.86 | 50.15 GiB |
+| **1024** | **652.80 ± 0.09** | **401.31 ± 2.82** | 44.23 | 38.12 | **50.51 GiB** |
+| 2048 | 637.37 ± 1.23 | 339.19 ± 4.06 | 44.11 | 38.14 | 51.63 GiB |
+
+So the MoE optimum is **1024, worth +34.8% at depth and +43.9% at depth 0**, for +0.5 GiB — the exact
+inverse of the dense result three rounds above, which is why this document keeps both. Two further
+readings: **`-ub 2048` regresses at depth** (339 vs 401), so the widely-circulated "MoE wants ub2048 on
+Strix Halo" advice does not transfer; and **tg is flat to four values across an 8× `-ub` range**,
+independently re-confirming that batch size does not move tg on this box. Short prompts (`pp512`) are
+flat above 512 with ±7% spread and settle nothing. The global default stays 256; `coder` carries a
+per-model override.
 
 `-b` genuinely does not matter: at matched `-ub` it moves nothing (129.5 vs 129.8 at 1024;
 107.8 vs 112.4 at 2048; 167.4 / 168.9 / 169.0 across three configs at 256 or below).
@@ -294,7 +312,8 @@ benchmark artifact, not the serving default.
 ```
 --model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
 --spec-type draft-mtp --spec-draft-n-max 3     # 1.79x; 4 and 5 are WORSE than no speculation
--b 2048 -ub 256                                # -ub is the knob; 1024 costs 29% of prefill
+-b 2048 -ub 256                                # DENSE: -ub is the knob; 1024 costs 29% of prefill
+                                               # MoE inverts it -- qwen3next wants -ub 1024 (+34.8%)
 -ctk q8_0 -ctv q8_0                            # free, halves KV to ~32 KiB/token
 -c 262144                                      # full context costs only ~3%
 ```

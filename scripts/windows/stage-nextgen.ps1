@@ -43,7 +43,15 @@ param(
     [string] $Draft    = '',                     # optional draft GGUF (e.g. DFlash2)
     [string] $SpecType = '',                     # e.g. draft-dflash / draft-mtp
     [int]    $NPredict = 128,
-    [int]    $CeilingGB = 100                    # leave ~9 GB slack under the ~109 GB ceiling
+    [int]    $CeilingGB = 100,                   # leave ~9 GB slack under the ~109 GB ceiling
+    # #27805-class corruption is compute-path dependent, so confirm determinism at the ubatch you
+    # actually intend to SERVE, not at a fixed 256. (2026-09-16: the coder now serves -ub 1024.)
+    [int]    $UBatch    = 256,
+    # What to bring back if this script had to stop the router. These were hardcoded to
+    # 'qwen38, ornith', which stopped being the served config on 2026-09-12 -- an aborted test would
+    # have silently restored the WRONG models. Keep in sync with the Startup-folder autostart.
+    [string[]] $RestoreModels = @('coder'),
+    [string]   $RestoreBin    = '.\bin-b11003'
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
@@ -106,7 +114,7 @@ try {
     # ---- 3. launch the test server on the isolated port -----------------------------------------
     $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
     $a = @('-m', $Model, '-ngl', 999, '--ctx-size', $Ctx, '-fa', 'on',
-           '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0', '-b', 2048, '-ub', 256,
+           '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0', '-b', 2048, '-ub', $UBatch,
            '--host', '127.0.0.1', '--port', $Port)
     # NB: --model-draft / --spec-type flag names are UNVERIFIED for draft-dflash (from the model card's
     # -hfd usage; untestable until #27805 lands). Verify against `llama-server --help` before relying on this.
@@ -158,13 +166,13 @@ finally {
     if ($testPid) { Stop-Process -Id $testPid -Force -EA SilentlyContinue; Write-Host "`n  stopped test server PID $testPid" -ForegroundColor DarkGray }
     if ($stoppedRouter) {
         Start-Sleep 4
-        Write-Host "  restarting the live router (qwen38 + ornith)..." -ForegroundColor Yellow
-        & (Join-Path $PSScriptRoot 'run-router.ps1') -Models qwen38, ornith
+        Write-Host ("  restarting the live router ({0})..." -f ($RestoreModels -join ' + ')) -ForegroundColor Yellow
+        & (Join-Path $PSScriptRoot 'run-router.ps1') -Models $RestoreModels -Bin $RestoreBin
         # confirm it actually came back -- a failed restart here is the exact serverless outcome this block exists to prevent
         Start-Sleep 3
         $back = 0
         try { $back = @((Invoke-RestMethod "http://127.0.0.1:8080/models" -TimeoutSec 5).data | Where-Object { $_.status.value -eq 'loaded' }).Count } catch {}
-        if ($back -ge 2) { Write-Host "  router restored ($back models loaded)." -ForegroundColor Green }
-        else { Write-Warning "ROUTER DID NOT COME BACK ($back/2 loaded). Re-run: .\scripts\windows\run-router.ps1 -Models qwen38,ornith" }
+        if ($back -ge $RestoreModels.Count) { Write-Host "  router restored ($back models loaded)." -ForegroundColor Green }
+        else { Write-Warning "ROUTER DID NOT COME BACK ($back/$($RestoreModels.Count) loaded). Re-run: .\scripts\windows\run-router.ps1 -Models $($RestoreModels -join ',') -Bin $RestoreBin" }
     }
 }

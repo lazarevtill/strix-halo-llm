@@ -69,6 +69,15 @@ the 512→256 step is worth 5%. `-ub 256` is shipped as the knee of that curve, 
 See [BENCHMARKS.md](BENCHMARKS.md#round-2-2026-08-14-b10431-the-flags-that-actually-matter) for the
 full table.
 
+> **⚠️ SCOPE (added 2026-09-16): every number above is a DENSE model (Qwen3.8-27B, b10431).**
+> `-ub` is the most architecture-specific flag in this repo and the MoE curve is the opposite shape.
+> Measured on **Qwen3-Coder-Next 80B/A3B (`qwen3next`), solo, b11003**: `pp4096 @ d32768` =
+> 297.8 (ub 256) → 356.2 (512) → **401.3 (1024)** → 339.2 (2048) t/s — **`-ub 1024` is +34.8%**, and
+> `-ub 2048` *regresses*. tg is flat across the whole range (44.0/44.0/44.2/44.1). Neither result is
+> withdrawn; they are both correct for their own arch. The global default remains 256 and `coder`
+> carries a per-model override. See [OPTIMIZATION.md](OPTIMIZATION.md) row 10 and
+> [ROADMAP.md](ROADMAP.md).
+
 ### Quantisation — Q4 is the peak in both directions
 
 ```mermaid

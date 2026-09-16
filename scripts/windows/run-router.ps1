@@ -43,12 +43,15 @@ param(
     [int]      $Ctx       = 131072,
     [int]      $ModelsMax = 2,
     [string[]] $Preload   = @(),   # empty => pre-load exactly the selected set
+    [string]   $Bin       = '',    # engine dir override (e.g. bin-b10677 for new arches qwen3next/qwen4exp);
+                                    # empty => the pinned bin\. Relative paths resolve against the repo root.
     [switch]   $DryRun,
     [switch]   $Force        # stop other servers even if one has a request in flight
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-$bin = "$repoRoot\bin\llama-server.exe"
+$binDir = if ($Bin) { if ([IO.Path]::IsPathRooted($Bin)) { $Bin } else { Join-Path $repoRoot $Bin } } else { "$repoRoot\bin" }
+$bin = Join-Path $binDir 'llama-server.exe'
 if (-not (Test-Path $bin)) { Write-Error "llama-server.exe not found: $bin"; exit 1 }
 
 $modelsDir = $env:MODELS_DIR
@@ -66,6 +69,7 @@ $known = @(
     @{ match = 'Qwen38-uncensored-UD-Q4_K_XL';      label = 'qwen38-uncensored'; spec = @('spec-type = draft-mtp','spec-draft-n-max = 3'); mmproj = 'mmproj-Qwen38-uncensored-bf16.gguf' }         # abliterated qwen38; same dense arch -> inherits qwen38's MEASURED tuning
     @{ match = 'CyberStrike-OffSec-35B-abliterated'; label = 'cyberstrike';       spec = @('spec-type = ngram-mod');                        mmproj = 'mmproj-CyberStrike-OffSec-35B-bf16.gguf' }          # abliterated pentest MoE (qwen35moe); ngram-mod per Ornith. draft-mtp loads but is UNMEASURED -- A/B first
     @{ match = 'creative-writer-plus-35b';          label = 'writer';            spec = @();                                              mmproj = $null }                                             # Command-R prose finetune (no MTP head, text-only); NOT abliterated. Serve at writing sampling (temp 0.7-0.9) per request. NB: Command-R tool-use format leaks in the web UI (Action: json ...) -- disable tools client-side, or prefer 'gemma'
+    @{ match = 'Qwen3-Coder-Next-UD-Q4_K_XL';        label = 'coder';             spec = @('ubatch-size = 1024');                          mmproj = $null }                                             # Qwen3-Coder-Next 80B/A3B coding MoE, arch qwen3next (linear-attention/SSM). TEXT-ONLY (no vision tower). REQUIRES -Bin .\bin-b11003 (arch + #27805 fix); will NOT load on the pinned bin\. No MTP head -> no spec. ubatch 1024 (NOT the global 256) is MEASURED on this model: b11003, solo, 2026-09-16 -- pp4096@d32768 297.8 -> 401.3 t/s (+34.8%), tg unchanged, +0.5 GiB. ub 2048 REGRESSES at depth (339.2). Vulkan determinism re-CONFIRMED on b11003 @ub1024, 12/12 identical, 2026-09-16. temp 0.7 top-p 0.8 for Qwen coder.
     @{ match = 'gemma4-26B-A4B-abliterated-Q6_K';    label = 'gemma';             spec = @();                                              mmproj = 'mmproj-gemma-4-26B-A4B-f16.gguf' }                  # ABLITERATED Gemma-4-26B-A4B MoE (gemma4, GQA -> small KV -> large ctx cheap); uncensored prose + VISION (mmproj from base repo -- abliteration doesn't touch the vision tower). Q6_K won the fast-vs-good A/B (2026-09-12): clean Q8-grade prose @50 t/s vs Q4's 60 t/s-but-corrupted, Q8's 43 t/s-no-gain. Thinking model -> ample max-tokens; temp ~1.0 top-p 0.95
 )
 # shared tuned flags -- the measured optima for gfx1151 (see docs/BENCHMARKS.md, docs/OPTIMIZATION.md)
@@ -175,7 +179,14 @@ foreach ($name in $sel) {
     if (-not (Test-Path $file)) { Write-Warning "model file missing, skipping [$name]: $file"; continue }
     $lines.Add("[$name]")
     $lines.Add("model = $file")
-    foreach ($x in $common) { $lines.Add($x) }
+    # A per-model spec line OVERRIDES the common default for the same key. Emit the common line only
+    # when the model does not set that key -- do NOT just append both and rely on last-wins, which is
+    # unverified in llama.cpp's preset parser and would silently serve the wrong value.
+    foreach ($x in $common) {
+        $key = ($x -split '=', 2)[0].Trim()
+        $overridden = @($c.spec | Where-Object { ($_ -split '=', 2)[0].Trim() -eq $key }).Count -gt 0
+        if (-not $overridden) { $lines.Add($x) }
+    }
     foreach ($s in $c.spec) { $lines.Add($s) }
     if ($c.mmproj) {
         $mmPath = Join-Path $modelsDir $c.mmproj
@@ -199,7 +210,12 @@ $routerArgs = @(
 Write-Host ""
 Write-Host "llama-server ROUTER -> http://0.0.0.0:$Port  (route by OpenAI `"model`" field)" -ForegroundColor Cyan
 Write-Host ("  models   : {0}" -f ($sel -join ', '))
-Write-Host ("  each     : ctx=$Ctx  fa=on  kv=q8_0  batch=2048/256  load-mode=none  + per-model spec/vision")
+$ubCommon = (($common | Where-Object { $_ -like 'ubatch-size*' }) -split '=', 2)[1].Trim()
+Write-Host ("  each     : ctx=$Ctx  fa=on  kv=q8_0  batch=2048/$ubCommon(default)  load-mode=none  + per-model spec/vision")
+foreach ($n in $sel) {
+    $ubOv = @($catalog[$n].spec | Where-Object { $_ -like 'ubatch-size*' })
+    if ($ubOv) { Write-Host ("             $n overrides ubatch -> " + (($ubOv[0] -split '=', 2)[1].Trim()) + " (measured)") -ForegroundColor DarkGray }
+}
 Write-Host ("  max resident: $ModelsMax   pre-load: {0}" -f ($Preload -join ', '))
 Write-Host ("  preset   : $iniPath")
 if ($DryRun) {

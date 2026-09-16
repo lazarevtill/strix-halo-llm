@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
-**Vulkan** backend (build **b10431** — every published number is from it), serving an
-OpenAI-compatible API on `:8080`. **This is a public repo** (MIT, GitHub Pages at
+**Vulkan** backend (build **b10431** — the pin for the qwen38-era published numbers; the live `:8080`
+router runs **b11003**, which cannot be compared against b10431 rows and is labelled as such), serving
+an OpenAI-compatible API on `:8080`. **This is a public repo** (MIT, GitHub Pages at
 strix.lazarev.cloud); read `docs/PUBLISHING.md` before adding files or relaxing `.gitignore`.
 
 ## Two things to know before touching anything
@@ -32,7 +33,8 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
   fetch-models.ps1    resume-capable GGUF downloader, byte-verifies against the HF API
   stage-nextgen.ps1   isolated test-load of a pending model (docs/ROADMAP.md): arch-check -> :8099 ->
                       #27805 determinism diff; stops+restarts the router only if it can't co-reside
-  bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0)
+  bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0); -Bin A/Bs builds,
+                      -UBatch sweeps ubatch (one run per value, ub recorded per CSV row)
   bench-spec.ps1      A/B baseline vs --spec-type
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
@@ -132,6 +134,16 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   holdout is `evals/rerun-sampler.ps1`, which pins 1024 to match the run it is a control for
   (changing prefill timing in the same run that changes the sampler would make both meaningless).
   Anything measured before 2026-08-16 paid the 29% — its `medMs` is not comparable with a 256 run.
+  **SCOPE NARROWED 2026-09-16 — 256 is the knee for the DENSE arch it was measured on, not a global.**
+  The 256 figure came from Qwen3.8-27B (dense) on b10431. Swept again on **Qwen3-Coder-Next 80B/A3B
+  (`qwen3next`, MoE), solo, b11003**, and the curve is the opposite shape: `pp4096 @ d32768` goes
+  297.8 (ub 256) → 356.2 (512) → **401.3 (1024)** → 339.2 (2048) t/s, i.e. **+34.8% at ub 1024**, and
+  at depth 0 `pp4096` goes 453.8 → 652.8 (+43.9%). **tg is untouched** (44.0/44.0/44.2/44.1 — batch
+  size still does not move tg) and the cost is +0.5 GiB. Note ub **2048 regresses at depth**, so the
+  Strix-Halo community recommendation of ub2048-for-MoE does *not* transfer here — 1024 is our knee.
+  The global default stays **256**; `coder` carries a per-model `ubatch-size = 1024` override in
+  `run-router.ps1`'s `$known`. Sweep per model class (dense vs MoE, head-dim), don't globalise either
+  number. The old 256-vs-1024 dense result is **not withdrawn** — both hold, for different arches.
 - **Speculative decoding is model-dependent, and depth is not monotonic.** `draft-mtp` at
   `--spec-draft-n-max 3` is the peak (Qwen3.8-27B: 11.33 → 20.27 t/s, 1.79×); n=5 collapses to
   **0.68× — worse than no speculation at all**. Generic `ngram-mod` is neutral-to-negative; a
@@ -178,9 +190,18 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   draft-mtp). New hybrid/SSM arches (`qwen4exp`/Flash-Next, `qwen3next`/Coder-Next,
   `nemotron_h_moe`/Nemotron, `glm5-next`/GLM) still get a one-time fixed-seed temp-0 N≥10 determinism
   **confirmation** on b10677 before trusting (expected to pass post-#27805). See `docs/ROADMAP.md`,
-  `scripts/windows/stage-nextgen.ps1`.
+  `scripts/windows/stage-nextgen.ps1`. **The gate is per-BINARY and per-config, not per-arch** —
+  `qwen3next` passing on b10677 did not carry to b11003; it was re-run there at the serving ubatch
+  (12/12 byte-identical, 2026-09-16). `stage-nextgen.ps1 -UBatch` exists for exactly that reason.
+- **`bin-b11003` is staged and is what `coder` serves** (b10431 stays pinned for published numbers).
+  Measured on Qwen3-Coder-Next, solo, ub 256, b10677 → b11003: `pp4096 @ d32768` **275.0 → 298.1 t/s
+  (+8.4%)**, `pp4096 @ d0` 444.7 → 455.5 (+2.4%), **tg flat** (44.33 → 44.86, 38.59 → 38.96 — ~1%,
+  within noise). 326 commits bought prefill only; nothing in that range touches the memory bandwidth
+  that caps tg. Don't quote the `pp512` rows from that run — ±11% spread, they separate nothing.
 - **The router auto-starts at logon** via a Startup-folder launcher
-  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models qwen38,ornith`), NOT a Scheduled Task or
+  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models coder -Bin .\bin-b11003 -Ctx 262144`,
+  as of 2026-09-16; it is **outside the repo**, so it drifts silently — it still said `-Models gemma`
+  after :8080 had moved to `coder`. Re-check it whenever the served set changes), NOT a Scheduled Task or
   service: Vulkan/WDDM needs an interactive desktop session, and a Startup item runs in it with no
   kill-on-close job. Needs an **interactive logon** (autologin not configured) → router up ~20 s after
   login. See docs/MULTI-USER.md §8.

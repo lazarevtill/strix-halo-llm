@@ -17,7 +17,7 @@ Many tips there are CUDA/Linux-specific; below is only what applies to AMD 8060S
 | 7 | **`-lm none`** (was `--no-mmap`) | ✅ KEEP, NEW SPELLING | The behaviour is right — weights in the VRAM carve-out, host copy paged out (~1.4GB physically resident → RAM ~24GB free). **Do NOT switch to mmap** — measured 2026-06-26: mmap pins a ~21GB file-cache mirror in *physical* RAM → RAM free crashes to ~3.7GB ("RAM 100%"). Watch WorkingSet, not committed bytes. ⚠️ **`--no-mmap` was DEPRECATED in b10182 in favour of `--load-mode`, WHICH DEFAULTS TO MMAP.** Passing the old flag is a trap: it still parses today, so nothing appears to change until it stops being honoured. The launchers pass `-lm none`. |
 | 8 | **`--mlock`** | ❌ HARMFUL | **Do NOT use on this Vulkan/UMA box.** Measured 2026-06-26: it pins weights in the ~32GB system-RAM partition and blocks the Vulkan upload to the 96GB VRAM carve-out → `-ngl 999` silently runs from host RAM (GPU dedicated ~0.1GB, RAM ~1GB free, slower). `-lm none` alone already gives permanent VRAM residency (no page-out/refetch until stop). |
 | 9 | **Sampling defaults (quality)** | ✅ set 2026-06-29 | **Qwen3.x thinking: `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0`. NEVER greedy** (endless repetition). Baked into run-qwen36/run-ornith/keep-resident. gpt-oss is different (neutral: temp 1.0/top-p 1.0/top-k 0). Clients may override. |
-| 10 | **batch/ubatch tuning** | ✅ RE-MEASURED 2026-08-14 | **`-b 2048 -ub 256`** is the pp sweet spot on gfx1151, and it is the launchers' default. **The `-ub 1024` this table used to recommend costs 29%** (167 vs 129 t/s prefill on Qwen3.8-27B, b10431): a 256-row tile fits gfx1151's 32 KB of shared memory and a 1024-row one does not. `-ub 128` measured 0.9% higher still on one run, so 256 is the knee, not the maximum. The superseded 2026-06-29 MoE figures were pp8192 921 @ub1024 vs 817 @512, 744 @2048 — measured on a different model class, which is why they pointed the wrong way. **tg is unaffected by batch** (~68 t/s either way — tg is bandwidth-bound; the tg lever is RAM XMP). **`-ub` is the most architecture-specific flag in this repo — sweep it, do not copy it.** |
+| 10 | **batch/ubatch tuning** | ✅ RE-MEASURED 2026-08-14, ⚠️ **SCOPE NARROWED 2026-09-16** | **SCOPE FIRST: `-ub` is per-model-class, and this row's 256 was measured on a DENSE model.** Swept again on **Qwen3-Coder-Next 80B/A3B (`qwen3next`, MoE), solo, b11003**: `pp4096 @ d32768` = 297.8 (ub 256) → 356.2 (512) → **401.3 (1024)** → 339.2 (2048) t/s, i.e. **+34.8% at `-ub 1024`**; at depth 0 `pp4096` goes 453.8 → **652.8** (+43.9%). **tg is untouched across the whole 8× range** (44.0/44.0/44.2/44.1 — batch size still does not move tg), and the cost is **+0.5 GiB**. Note **`-ub 2048` REGRESSES at depth** (339 vs 401), so the circulating Strix-Halo advice "MoE wants ub2048" does *not* transfer — 1024 is this box's knee for this arch. The global default stays **256**; `coder` carries a per-model `ubatch-size = 1024` override in `run-router.ps1`'s `$known`, and `run-router.ps1 -DryRun` shows exactly one `ubatch-size` line. **Neither number is withdrawn — they are both correct, for different arches.** The dense result follows. **`-b 2048 -ub 256`** is the pp sweet spot on gfx1151 for dense, and it is the launchers' default. **The `-ub 1024` this table used to recommend costs 29%** (167 vs 129 t/s prefill on Qwen3.8-27B, b10431): a 256-row tile fits gfx1151's 32 KB of shared memory and a 1024-row one does not. `-ub 128` measured 0.9% higher still on one run, so 256 is the knee, not the maximum. The superseded 2026-06-29 MoE figures were pp8192 921 @ub1024 vs 817 @512, 744 @2048 — measured on a different model class, which is why they pointed the wrong way. **tg is unaffected by batch** (~68 t/s either way — tg is bandwidth-bound; the tg lever is RAM XMP). **`-ub` is the most architecture-specific flag in this repo — sweep it, do not copy it.** |
 | 11 | **`--prio` / `--no-warmup`** | ⬜ | minor; faster startup, less scheduler jitter. |
 | 12 | **Build from source (LTO/native)** | ⬜ later | we use prebuilt b9771; a `-DGGML_VULKAN=ON -DGGML_NATIVE=ON -DGGML_LTO=ON` build squeezes a few %. |
 
@@ -566,7 +566,7 @@ tg climbs sharply on later turns (13.5 → 43–52 t/s) because the prompt prefi
 |---|---|
 | `-lm none` | `--no-mmap` is DEPRECATED; `--load-mode` defaults to mmap, so the old flag silently did nothing |
 | `-fa on` + `--cache-type-k/v q8_0` | halves KV; flash-attn is a prerequisite |
-| `-b 2048 -ub 256` | measured pp sweet spot on gfx1151 (+29% prefill vs the 1024 this used to say) |
+| `-b 2048 -ub 256` | measured pp sweet spot on gfx1151 **for dense** (+29% prefill vs the 1024 this used to say). **MoE differs — `qwen3next` measures +34.8% at `-ub 1024`**; see row 10 |
 | `--parallel 1` | whole context to one agent; `-c` is SPLIT across slots |
 | `--reasoning on` + `--reasoning-preserve` | poolside explicitly recommend thinking enabled AND reasoning preserved in history for agentic coding |
 | SWA compact cache (`--swa-full` off) | `sliding_window 512` on 36 of 48 layers keeps KV cheap |
@@ -667,9 +667,15 @@ speculation. Kept as a separate column, deliberately.
 - **Vulkan's lead is architecture-contingent:** on ops Vulkan doesn't implement (e.g. sparse
   attention) it can collapse ~8× vs ROCm — so pending [ROADMAP](ROADMAP.md) models must be
   backend-re-measured per model, not assumed Vulkan.
-- **Open, worth a LOCAL A/B (not trusting the corpus):** does a newer build beat b10431 on Vulkan?
-  The build-delta claims (b8119 MMQ +25%, b8298→b8460 +25%) all failed verification — test locally via
-  `bench-big.ps1` at fixed `-ub 256` rather than build-chasing on faith.
+- **~~Open~~ ANSWERED 2026-09-16 — does a newer build beat the pinned one on Vulkan? Yes, modestly,
+  and prefill-only.** The build-delta claims from the corpus (b8119 MMQ +25%, b8298→b8460 +25%) all
+  failed verification, so this was measured locally with `bench-big.ps1` rather than trusted.
+  b10677 → b11003 (326 commits), Qwen3-Coder-Next solo, fixed `-ub 256`: `pp4096 @ d32768`
+  **275.0 → 298.1 t/s (+8.4%)**, `pp4096 @ d0` +2.4%, **tg flat** (+1%, inside noise, both depths).
+  The gain tracks the merged prefill-fusion work (topk_moe #28422, MUL_MAT_ID #28923, rms_norm and
+  UNARY×MUL fusion) and nothing in that range touches memory bandwidth — which is why tg did not move.
+  **Generalisation to take:** build-chasing buys prefill, never tg; the tg lever is still the RAM clock.
+  Re-measure at fixed `-ub`, then sweep `-ub` separately (below) — changing both at once confounds them.
 
 Bottom line for this box: **already at the practical Windows optimum; the only remaining tg lever is
 the 7500→8533 memory clock (BIOS/XMP)** — Windows-agnostic, tracked in CLAUDE.md's hard-won facts.

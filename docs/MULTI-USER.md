@@ -246,10 +246,19 @@ job object around its detached child. Create
 ```bat
 @echo off
 cd /d D:\llamacpp-vulkan
-start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models qwen38,ornith
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models coder -Bin ".\bin-b11003" -Ctx 262144
 ```
 
-Two caveats, both learned the hard way:
+(`-Models qwen38,ornith` was the original example. As of 2026-09-16 this box serves `coder`
+— Qwen3-Coder-Next, which **requires** `-Bin .\bin-b11003` because the pinned `bin\` cannot load
+`qwen3next` at all. Substitute whatever you actually serve.)
+
+> **This file lives OUTSIDE the repo, so it drifts silently and nothing in CI will catch it.**
+> Learned 2026-09-16: it was still launching `-Models gemma` well after `:8080` had moved to `coder`,
+> so a reboot would have quietly served the wrong model with no one the wiser. **Re-check it every
+> time the served set or the engine dir changes.**
+
+Two more caveats, both learned the hard way:
 
 - **It fires at *logon*, not at power-on** — Vulkan needs the interactive session. With no autologin
   (the default here) the router comes up ~20 s *after you log in*, not at the lock screen. For a truly

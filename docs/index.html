@@ -244,7 +244,7 @@ footer .inner{border-top:1px solid var(--surface-muted)}
     <h2>The configuration</h2>
     <pre>--model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
 --spec-type draft-mtp --spec-draft-n-max 3     <span class="c">+79%  generation</span>
--b 2048 -ub 256                                <span class="c">+29%  prefill, vs the usual 1024</span>
+-b 2048 -ub 256                                <span class="c">+29%  prefill, vs the usual 1024 (dense; a MoE can invert it)</span>
 -ctk q8_0 -ctv q8_0                            <span class="c">free, halves the KV cache</span>
 -c 262144                                      <span class="c">full context costs 3%</span></pre>
 
@@ -354,6 +354,17 @@ footer .inner{border-top:1px solid var(--surface-muted)}
     earlier version of this repo, which measured it on a different model architecture.
     <code>-b</code> makes no measurable difference at matched <code>-ub</code>. Re-running the 512
     case in a separate session landed within 0.1%, so this is the flag and not thermal drift.</p>
+
+    <div class="aside"><b>Scope, added 2026-09-16: this chart is a DENSE model, and a MoE inverts
+    it.</b> The same sweep on <b>Qwen3-Coder-Next 80B/A3B</b> (arch <code>qwen3next</code>, solo,
+    build b11003) runs the other way: prefill of a 4096-token prompt at depth 32768 goes
+    297.8 (<code>-ub 256</code>) &rarr; 356.2 (512) &rarr; <b>401.3 (1024)</b> &rarr; 339.2 (2048)
+    t/s &mdash; so <b><code>-ub 1024</code> is +34.8%</b> on that model, and 2048 <i>regresses</i>.
+    Generation speed is flat to four values across the whole 8&times; range (44.0/44.0/44.2/44.1),
+    re-confirming that batch size does not move tg on this box. Neither number is withdrawn; they are
+    both correct, for different architectures. The shipped default stays 256 and the coder model
+    carries a per-model override. <b>The lesson is the one this page already gave &mdash; sweep it
+    &mdash; and now it applies per model class, not just per GPU.</b></div>
 
     <h2>The rest</h2>
     <p class="dir">Generation speed, tokens/sec · <b>higher is better</b> · baseline 20.06</p>
@@ -512,8 +523,10 @@ cd strix-halo-llm
     </table>
 
     <div class="aside"><b>One flag not to copy.</b> <code>-ub 256</code> is the biggest win here
-    (+29% prefill) and the most architecture-specific: it works because a 256-row tile fits
-    gfx1151's 32 KB of shared memory. On another GPU, sweep it rather than trusting this number.
+    (+29% prefill on a <i>dense</i> model) and the most architecture-specific: it works because a
+    256-row tile fits gfx1151's 32 KB of shared memory. It does not even hold across architectures on
+    <i>this</i> GPU &mdash; a MoE measured +34.8% at <code>-ub 1024</code>. Sweep it rather than
+    trusting this number, per GPU <i>and</i> per model class.
     <br><br><a href="https://github.com/lazarevtill/strix-halo-llm/blob/main/docs/INSTALL.md">Full
     install guide for all three platforms →</a></div>
   </div>

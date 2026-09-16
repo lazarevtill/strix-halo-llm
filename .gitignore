@@ -51,13 +51,12 @@ models/
 *.bin
 
 # ---- Vendored binaries -------------------------------------------------------
+# Glob, not an enumeration: this list used to name each engine dir individually, so every new
+# fetch-llamacpp.ps1 -Dest bin-<build> landed UNIGNORED until someone remembered to add it.
+# bin-b10338, bin-b10431 and bin-b11003 were all sitting untracked-but-not-ignored in a PUBLIC
+# repo -- one `git add -A` from committing ~500 MB of engine binaries. See docs/PUBLISHING.md.
 bin/
-bin-b9771/
-bin-b10182/
-bin-b10636/
-bin-b10665/
-bin-b10677/
-bin-poolside/
+bin-*/
 *.exe
 *.dll
 

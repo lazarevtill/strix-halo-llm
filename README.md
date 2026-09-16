@@ -53,7 +53,8 @@ every term below in plain English, with diagrams. No GPU or ML background needed
 ```
 --model Qwen3.8-27B-UD-Q4_K_XL.gguf -ngl 99 -fa on
 --spec-type draft-mtp --spec-draft-n-max 3     # +79%
--b 2048 -ub 256                                # +29% prefill vs the usual 1024
+-b 2048 -ub 256                                # +29% prefill vs the usual 1024 (DENSE model;
+                                               # a MoE can invert it -- qwen3next wants -ub 1024)
 -ctk q8_0 -ctv q8_0                            # free, halves the KV cache
 -c 262144                                      # full context costs only 3%
 ```
@@ -196,7 +197,7 @@ The obvious "upgrade" from Q5_K_M to full precision makes everything **worse**: 
 | `--fit on` | Useless here — reported free VRAM is a constant, so it sizes against a fiction |
 | `--cache-reuse` | A no-op on these MoEs; prefix caching already works |
 | Sleep | Modern standby drops all VRAM. `powercfg /change standby-timeout-ac 0` |
-| Batch size | `-b 2048 -ub 256` on gfx1151. `-ub` is the most-often-wrong flag here — the common 1024 costs **29%** |
+| Batch size | `-b 2048 -ub 256` on gfx1151 **for a dense model**. `-ub` is the most-often-wrong flag here — the common 1024 costs **29%**. **A MoE can invert it:** Qwen3-Coder-Next (`qwen3next`) measures **+34.8% at `-ub 1024`**, and 2048 regresses. Sweep per model class |
 
 Full detail and the measurements behind each: **[docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)**.
 
@@ -415,7 +416,7 @@ scripts/linux/run-solo.sh --dry-run  # prints the exact llama-server invocation,
 | | |
 |---|---|
 | ✅ **likely transfers** | `q8_0` KV + flash attention · MoE-over-dense · the bf16 trap · `draft-mtp` wins where generic drafts don't · quant size vs speed running backwards |
-| ⚠️ **sweep, don't copy** | **`-ub 256`** — the biggest win here (+29% prefill) *and* the most architecture-specific flag in the repo: it works because a 256-row tile fits gfx1151's 32 KB of shared memory |
+| ⚠️ **sweep, don't copy** | **`-ub 256`** — the biggest win here (+29% prefill on a **dense** model) *and* the most architecture-specific flag in the repo: it works because a 256-row tile fits gfx1151's 32 KB of shared memory. It does not even hold across arches on *this* GPU — a MoE measured **+34.8% at `-ub 1024`**. Sweep per GPU **and** per model class |
 | ❌ **must be re-measured** | the ~109 GB ceiling (that's 96 GB carve-out **+ WDDM shared heap**) · `Total Committed` vs `Dedicated Usage` (a Windows perf-counter distinction; Linux uses `amdgpu_top` / `rocm-smi` / sysfs) · whether `--mlock` is harmful (it is on WDDM — may be *correct* on Linux) · sleep dropping VRAM · pagefile commit limits |
 
 **Port the method, not the numbers.** Anything measured on Linux belongs in its own column in

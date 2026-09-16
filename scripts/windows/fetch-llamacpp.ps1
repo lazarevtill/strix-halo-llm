@@ -103,7 +103,15 @@ $srv = Join-Path $Dest 'llama-server.exe'
 if (-not (Test-Path $srv)) { throw "unpacked, but no llama-server.exe under $Dest" }
 
 Write-Host "`nchecking it runs and can see the GPU..." -ForegroundColor DarkGray
-& $srv --version 2>&1 | Select-Object -First 6 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+# llama-server prints --version on stderr. In PS 5.1 a native `2>&1` wraps each stderr line in an
+# ErrorRecord (NativeCommandError), which $ErrorActionPreference='Stop' then turns into a throw --
+# the download succeeds and the script still exits 1. Relax EAP just around the probe.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try   { $verLines = @(& $srv --version 2>&1 | Select-Object -First 6 | ForEach-Object { "$_" }) }
+catch { $verLines = @("(version probe failed: $($_.Exception.Message))") }
+finally { $ErrorActionPreference = $prevEap }
+$verLines | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
 
 Write-Host "`nllama.cpp $($rel.tag_name) is in $Dest" -ForegroundColor Green
 Write-Host "next:  .\scripts\windows\fetch-models.ps1 -Only qwen38    then    .\scripts\windows\run-solo.ps1" -ForegroundColor Cyan

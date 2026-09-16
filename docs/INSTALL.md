@@ -197,7 +197,7 @@ a property of the OS.
 | | |
 |---|---|
 | ✅ **likely transfers** | `-fa on` with `q8_0` KV · MoE beating dense per GB · the bf16 trap (bigger ≠ better) · `draft-mtp` speculation where the model ships an MTP head · quant-size-vs-speed running backwards |
-| ⚠️ **re-measure per GPU** | `-ub 256`. This is the biggest Windows win here (+29% prefill) and the *most* architecture-specific: it works because a 256-row tile fits gfx1151's 32 KB of shared memory. Sweep it on your GPU |
+| ⚠️ **re-measure per GPU _and per model class_** | `-ub 256`. This is the biggest Windows win here (+29% prefill on a **dense** model) and the *most* architecture-specific: it works because a 256-row tile fits gfx1151's 32 KB of shared memory. **A MoE can invert it** — Qwen3-Coder-Next (`qwen3next`) measures +34.8% at `-ub 1024` on the same GPU. Sweep it on your GPU, for each model class |
 | ❌ **Windows-only** | the ~109 GB ceiling · `Total Committed` vs `Dedicated Usage` · modern standby dropping VRAM · `--mlock` being harmful (it may be *correct* on Linux) |
 
 **Port the method, not the numbers.** Anything measured on another platform belongs in its own

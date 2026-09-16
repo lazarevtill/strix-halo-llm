@@ -35,6 +35,11 @@ param(
     [int[]]    $PromptLens = @(512, 4096),
     [int]      $GenLen   = 128,
     [int]      $Reps     = 2,
+    # -ub is the most architecture-specific flag on gfx1151 (CLAUDE.md). 256 is the measured knee for
+    # DENSE hd256 (Qwen3.8-27B, b10431); MoE hd128 may want far more. Pass a list to sweep it -- one
+    # llama-bench run per value, so every CSV row carries the ub that produced it.
+    [int[]]    $UBatch   = @(256),
+    [int]      $Batch    = 2048,
     [switch]   $Quick,                                   # depths 0,8192 and 1 rep
     # models live in two places on this box: the llamacpp-vulkan store and the router store on C:.
     # Search both so the incumbent (ornith Q5_K_M, which lives on C:) resolves without copying 23 GiB.
@@ -44,7 +49,13 @@ param(
     [string]   $Csv      = 'D:\llamacpp-vulkan\bench-big.csv'
 )
 $ErrorActionPreference = 'Continue'
-$gpu = 'luid_0x00000000_0x01c3ed4a_phys_0'
+# HARD-WON (2026-09-16): this was a hardcoded adapter LUID. Windows does NOT keep the LUID stable --
+# it is reassigned across reboots and driver resets -- and by the time it was noticed it named an
+# adapter that no longer existed. Get-GpuMem then matched zero counter instances and returned 0.00,
+# so every bench reported "peak GPU ded 0.00 / shr 0.00 GiB" and still said OK. Exactly the failure
+# this repo keeps warning about: not a crash, a believable wrong number. Wildcard + sum instead;
+# this box has one real adapter and the render-only instances contribute ~0.
+$gpu = '*'
 
 # label -> primary gguf (shard 1 for splits; llama.cpp auto-joins), plus notes for the report
 $REG = [ordered]@{
@@ -95,8 +106,9 @@ foreach ($d in $ModelDirs) {
 
 function Get-GpuMem {
     $s = (Get-Counter "\GPU Adapter Memory($gpu)\*" -EA SilentlyContinue).CounterSamples
-    $d = ($s | Where-Object { $_.Path -like '*dedicated usage*' }).CookedValue
-    $h = ($s | Where-Object { $_.Path -like '*shared usage*'    }).CookedValue
+    if (-not $s) { return [pscustomobject]@{ Ded=0.0; Shr=0.0 } }
+    $d = ($s | Where-Object { $_.Path -like '*dedicated usage*' } | Measure-Object CookedValue -Sum).Sum
+    $h = ($s | Where-Object { $_.Path -like '*shared usage*'    } | Measure-Object CookedValue -Sum).Sum
     [pscustomobject]@{ Ded=[double]$d; Shr=[double]$h }
 }
 
@@ -175,6 +187,7 @@ foreach ($s in $sel) { if (-not $REG.Contains($s)) { Write-Error "unknown label 
 
 $bench = Join-Path $Bin 'llama-bench.exe'
 if (-not (Test-Path $bench)) { Write-Error "llama-bench.exe not found: $bench"; exit 1 }
+$binTag = Split-Path $Bin -Leaf        # recorded per row: numbers are not comparable across builds
 # version goes to stderr and the match can be absent -- never let this kill the run
 $ver = (& $bench --version 2>&1 | Select-String 'version' | Select-Object -First 1)
 Write-Host ("build: {0}" -f $(if ($ver) { $ver.ToString().Trim() } else { 'unknown' })) -ForegroundColor DarkGray
@@ -186,7 +199,7 @@ foreach ($s in $sel) {
     Write-Host "`n================= $s =================" -ForegroundColor Cyan
     if (-not $model) {
         Write-Host ("  SKIP - not present in: {0}" -f ($ModelDirs -join ' ; ')) -ForegroundColor Yellow
-        $results += [pscustomobject]@{ label=$s; act=$m.act; weightsGiB=''; status='MISSING'; test=''; tps=''; pkDedGiB=''; pkShrGiB=''; pkTotGiB=''; ramFreeGiB='' }
+        $results += [pscustomobject]@{ label=$s; bin=$binTag; ub=''; act=$m.act; weightsGiB=''; status='MISSING'; test=''; tps=''; pkDedGiB=''; pkShrGiB=''; pkTotGiB=''; ramFreeGiB='' }
         continue
     }
     $wGiB = Get-WeightsGiB $model $m.file
@@ -223,20 +236,22 @@ foreach ($s in $sel) {
             Write-Host  "  -> reboot, or reap the handle owner, to reclaim it." -ForegroundColor Red
         }
         $stuckPids = @($held.Holders | Where-Object { $_.State -ne 'live' } | Select-Object -Expand PID) -join ','
-        $results += [pscustomobject]@{ label=$s; act=$m.act; weightsGiB=$wGiB; status='SKIP-NOFIT'; test="need $needGiB / avail $availGiB"; tps=''
+        $results += [pscustomobject]@{ label=$s; bin=$binTag; ub=''; act=$m.act; weightsGiB=$wGiB; status='SKIP-NOFIT'; test="need $needGiB / avail $availGiB"; tps=''
                                        pkDedGiB=$heldGiB; pkShrGiB=''; pkTotGiB=''; ramFreeGiB="stuck PIDs: $stuckPids" }
         continue
     }
 
-    $out = Join-Path $env:TEMP "benchbig-$s.out"
-    $err = Join-Path $env:TEMP "benchbig-$s.err"
+  foreach ($ub in $UBatch) {
+    $out = Join-Path $env:TEMP "benchbig-$s-ub$ub.out"
+    $err = Join-Path $env:TEMP "benchbig-$s-ub$ub.err"
     # -lm none == the old -mmp 0 (no mmap). b10182 DEPRECATED -mmp/--mmap in favour of
     # --load-mode <none|mmap|mlock|mmap+mlock|dio>, and its DEFAULT IS mmap -- so passing the
     # deprecated flag risked silently benching with mmap, which changes the memory picture entirely
     # (mmap pins a host-side file-cache mirror; see OPTIMIZATION.md "never switch to mmap").
     $a = @('-m',$model,'-ngl',999,'-fa',1,'-ctk','q8_0','-ctv','q8_0','-lm','none',
+           '-b',$Batch,'-ub',$ub,
            '-p',($PromptLens -join ','),'-n',$GenLen,'-d',($Depths -join ','),'-r',$Reps,'-o','md')
-    Write-Host ("  running: -p {0} -n {1} -d {2} -r {3}" -f ($PromptLens -join ','), $GenLen, ($Depths -join ','), $Reps) -ForegroundColor DarkGray
+    Write-Host ("  running: -b {0} -ub {1} -p {2} -n {3} -d {4} -r {5}" -f $Batch, $ub, ($PromptLens -join ','), $GenLen, ($Depths -join ','), $Reps) -ForegroundColor DarkGray
 
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $p = Start-Process $bench -ArgumentList $a -PassThru -WindowStyle Minimized -RedirectStandardOutput $out -RedirectStandardError $err
@@ -262,7 +277,7 @@ foreach ($s in $sel) {
         $oom = if ($etext -match 'ErrorOutOfDeviceMemory|failed to allocate|unable to allocate') { 'OOM' } else { 'FAIL' }
         Write-Host ("  $oom after {0:N1} min" -f $sw.Elapsed.TotalMinutes) -ForegroundColor Red
         if ($etext) { ($etext -split "`n" | Select-Object -Last 6) | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray } }
-        $results += [pscustomobject]@{ label=$s; act=$m.act; weightsGiB=$wGiB; status=$oom; test=''; tps=''
+        $results += [pscustomobject]@{ label=$s; bin=$binTag; ub=$ub; act=$m.act; weightsGiB=$wGiB; status=$oom; test=''; tps=''
                                        pkDedGiB=[math]::Round($pkD/1GB,2); pkShrGiB=[math]::Round($pkS/1GB,2)
                                        pkTotGiB=[math]::Round(($pkD+$pkS)/1GB,2); ramFreeGiB='' }
         continue
@@ -274,11 +289,12 @@ foreach ($s in $sel) {
         $cells = @($r -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
         $test = $cells[$cells.Count-2]; $tps = $cells[$cells.Count-1]
         Write-Host ("    {0,-22} {1}" -f $test, $tps) -ForegroundColor Gray
-        $results += [pscustomobject]@{ label=$s; act=$m.act; weightsGiB=$wGiB; status='OK'; test=$test; tps=$tps
+        $results += [pscustomobject]@{ label=$s; bin=$binTag; ub=$ub; act=$m.act; weightsGiB=$wGiB; status='OK'; test=$test; tps=$tps
                                        pkDedGiB=[math]::Round($pkD/1GB,2); pkShrGiB=[math]::Round($pkS/1GB,2)
                                        pkTotGiB=[math]::Round(($pkD+$pkS)/1GB,2); ramFreeGiB=[math]::Round($minRam,1) }
     }
     Start-Sleep 5
+  }
 }
 
 $results | Export-Csv $Csv -NoTypeInformation
