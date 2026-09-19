@@ -244,6 +244,32 @@ $REG = [ordered]@{
         # SERVED on :8080 at -ub 1024 (a per-model override worth +34.8% deep prefill; see OPTIMIZATION.md).
         note  = 'Qwen3-Coder-Next UD-Q4_K_XL (80B/A3B coding MoE, qwen3next). SERVING on :8080; Vulkan-verified.'
     }
+    'ornith15' = @{
+        repo  = 'ornith-ai/Ornith-1.5-35B-A3B-GGUF'
+        files = @(
+            @{ p='Ornith-1.5-35B-Q6_K.gguf';            b=29208731392 }
+            @{ p='mmproj-Ornith-1.5-35B-BF16.gguf';     b=902822240 }
+        )
+        # Ornith-1.5-35B-A3B -- the GENUINE successor to the ornith-1.0-35b already here. Confirmed same
+        # org: huggingface.co/deepreinforce-ai/Ornith-1.0-35B 307-redirects to ornith-ai/Ornith-1.0-35B
+        # (the org was renamed, NOT a different publisher reusing the name -- an earlier note here got
+        # that wrong). FIRST-PARTY GGUF (4.5M downloads), so best available provenance.
+        # 36B total / ~3B ACTIVE MoE, model_type qwen3_5_moe -> llama.cpp arch 'qwen35moe', which is
+        # ALREADY PRESENT in bin-b11003 (and in the pinned bin\, same arch as ornith-1.0). Standard
+        # attention -- NOT an SSM/linear-attention hybrid -- so NO #27805 risk class.
+        # 262144 native ctx (1M only via YaRN 4.0). MIT. VISION via the first-party mmproj above.
+        # THINKING model: emits <think> blocks into reasoning_content -> budget max-tokens generously
+        # or `content` comes back EMPTY (the exact gemma-4 trap). Sampling temp 0.6 / top-p 0.95 /
+        # top-k 20 == the router's existing Qwen defaults, so no per-model sampler override needed.
+        # Q6_K 27.2 GB + mmproj 0.84 GB CO-RESIDES with the 50 GB coder (~78 GB of ~109) -- which is the
+        # point: it restores VISION to :8080 without giving up the text-only coder.
+        # Q6_K over Q8_0 (35.2 GB) deliberately: the gemma A/B measured Q8_0 SLOWER with no quality gain
+        # over Q6_K. That is a prior, not a measurement on THIS model -- A/B if it matters.
+        # Vendor-reported SWE-bench Verified 79% / SWE-bench Pro 59.6% / Terminal-Bench 2.1 68.5% /
+        # GPQA Diamond 89.2% -- SOURCED, UNMEASURED. docs/BENCHMARKS.md: decontaminated scores run ~4x
+        # below self-reported. Do NOT rank it against the coder on these. Byte counts verified 2026-09-19.
+        note  = 'Ornith-1.5-35B-A3B Q6_K + mmproj (36B/A3B, qwen35moe, MIT, VISION, thinking). Successor to ornith-1.0; co-resides with coder.'
+    }
     'nemotron-puzzle-q6' = @{
         repo  = 'RemySkye/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-GGUF'
         files = @(

@@ -57,15 +57,53 @@ nothing.
 
 ## Cleared since the last revision
 
-### Qwen3-Coder-Next  (arch `qwen3next`) — ✅ SERVING on `:8080`
+### Ornith-1.5-35B-A3B  (arch `qwen35moe`) — ✅ SERVING SOLO on `:8080` (2026-09-19)
+- **Lineage correction, worth recording once:** an earlier note here guessed that `ornith-ai` was a
+  different publisher reusing the "Ornith" name. **It is not.**
+  `huggingface.co/api/models/deepreinforce-ai/Ornith-1.0-35B` returns **307 → `ornith-ai/…`** — the org
+  was renamed, and Ornith-1.5 is the genuine successor to the `ornith-1.0-35b` already on this box.
+- **What:** 36 B total / **~3 B active** MoE, `model_type qwen3_5_moe` → llama.cpp **`qwen35moe`**,
+  which the pinned `bin\` *already* knows (same arch as Ornith-1.0). Standard attention — **not** an
+  SSM/linear-attention hybrid, so **no #27805 risk class** and no determinism gate required.
+  262144 native context (1 M only via YaRN 4.0, deliberately unused). **MIT.**
+- **GGUF:** first-party [`ornith-ai/Ornith-1.5-35B-A3B-GGUF`](https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B-GGUF)
+  — Q4_K_M 20.22 / Q5_K_M 23.61 / **Q6_K 27.20** / Q8_0 35.21 / BF16 66.19 GiB, plus
+  `mmproj-Ornith-1.5-35B-BF16.gguf` (0.84 GiB). Q6_K chosen; the gemma A/B is the prior that Q8_0
+  buys nothing but latency, and that remains **unmeasured on this model**.
+- **Verified working on b11046:** text + thinking, **vision**, **tool calling**, and needle retrieval
+  at 9 k tokens. ~34 GB committed of ~109 solo. Observed ~58 t/s tg on a short generation and
+  ~9 k prompt tokens prefilled in 19.3 s — *incidental observations from functional tests, not a
+  benchmark run*; no `bench-big` numbers exist for it yet.
+- **Two settings are explicitly UNMEASURED and left at defaults:**
+  `-ub` stays at the global **256** (the coder's 1024 was earned on `qwen3next` — 512 experts, linear
+  attention — and does not transfer on faith), and `draft-mtp` runs at **n=3** because the GGUF has an
+  MTP head (`nextn_predict_layers = 1`) and 3 is llama.cpp's default plus the measured qwen38 peak.
+  The sweeps that would settle both hung and were killed on 2026-09-19. Depth is **not** monotonic, so
+  n=3 is a default, not a finding. Re-run:
+  `bench-big.ps1 -Only ornith-1-5-35b -Bin .\bin-b11046 -UBatch 256,512,1024,2048 -Depths 0,32768` and
+  `bench-spec.ps1 -Model .\models\Ornith-1.5-35B-Q6_K.gguf -Bin .\bin-b11046 -NMax 1,2,3,4`.
+- **Thinking-model caveat:** budget `max_tokens` ≥ 2048 or `content` returns EMPTY. A *counting* prompt
+  ("how many times does X appear") spiralled past 4096 tokens of `reasoning_content` and returned
+  `finish_reason=length` with empty `content` — the known thinking-model pathology (cf. eval Bug 13),
+  **not** a config fault; retrieval over the same 9 k context answered correctly.
+- **Vendor-reported and UNMEASURED here:** SWE-bench Verified 79%, SWE-bench Pro 59.6%,
+  Terminal-Bench 2.1 68.5%, GPQA Diamond 89.2%. `docs/BENCHMARKS.md` records that decontaminated
+  scores run ~4× below self-reported figures. **Do not rank it against `coder` on these.**
+
+### Qwen3-Coder-Next  (arch `qwen3next`) — ✅ cleared; served until 2026-09-19, now on demand
+Still fully working and still needs **`-ub 1024`** (its per-model override) and `-Bin .\bin-b11046`.
+Bring it back with `run-router.ps1 -Models coder -Bin .\bin-b11046`, or alongside Ornith with
+`-Models coder,ornith15` (measured co-resident at **86.3 GB of ~109**, both loaded, vision intact).
+Its 512 experts are what make [#28501](https://github.com/ggml-org/llama.cpp/pull/28501) matter — see
+the engine A/B below.
+
 Coding MoE, **80 B total / 3 B active**, 262 K context, **text-only** (no vision tower), no MTP head.
 `UD-Q4_K_XL` 49.6 GB. Determinism confirmed on b11003 at the serving ubatch — **12/12 byte-identical**
-(2026-09-16). Served at **`-ub 1024`**, a per-model override of the global 256 that is worth **+34.8%**
-prefill at depth on this arch; see [OPTIMIZATION.md](OPTIMIZATION.md) row 10 and
-[BENCHMARKS.md](BENCHMARKS.md). Requires `-Bin .\bin-b11003` — it will **not** load on the pinned
-`bin\` (b10431).
+(2026-09-16). Its **`-ub 1024`** override is worth **+34.8%** prefill at depth on this arch; see
+[OPTIMIZATION.md](OPTIMIZATION.md) row 10 and [BENCHMARKS.md](BENCHMARKS.md). It will **not** load on
+the pinned `bin\` (b10431) at all.
 
-## Arch-supported on b11003, pending only a Vulkan confirmation
+## Arch-supported on b11046, pending only a Vulkan confirmation
 
 These load on `bin-b11003` today. Because they are linear-attention / SSM hybrids — the exact class
 #27805 used to corrupt — each still gets one **fixed-seed, temp-0, N≥10 raw-completion diff** on an
@@ -97,6 +135,14 @@ the router **stopped** for the big ones, so it's a human-approved, router-down o
   description states the files *"need reconverting with the current converter."*
   **So a newer build will not fix this.** All four publishers predate the fix (checked 2026-09-16):
   RemySkye 07-14, YanissAmz 07-08, MRockatansky 08-03, Myric 09-09.
+- **RETESTED 2026-09-19 on b11046 — fails identically**, byte-for-byte the same error. b11046 carries
+  [#29018](https://github.com/ggml-org/llama.cpp/pull/29018) ("extend Nemotron MTP support"), which
+  looked promising because it registers `FFN_LATENT_DOWN`/`FFN_LATENT_UP` — exactly the tensors this
+  file has in `blk.87`/`blk.89`. But #29018 targets Nemotron **Super 3**, not **Puzzle**, and the
+  #28779 verdict stands: the file needs *reconverting*, not a better loader. **Two builds, same
+  error — stop retesting this file and watch the publishers instead.**
+- **All four publishers still stale** (re-checked 2026-09-19, unchanged): RemySkye 07-14,
+  YanissAmz 07-08, MRockatansky 08-03, Myric 09-09.
 - **Gate:** a **re-upload converted after 2026-09-13**, or a local conversion from the BF16
   safetensors (~150 GB). Re-check publisher `lastModified` before spending the bandwidth again.
 - **Lesson worth keeping:** the arch string resolving (`nemotron_h_moe`, confirmed by range-fetching
@@ -156,6 +202,25 @@ present in b11003 and absent from b10677. No GGUF assessed yet.
 A/B. Temper expectations: in llama.cpp its ~1.8× decode ≈ our existing `draft-mtp` (1.79×); the
 headline 3.43× is vLLM/SGLang + FA-3 on datacenter GPUs and doesn't transfer here. Note the current
 `:8080` model (`qwen3next`) has **no MTP head and no draft**, so this only applies to the qwen38 line.
+
+## Month sweep, 2026-08-19 → 2026-09-19 — what is actually runnable here
+
+Method that works, and the one to repeat: query the HF API for trending `text-generation` models,
+filter by `createdAt`, then read each candidate's `model_type` from `config.json` and check that arch
+string **against the local build's DLLs** — not against release notes. Generic "best local LLM"
+listicles were useless; everything they surfaced was already on disk.
+
+**Runnable — arch present in `bin-b11046`:**
+- **Edge0-35B-A3B-preview** (3.4 k likes) — `qwen3_5_moe` → `qwen35moe`, **has vision**. Same arch and
+  shape as Ornith-1.5, so it is the obvious head-to-head rival. Not fetched.
+- **Qwen3.8-35B-A3B-Distill** (empero-ai) — `qwen3_5_moe`, vision. A distill of the 27B already here.
+- **Ternary-Bonsai-2-27B** (918 likes, 405 k downloads) — GGUF header says arch **`qwen35`**, and
+  TQ1_0 Vulkan support landed in b11003. Genuinely novel, but a 1.58-bit 27 B optimises for a
+  constraint this box does not have; same category error as picking a 9 B here.
+
+**NOT runnable — arch absent from b11046 (checked, not assumed):** Xing4.0-29B-A4B (`xing4_0`),
+K2-Horizon-MoVA-36B-A4B (`k2_horizon`), AliceAI-Foundation-80B-A3B (`alice_ai`). All need upstream
+support first. **Still ruled out on size:** GLM-5.3 / 5.3-Flash (320 B).
 
 ## Watching
 

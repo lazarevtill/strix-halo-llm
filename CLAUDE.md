@@ -193,15 +193,37 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   `scripts/windows/stage-nextgen.ps1`. **The gate is per-BINARY and per-config, not per-arch** —
   `qwen3next` passing on b10677 did not carry to b11003; it was re-run there at the serving ubatch
   (12/12 byte-identical, 2026-09-16). `stage-nextgen.ps1 -UBatch` exists for exactly that reason.
-- **`bin-b11003` is staged and is what `coder` serves** (b10431 stays pinned for published numbers).
-  Measured on Qwen3-Coder-Next, solo, ub 256, b10677 → b11003: `pp4096 @ d32768` **275.0 → 298.1 t/s
-  (+8.4%)**, `pp4096 @ d0` 444.7 → 455.5 (+2.4%), **tg flat** (44.33 → 44.86, 38.59 → 38.96 — ~1%,
-  within noise). 326 commits bought prefill only; nothing in that range touches the memory bandwidth
-  that caps tg. Don't quote the `pp512` rows from that run — ±11% spread, they separate nothing.
+- **`bin-b11046` is the live engine** (b10431 stays pinned for published numbers). Two measured steps,
+  both on Qwen3-Coder-Next, solo:
+  - b10677 → **b11003** at ub 256: `pp4096 @ d32768` **275.0 → 298.1 t/s (+8.4%)**, `pp4096 @ d0`
+    444.7 → 455.5 (+2.4%), **tg flat**. Don't quote that run's `pp512` rows — ±11% spread.
+  - b11003 → **b11046** at ub 1024: `pp512` **583.1 → 822.3 (+41.0%)**, `pp4096` **648.9 → 802.7
+    (+23.7%)**, `pp4096 @ d32768` **410.9 → 453.8 (+10.4%)**, **tg flat again** (43.63 → 44.65 and
+    38.33 → 38.10). Peak GPU **identical** (51.21 GiB both) — this win is free.
+  - **Why b11046 jumps: [PR #28501](https://github.com/ggml-org/llama.cpp/pull/28501).**
+    `count_experts.comp` sized its shared arrays with `BLOCK_SIZE` (256), so `mul_mat_id` row-id
+    hoisting silently **switched off** above 256 experts and every workgroup rescanned the whole ids
+    tensor. Qwen3-Coder-Next has **`expert_count = 512`** (read from its GGUF header), so it had been
+    paying that all along. Upstream measured it on a Radeon 8060S / RADV — this exact GPU.
+    **Check `expert_count` before assuming it applies:** `ornith15` has **256** and gains nothing.
+  - Cumulative on `pp4096 @ d32768`: **275.0 → 453.8 t/s, +65%** from b10677/ub256. Every step was
+    prefill. **tg has not moved once**, across two builds and an 8× ubatch range — the tg lever
+    remains the 7500→8533 RAM clock.
+- **`:8080` serves `ornith15` SOLO as of 2026-09-19** — Ornith-1.5-35B-A3B Q6_K (arch `qwen35moe`,
+  36B/~3B active, MIT), ctx 262144, **vision** via first-party mmproj, `draft-mtp n=3`, ~34 GB of 109.
+  Verified working: text+thinking, vision, **tool calling**, and needle retrieval at 9 k tokens.
+  It is a **thinking model** — budget `max_tokens` 2048+ or `content` returns EMPTY. A *counting*
+  prompt can still spiral past 4096 and return `finish_reason=length` with empty `content`; that is
+  the known thinking-model pathology (cf. eval Bug 13), **not** a misconfiguration — retrieval over
+  the same context is fine. `ornith15` deliberately keeps the **global `-ub 256`**: the coder's 1024
+  was earned on a different arch and is **unmeasured** here, as is `draft-mtp` depth on this model.
 - **The router auto-starts at logon** via a Startup-folder launcher
-  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models coder -Bin .\bin-b11003 -Ctx 262144`,
-  as of 2026-09-16; it is **outside the repo**, so it drifts silently — it still said `-Models gemma`
-  after :8080 had moved to `coder`. Re-check it whenever the served set changes), NOT a Scheduled Task or
+  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models ornith15 -Bin .\bin-b11046 -Ctx 262144`
+  as of 2026-09-19; it is **outside the
+  repo**, so it drifts silently — it once still said `-Models gemma` after :8080 had moved to `coder`.
+  Re-check it whenever the served set changes. `run-router` splits `-Models` on commas, so the
+  `powershell.exe -File` "a,b arrives as one string" gotcha does **not** bite here; verified, don't
+  "fix" it), NOT a Scheduled Task or
   service: Vulkan/WDDM needs an interactive desktop session, and a Startup item runs in it with no
   kill-on-close job. Needs an **interactive logon** (autologin not configured) → router up ~20 s after
   login. See docs/MULTI-USER.md §8.

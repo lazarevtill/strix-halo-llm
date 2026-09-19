@@ -667,6 +667,18 @@ speculation. Kept as a separate column, deliberately.
 - **Vulkan's lead is architecture-contingent:** on ops Vulkan doesn't implement (e.g. sparse
   attention) it can collapse ~8× vs ROCm — so pending [ROADMAP](ROADMAP.md) models must be
   backend-re-measured per model, not assumed Vulkan.
+- **UPDATE 2026-09-19 — b11003 → b11046 is a much bigger jump than b10677 → b11003, and it is
+  model-specific.** Same harness, Qwen3-Coder-Next solo, fixed at its serving `-ub 1024`:
+  `pp512` **583.1 → 822.3 t/s (+41.0%)**, `pp4096` **648.9 → 802.7 (+23.7%)**,
+  `pp4096 @ d32768` **410.9 → 453.8 (+10.4%)**; **tg flat** (43.63 → 44.65, 38.33 → 38.10) and peak
+  GPU **identical** at 51.21 GiB. Cause is
+  [#28501](https://github.com/ggml-org/llama.cpp/pull/28501): `count_experts.comp` sized its shared
+  arrays with `BLOCK_SIZE` (256), so `mul_mat_id` row-id hoisting silently **turned off** for any
+  model with >256 experts and every workgroup rescanned the whole ids tensor. Qwen3-Coder-Next has
+  **512 experts**; upstream measured the fix on a Radeon 8060S / RADV, i.e. this GPU.
+  **Read `expert_count` from the GGUF before assuming you get this** — `ornith15` has 256 and gains
+  nothing. Cumulative on `pp4096 @ d32768`: **275.0 → 453.8 t/s (+65%)** since b10677/ub256, *all of
+  it prefill*.
 - **~~Open~~ ANSWERED 2026-09-16 — does a newer build beat the pinned one on Vulkan? Yes, modestly,
   and prefill-only.** The build-delta claims from the corpus (b8119 MMQ +25%, b8298→b8460 +25%) all
   failed verification, so this was measured locally with `bench-big.ps1` rather than trusted.

@@ -141,6 +141,23 @@ so re-measure per model class rather than inheriting it.
 | **1024** | **652.80 ± 0.09** | **401.31 ± 2.82** | 44.23 | 38.12 | **50.51 GiB** |
 | 2048 | 637.37 ± 1.23 | 339.19 ± 4.06 | 44.11 | 38.14 | 51.63 GiB |
 
+**Engine A/B at that same `-ub 1024`, b11003 → b11046 (2026-09-19, same model, solo, 2 reps):**
+
+| test | b11003 | b11046 | Δ |
+|---|---|---|---|
+| pp512 | 583.10 ± 7.73 | **822.29 ± 10.54** | **+41.0%** |
+| pp4096 | 648.92 ± 1.71 | **802.71 ± 0.36** | **+23.7%** |
+| pp512 @ d32768 | 401.45 ± 25.63 | 464.00 ± 25.56 | +15.6% *(±6%, weak)* |
+| pp4096 @ d32768 | 410.90 ± 2.97 | **453.81 ± 4.81** | **+10.4%** |
+| tg128 | 43.63 ± 0.10 | 44.65 ± 0.35 | +2.3% *(noise)* |
+| tg128 @ d32768 | 38.33 ± 0.09 | 38.10 ± 0.14 | −0.6% *(noise)* |
+| peak GPU | 51.21 GiB | 51.21 GiB | — |
+
+[#28501](https://github.com/ggml-org/llama.cpp/pull/28501) is the cause: `mul_mat_id` row-id hoisting
+was silently disabled above 256 experts, and this model has **512**. The fix costs nothing in memory.
+**It is model-specific — check `expert_count` first**; `ornith15` (256 experts) gains nothing from it.
+Note tg is flat *again*: across two engine upgrades and an 8× `-ub` range, nothing has moved tg.
+
 So the MoE optimum is **1024, worth +34.8% at depth and +43.9% at depth 0**, for +0.5 GiB — the exact
 inverse of the dense result three rounds above, which is why this document keeps both. Two further
 readings: **`-ub 2048` regresses at depth** (339 vs 401), so the widely-circulated "MoE wants ub2048 on

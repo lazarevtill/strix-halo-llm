@@ -78,6 +78,15 @@ full table.
 > carries a per-model override. See [OPTIMIZATION.md](OPTIMIZATION.md) row 10 and
 > [ROADMAP.md](ROADMAP.md).
 
+> **ENGINE, added 2026-09-19.** At that same `-ub 1024`, upgrading b11003 -> b11046 moved the same
+> model again: `pp512` **583.1 -> 822.3 t/s (+41.0%)**, `pp4096` **648.9 -> 802.7 (+23.7%)**,
+> `pp4096 @ d32768` **410.9 -> 453.8 (+10.4%)**, at **identical** peak GPU. Cause is
+> [#28501](https://github.com/ggml-org/llama.cpp/pull/28501) -- `mul_mat_id` row-id hoisting was
+> silently off above 256 experts and this model has 512. **Cumulative on `pp4096 @ d32768`:
+> 275.0 -> 453.8 t/s, +65%** since b10677/ub256. Read that as a **prefill** number and nothing else:
+> across two engine upgrades and an 8x ubatch sweep, **tg never moved** (43.6-44.9 throughout). The
+> only lever that has ever moved tg here is the 7500->8533 memory clock, still pending.
+
 ### Quantisation — Q4 is the peak in both directions
 
 ```mermaid
