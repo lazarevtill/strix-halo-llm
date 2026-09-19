@@ -158,6 +158,34 @@ was silently disabled above 256 experts, and this model has **512**. The fix cos
 **It is model-specific — check `expert_count` first**; `ornith15` (256 experts) gains nothing from it.
 Note tg is flat *again*: across two engine upgrades and an 8× `-ub` range, nothing has moved tg.
 
+**Replicated on a second, unrelated MoE (2026-09-19): Ornith-1.5-35B-A3B, `qwen35moe`, 256 experts,
+standard attention — solo, b11046, `-b 2048`, 2 reps.**
+
+| `-ub` | pp4096 @ d0 | **pp4096 @ d32768** | tg128 | tg128 @ d32768 | peak GPU |
+|---|---|---|---|---|---|
+| 256 | 674.05 ± 5.74 | 391.34 ± 10.36 | 58.45 | 50.81 | 30.61 GiB |
+| 512 | 854.77 ± 1.98 | 477.81 ± 6.98 | 58.83 | 51.02 | 30.86 |
+| **1024** | **984.89 ± 0.08** | **543.80 ± 2.53** | 58.85 | 50.89 | **31.40** |
+| 2048 | 942.86 ± 0.09 | 481.66 ± 0.54 | 58.74 | 50.32 | 32.84 |
+
+**Same knee (+39.0% at 1024), same 2048 regression, tg flat again** — on an architecture that shares
+almost nothing with `qwen3next` beyond being a MoE. That replication is what turns "sweep per model
+class" into a usable prior: **on gfx1151, expect MoE to want 1024 and dense to want 256**, then verify.
+
+**`draft-mtp` depth on the same model** (greedy, seed 42, n_predict 256, one discarded warm-up run,
+one shared baseline): baseline **58 t/s** → n=1 **64.2 (1.11×)**, n=2 62.2 (1.07×), n=3 **64.1
+(1.11×)**, n=4 **54.3 (0.94×)**. Two readings worth keeping: the **ceiling is only 1.11×**, nowhere
+near qwen38's 1.79× — speculation is strongly model-dependent — and **n=4 is already below baseline**,
+re-confirming non-monotonic depth on a second model. n=1 and n=3 tie within noise (0.16%, single
+runs), so n=3 is shipped as llama.cpp's default rather than claiming a winner.
+
+> **Harness bug found doing this (number 15).** The first run of that sweep reported **0 t/s for the
+> baseline and all four depths**, then printed a confident `best: draft-mtp n=3 at 0 t/s (0x)` and the
+> non-monotonic warning. Cause: `llama-cli` **removed `-no-cnv`**, so every process died in <1 s and
+> the t/s regex fell back to 0. A fully-formed, entirely fictitious result — the exact failure mode
+> this document exists to catalogue. `bench-spec.ps1` now **aborts** when a run yields no timing line
+> and prints llama-cli's first error, instead of dividing by it.
+
 So the MoE optimum is **1024, worth +34.8% at depth and +43.9% at depth 0**, for +0.5 GiB — the exact
 inverse of the dense result three rounds above, which is why this document keeps both. Two further
 readings: **`-ub 2048` regresses at depth** (339 vs 401), so the widely-circulated "MoE wants ub2048 on

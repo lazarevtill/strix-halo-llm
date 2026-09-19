@@ -70,18 +70,29 @@ nothing.
   — Q4_K_M 20.22 / Q5_K_M 23.61 / **Q6_K 27.20** / Q8_0 35.21 / BF16 66.19 GiB, plus
   `mmproj-Ornith-1.5-35B-BF16.gguf` (0.84 GiB). Q6_K chosen; the gemma A/B is the prior that Q8_0
   buys nothing but latency, and that remains **unmeasured on this model**.
-- **Verified working on b11046:** text + thinking, **vision**, **tool calling**, and needle retrieval
-  at 9 k tokens. ~34 GB committed of ~109 solo. Observed ~58 t/s tg on a short generation and
-  ~9 k prompt tokens prefilled in 19.3 s — *incidental observations from functional tests, not a
-  benchmark run*; no `bench-big` numbers exist for it yet.
-- **Two settings are explicitly UNMEASURED and left at defaults:**
-  `-ub` stays at the global **256** (the coder's 1024 was earned on `qwen3next` — 512 experts, linear
-  attention — and does not transfer on faith), and `draft-mtp` runs at **n=3** because the GGUF has an
-  MTP head (`nextn_predict_layers = 1`) and 3 is llama.cpp's default plus the measured qwen38 peak.
-  The sweeps that would settle both hung and were killed on 2026-09-19. Depth is **not** monotonic, so
-  n=3 is a default, not a finding. Re-run:
-  `bench-big.ps1 -Only ornith-1-5-35b -Bin .\bin-b11046 -UBatch 256,512,1024,2048 -Depths 0,32768` and
-  `bench-spec.ps1 -Model .\models\Ornith-1.5-35B-Q6_K.gguf -Bin .\bin-b11046 -NMax 1,2,3,4`.
+- **Verified working on b11046, re-checked after tuning:** text + thinking, **vision**, **tool
+  calling** (`sql_query` emitted with valid JSON args), and needle retrieval at 9 k tokens
+  (`finish_reason=stop`, exact key returned). **~36 GB committed of ~109** solo at `-ub 1024`.
+- **Both per-model settings are now MEASURED (2026-09-19, b11046, solo, 2 reps):**
+
+  | `-ub` | pp4096 @ d0 | **pp4096 @ d32768** | tg128 | peak GPU |
+  |---|---|---|---|---|
+  | 256 | 674.05 ± 5.74 | 391.34 ± 10.36 | 58.45 | 30.61 GiB |
+  | 512 | 854.77 ± 1.98 | 477.81 ± 6.98 | 58.83 | 30.86 |
+  | **1024** | **984.89 ± 0.08** | **543.80 ± 2.53** | 58.85 | **31.40** |
+  | 2048 | 942.86 ± 0.09 | 481.66 ± 0.54 | 58.74 | 32.84 |
+
+  **`-ub 1024` wins: +39.0% at depth, +46.1% at depth 0, for +0.8 GiB — and 2048 regresses**, the same
+  shape as the coder despite a completely different arch. See the ubatch note in
+  [OPTIMIZATION.md](OPTIMIZATION.md) row 10.
+
+  `draft-mtp` depth, greedy, seed 42, n_predict 256: **baseline 58 t/s**; n=1 **64.2 (1.11×)**,
+  n=2 62.2 (1.07×), n=3 **64.1 (1.11×)**, n=4 **54.3 (0.94×) — worse than no speculation at all.**
+  n=1 and n=3 tie within noise (0.16% on single runs), so **n=3 is kept** as llama.cpp's default.
+  **Do not raise it**; the n=4 regression confirms non-monotonic depth on a second model.
+  Note the ceiling is only **1.11×** here, nowhere near qwen38's 1.79×.
+
+  End-to-end after tuning: a 9041-token prefill went **19.3 s → 12.0 s**.
 - **Thinking-model caveat:** budget `max_tokens` ≥ 2048 or `content` returns EMPTY. A *counting* prompt
   ("how many times does X appear") spiralled past 4096 tokens of `reasoning_content` and returned
   `finish_reason=length` with empty `content` — the known thinking-model pathology (cf. eval Bug 13),

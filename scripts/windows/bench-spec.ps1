@@ -45,7 +45,12 @@ if (-not (Test-Path $bin)) { Write-Error "llama-cli.exe not found: $bin"; exit 1
 $pf = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\_prompt.txt"
 Set-Content -Path $pf -Value $Prompt -Encoding UTF8 -NoNewline
 function RunOne($extra,$label){
-    $a = @('-m',$Model,'-ngl','99','-fa','1','-n',"$NPredict",'-f',$pf,'--no-warmup','-no-cnv','--simple-io','-st','--seed','42') + $extra
+    # NB: '-no-cnv' was REMOVED from llama-cli (b11046 rejects it outright: "invalid argument: -no-cnv").
+    # It used to sit here alongside '-st'. Because every run then died in <1 s and the t/s parser falls
+    # back to 0, the whole 2026-09-19 sweep reported "0 t/s => 0x" for baseline AND all four depths --
+    # and still printed a confident "best: n=3" plus the non-monotonic warning. '-st/--single-turn'
+    # already gives the non-conversation behaviour that '-no-cnv' was there for.
+    $a = @('-m',$Model,'-ngl','99','-fa','1','-n',"$NPredict",'-f',$pf,'--no-warmup','--simple-io','-st','--seed','42') + $extra
     $err = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\spec_$label.err"
     $out = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\spec_$label.out"
     Start-Process $bin -ArgumentList $a -NoNewWindow -Wait -RedirectStandardError $err -RedirectStandardOutput $out
@@ -55,6 +60,15 @@ function RunOne($extra,$label){
            elseif ((Get-Content $err -EA SilentlyContinue | Out-String) -match '([\d\.]+)\s*tokens per second') { [double]$Matches[1] }
            else { 0 }
     $accept = (Get-Content $err -EA SilentlyContinue | Select-String 'accept|draft|n_drafted' | Select-Object -Last 2) -join '  '
+    # FAIL LOUDLY on a dead run. 0 t/s is not a measurement, it is the parser's fallback when llama-cli
+    # never produced a timing line -- which is what a rejected CLI flag looks like. Reporting it as a
+    # ratio produced a fully-formed but entirely fictitious sweep on 2026-09-19. Never again.
+    if ($tps -le 0) {
+        $why = (Get-Content $err -EA SilentlyContinue | Select-String 'error|invalid|failed' | Select-Object -First 1)
+        Write-Error ("[$label] produced NO timing line -- this is a harness/CLI failure, not a 0 t/s result. " +
+                     "First error from llama-cli: " + $(if ($why) { $why.ToString().Trim() } else { '(none captured; see ' + $err + ')' }))
+        exit 1
+    }
     [pscustomobject]@{ Label=$label; Tps=[math]::Round($tps,2); Accept=$accept }
 }
 Write-Host "Model: $([IO.Path]::GetFileName($Model))   Spec: $Spec   Engine: $(Split-Path $binDir -Leaf)" -ForegroundColor Cyan

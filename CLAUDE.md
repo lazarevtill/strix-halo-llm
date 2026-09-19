@@ -103,9 +103,15 @@ python evals\rescore.py --tier hard         # re-derive scores from stored runs;
 if anything else holds GPU memory. Both guards exist because every harness bug so far produced a
 *believable wrong number*, never a crash.
 
-**Read `docs/BENCHMARKS.md` and `evals/README.md` before quoting any eval number.** Thirteen harness
+**Read `docs/BENCHMARKS.md` and `evals/README.md` before quoting any eval number.** **Fifteen** harness
 bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 100%`, `92.2%`,
-`70/70` for four models at once). Current rules that came out of them:
+`70/70` for four models at once, `peak GPU 0.00 GiB`, `draft-mtp 0 t/s => 0x`). The two newest are
+speed-side, not eval-side, and both produced a *complete, plausible* result rather than a crash:
+**#14** `bench-big.ps1` had a hardcoded GPU adapter LUID that Windows had reassigned, so every memory
+column read `0.00 GiB` while the run reported OK; **#15** `llama-cli` removed `-no-cnv`, so every
+`bench-spec.ps1` process died in <1 s and the t/s regex fell back to 0 — yielding a fully-formed
+sweep of `0 t/s => 0x` rows plus a confident `best:` line. `bench-spec.ps1` now aborts on a missing
+timing line instead of dividing by it. Current rules that came out of them:
 
 - **Quality scores are withdrawn and being re-measured.** The four-way tie came from temperature 0
   sending thinking models into repetition loops plus a truncation rule that rescued the empty turns.
@@ -142,8 +148,15 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   size still does not move tg) and the cost is +0.5 GiB. Note ub **2048 regresses at depth**, so the
   Strix-Halo community recommendation of ub2048-for-MoE does *not* transfer here — 1024 is our knee.
   The global default stays **256**; `coder` carries a per-model `ubatch-size = 1024` override in
-  `run-router.ps1`'s `$known`. Sweep per model class (dense vs MoE, head-dim), don't globalise either
-  number. The old 256-vs-1024 dense result is **not withdrawn** — both hold, for different arches.
+  `run-router.ps1`'s `$known`. The old 256-vs-1024 dense result is **not withdrawn** — both hold, for
+  different arches.
+  **CONFIRMED ON A SECOND, UNRELATED MoE 2026-09-19.** Ornith-1.5-35B-A3B (`qwen35moe`, **256**
+  experts, **standard attention** — nothing like `qwen3next`'s 512-expert linear-attention hybrid)
+  lands on the **same knee**: `pp4096 @ d32768` = 391.3 (ub 256) → 477.8 (512) → **543.8 (1024)** →
+  481.7 (2048), i.e. **+39.0%** at 1024, **and 2048 regresses again**. tg flat for the third time
+  (58.4/58.8/58.9/58.7). Two independent MoE architectures agreeing on 1024-with-a-2048-regression
+  upgrades the working rule to: **on gfx1151, MoE wants `-ub 1024` and dense wants 256.** Still
+  verify per model — but 1024 is now the *expected* MoE answer, not a coin flip.
 - **Speculative decoding is model-dependent, and depth is not monotonic.** `draft-mtp` at
   `--spec-draft-n-max 3` is the peak (Qwen3.8-27B: 11.33 → 20.27 t/s, 1.79×); n=5 collapses to
   **0.68× — worse than no speculation at all**. Generic `ngram-mod` is neutral-to-negative; a
@@ -215,8 +228,13 @@ bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 
   It is a **thinking model** — budget `max_tokens` 2048+ or `content` returns EMPTY. A *counting*
   prompt can still spiral past 4096 and return `finish_reason=length` with empty `content`; that is
   the known thinking-model pathology (cf. eval Bug 13), **not** a misconfiguration — retrieval over
-  the same context is fine. `ornith15` deliberately keeps the **global `-ub 256`**: the coder's 1024
-  was earned on a different arch and is **unmeasured** here, as is `draft-mtp` depth on this model.
+  the same context is fine. **Both per-model settings are MEASURED (2026-09-19), not defaults:**
+  `-ub 1024` (`pp4096 @ d32768` 391.3 → 477.8 → **543.8** → 481.7 t/s for ub 256/512/1024/2048 =
+  **+39.0%** at the knee, +46.1% at depth 0, +0.8 GiB; 2048 regresses) and **`draft-mtp n=3`**
+  (baseline 58 t/s; n=1 **64.2**, n=2 62.2, n=3 **64.1**, n=4 **54.3 = 0.94×, worse than no
+  speculation**). n=1 and n=3 tie within noise (0.16%, single runs) so n=3 stays as llama.cpp's
+  default — **do not raise it.** End-to-end after tuning: 9041-token prefill in **12.0 s**, down
+  from 19.3 s at ub 256.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models ornith15 -Bin .\bin-b11046 -Ctx 262144`
   as of 2026-09-19; it is **outside the

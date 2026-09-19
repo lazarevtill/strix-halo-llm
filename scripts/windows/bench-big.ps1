@@ -211,8 +211,19 @@ foreach ($s in $sel) {
     # BUDGET-AWARE guard. Don't abort just because memory is held -- abort only if what's left is
     # genuinely too small for THIS model. Held memory is real whether the holder is live or exited.
     $held = Get-GpuHeld
-    for ($w=0; $w -lt 24 -and $held -and $held.ReclaimableGB -gt 1.0; $w++) {
-        Start-Sleep 5; $held = Get-GpuHeld          # give live stragglers time to release
+    # Wait only for OUR OWN stragglers to release. This used to wait on ReclaimableGB > 1.0, i.e. on
+    # TOTAL live GPU memory -- but the desktop baseline on this box is ~1.6 GiB (dwm/webview2/csrss/
+    # WorkloadsSessionHost/AMDRSSrcExt) and never drops below 1.0. The condition could therefore never
+    # clear, so every model paid the full 24 iterations x (5 s sleep + ~1.2 s Get-Counter) = ~155 s of
+    # dead time before proceeding. It looked exactly like a hang: no child process, no GPU use, no
+    # output. Two sweeps were killed mid-stall on 2026-09-19 believing it had wedged.
+    # A llama-* holder is the only thing we can actually wait out; anything else is someone's desktop.
+    $mine = { param($h) if (-not $h) { return 0.0 }
+              $sum = 0.0
+              foreach ($x in $h.Holders) { if ($x.Name -like 'llama*' -and $x.State -eq 'live') { $sum += $x.GiB } }
+              return $sum }
+    for ($w=0; $w -lt 24 -and (& $mine $held) -gt 0.5; $w++) {
+        Start-Sleep 5; $held = Get-GpuHeld          # give live llama stragglers time to release
     }
     $b = Get-GpuMem
     # need = weights + KV/compute headroom. ~12% + 4 GiB covers ubatch 1024 compute buffers and the
