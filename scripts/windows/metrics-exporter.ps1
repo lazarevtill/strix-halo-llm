@@ -274,35 +274,53 @@ if ($boundAll) {
 Write-Host "  discovering children through $RouterUrl/v1/models" -ForegroundColor DarkGray
 Write-Host "  Ctrl-C to stop" -ForegroundColor DarkGray
 
-try {
-    while ($listener.IsListening) {
-        $ctx = $listener.GetContext()
-        # EVERY request is isolated. A scraper that disconnects mid-response (timeout, Grafana tab
-        # closed) makes OutputStream.Write throw "The specified network name is no longer
-        # available". Uncaught, that unwound the loop and ENDED THE EXPORTER -- it ran from the
-        # Startup folder with no supervisor, so :9114 stayed dark until the next logon (observed
-        # 2026-10-02: dead from 07:50, found hours later by review). One bad client must cost one
-        # response, never the process.
-        try {
-            $body = ''
-            if ($ctx.Request.Url.AbsolutePath -eq '/metrics') {
-                $body = Build-Metrics
-                $ctx.Response.StatusCode = 200
-                $ctx.Response.ContentType = 'text/plain; version=0.0.4; charset=utf-8'
-            } else {
-                $body = "llama.cpp exporter. Metrics at /metrics`n"
-                $ctx.Response.StatusCode = 200
-                $ctx.Response.ContentType = 'text/plain; charset=utf-8'
-            }
-            $bytes = [Text.Encoding]::UTF8.GetBytes($body)
-            $ctx.Response.ContentLength64 = $bytes.Length
-            $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-        } catch {
-            Write-Warning ("{0:s} request failed: {1}" -f (Get-Date), $_.Exception.Message.Split([char]10)[0])
-        } finally {
-            try { $ctx.Response.OutputStream.Close() } catch { }
+# The prefix that actually bound (all-interfaces, or the loopback fallback) -- reused on rebind.
+$prefix = $listener.Prefixes | Select-Object -First 1
+
+# SELF-SUPERVISING. Nothing restarts this process: it is launched from the Startup folder, so if it
+# dies, :9114 stays dark until the next logon. The per-request try below covers a bad client; this
+# outer loop covers everything else (GetContext failing, the listener being torn down by a network
+# change) by logging, waiting, and rebinding the same prefix. Only Ctrl-C ends it.
+# Alert on the exporter itself with `up{job="llamacpp"} == 0` -- a dead exporter shows no restarts.
+while ($true) {
+    try {
+        if (-not $listener.IsListening) {
+            $listener = New-Object System.Net.HttpListener
+            $listener.Prefixes.Add($prefix)
+            $listener.Start()
+            Write-Host ("{0:s} listener re-bound on {1}" -f (Get-Date), $prefix) -ForegroundColor Yellow
         }
+        while ($listener.IsListening) {
+            $ctx = $listener.GetContext()
+                # EVERY request is isolated. A scraper that disconnects mid-response (timeout, Grafana tab
+                # closed) makes OutputStream.Write throw "The specified network name is no longer
+                # available". Uncaught, that unwound the loop and ENDED THE EXPORTER -- it ran from the
+                # Startup folder with no supervisor, so :9114 stayed dark until the next logon (observed
+                # 2026-10-02: dead from 07:50, found hours later by review). One bad client must cost one
+                # response, never the process.
+                try {
+                    $body = ''
+                    if ($ctx.Request.Url.AbsolutePath -eq '/metrics') {
+                        $body = Build-Metrics
+                        $ctx.Response.StatusCode = 200
+                        $ctx.Response.ContentType = 'text/plain; version=0.0.4; charset=utf-8'
+                    } else {
+                        $body = "llama.cpp exporter. Metrics at /metrics`n"
+                        $ctx.Response.StatusCode = 200
+                        $ctx.Response.ContentType = 'text/plain; charset=utf-8'
+                    }
+                    $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+                    $ctx.Response.ContentLength64 = $bytes.Length
+                    $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+                } catch {
+                    Write-Warning ("{0:s} request failed: {1}" -f (Get-Date), $_.Exception.Message.Split([char]10)[0])
+                } finally {
+                    try { $ctx.Response.OutputStream.Close() } catch { }
+                }
+        }
+    } catch {
+        Write-Warning ("{0:s} listener failed, rebinding in 5 s: {1}" -f (Get-Date), $_.Exception.Message.Split([char]10)[0])
+        try { $listener.Close() } catch { }
+        Start-Sleep -Seconds 5
     }
-} finally {
-    $listener.Stop(); $listener.Close()
 }

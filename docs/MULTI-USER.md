@@ -362,6 +362,17 @@ increase(llamacpp_child_restarts_total[1h]) > 0
 The counter only covers the exporter's own lifetime; `changes(llamacpp_child_start_time_seconds[1h])`
 is the form that survives an exporter restart.
 
+**Also alert on the exporter itself**, because a dead exporter reports no restarts at all:
+
+```promql
+up{job="llamacpp"} == 0
+```
+
+That is not hypothetical — on 2026-10-02 the exporter died at 07:50 when a scraper disconnected
+mid-response, and nothing noticed for hours. It now isolates each request and re-binds its listener
+on any other failure, but it runs from the Startup folder with no supervisor, so the `up` alert is the
+backstop.
+
 > **One scraper only.** The `llamacpp:*_seconds` throughput gauges (`predicted_tokens_seconds`,
 > `prompt_tokens_seconds`) appear to be computed over the interval since the **previous** `/metrics`
 > read, not as a fixed-window rate. Observed here: reads drop to **0** between requests. If that
