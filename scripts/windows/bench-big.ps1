@@ -46,7 +46,7 @@ param(
     [string[]] $ModelDirs = @('D:\llamacpp-vulkan\models','C:\llm-router\models'),
     [string]   $ModelDir = 'D:\llamacpp-vulkan\models',   # where NEW downloads land
     [string]   $Bin      = 'D:\llamacpp-vulkan\bin',
-    [string]   $Csv      = 'D:\llamacpp-vulkan\bench-big.csv'
+    [string]   $Csv      = ''    # empty => bench-big-<timestamp>.csv in the repo root (never overwrites a previous sweep)
 )
 $ErrorActionPreference = 'Continue'
 # HARD-WON (2026-09-16): this was a hardcoded adapter LUID. Windows does NOT keep the LUID stable --
@@ -299,6 +299,10 @@ foreach ($s in $sel) {
     foreach ($r in $rows) {
         $cells = @($r -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
         $test = $cells[$cells.Count-2]; $tps = $cells[$cells.Count-1]
+        # ASCII '+/-' for the CSV: PS 5.1 Export-Csv writes ASCII by default and turned llama-bench's
+        # plus-minus sign (U+00B1) into '?', so every saved row read "1030.44 ? 15.60". (Not -Encoding UTF8: that adds a
+        # BOM, which renames the first column for any csv reader that is not BOM-aware.)
+        $tps = $tps.Replace([string][char]0x00B1, '+/-')
         Write-Host ("    {0,-22} {1}" -f $test, $tps) -ForegroundColor Gray
         $results += [pscustomobject]@{ label=$s; bin=$binTag; ub=$ub; act=$m.act; weightsGiB=$wGiB; status='OK'; test=$test; tps=$tps
                                        pkDedGiB=[math]::Round($pkD/1GB,2); pkShrGiB=[math]::Round($pkS/1GB,2)
@@ -308,6 +312,9 @@ foreach ($s in $sel) {
   }
 }
 
+# Timestamped by default: a fixed name meant `-Only a` followed by `-Only b` silently replaced the
+# first sweep's CSV with the second's.
+if (-not $Csv) { $Csv = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) ("bench-big-{0:yyyyMMdd-HHmmss}.csv" -f (Get-Date)) }
 $results | Export-Csv $Csv -NoTypeInformation
 Write-Host "`n================ SUMMARY ================" -ForegroundColor Green
 $results | Format-Table -AutoSize | Out-String -Width 190 | Write-Host

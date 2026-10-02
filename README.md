@@ -34,7 +34,7 @@ Linux and macOS are the same three steps in `scripts/linux/` and `scripts/macos/
 unproven**, so run them with `--dry-run` first. [Full walkthrough for all three →](docs/INSTALL.md)
 
 **Don't have this hardware?** Two parts of this repo are about measurement rather than about one
-GPU, and they transfer: **[the fourteen harness bugs](evals/README.md)** — each with the believable
+GPU, and they transfer: **[the sixteen harness bugs](evals/README.md)** — each with the believable
 wrong number it produced, including the pair that faked a four-way tie between models spanning
 16.7 GB to 89 GB — and **[how to benchmark without fooling yourself](docs/BENCHMARKS.md)**. The eval
 harness runs anywhere Python and Docker do; `python evals/code/smoke.py` scores it against itself in
@@ -63,7 +63,7 @@ every term below in plain English, with diagrams. No GPU or ML background needed
 |---|---|
 | generation | **20.3 t/s** (~38 t/s on code) |
 | prefill | **167 t/s** — a 44k prompt is ~4.5 min before the first word |
-| model size | **16.7 GB** — the smallest of the four models benchmarked here |
+| model size | **16.7 GB** — the smallest of the five models benchmarked here |
 | quality | 🔄 **being re-measured** — see below |
 
 > **The quality numbers are currently withdrawn, on purpose.** Both eval suites were run under
@@ -110,13 +110,34 @@ contrast is the useful part.
 | | |
 |---|---|
 | ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model (prompts you to pick it), the whole memory budget, full context, measured-optimal flags |
-| 🔀 **A two-model launcher** | `run-router.ps1` — serve two models at once from `:8080` via llama.cpp router mode (route by the `model` field); a fast MoE for big text alongside the dense coder, both VRAM-resident |
+| 🔀 **A router launcher** | `run-router.ps1` — llama.cpp router mode on `:8080` (route by the `model` field): one or more models, per-model tuned presets, multi-slot (`-Parallel`/`-PerSlotCtx`), and a parent that reloads a crashed child |
+| 📈 **A Prometheus exporter** | `metrics-exporter.ps1` — live t/s, slot occupancy, context fill and **child-crash count** on a fixed `:9114`, since router children listen on random ports |
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
-| 🧯 **A list of ways benchmarks lie** | **fourteen** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
+| 🧯 **A list of ways benchmarks lie** | **sixteen** harness bugs, each with the believable wrong number it produced — including the pair that faked a four-way tie |
 
 ---
+
+## Serving today
+
+The tables above are the 2026-08 study of a dense 27B. What the box actually serves on `:8080` has
+moved on — each step measured, with the old result kept next to the new one:
+
+| | |
+|---|---|
+| model | **Ornith-1.5-35B-A3B** Q6_K (MoE, ~3B active, MIT) — vision, tool calls, thinking |
+| engine | llama.cpp **b11330** — taken for a *correctness* fix ([#28956](https://github.com/ggml-org/llama.cpp/pull/28956)), +12.8% `pp512` as a bonus |
+| slots | **2 × 262144** context, speculation **on** — matched to sequential app traffic |
+| speculation | `draft-dflash` with the model's own 0.39 GB Q8_0 draft, depth 3 — **1.22×** single-stream (the 0.73 GB BF16 draft is *slower*) |
+| batch | `-ub 1024` — the MoE knee (+39% prefill at 32k depth); dense models want 256 |
+| memory | ~41 GB of ~109 |
+
+**Speculation and batching compete.** Speculation wins at 1–2 concurrent requests (51.0 vs 44.3 t/s)
+and loses badly at 4 (49.3 vs **84.9**), so for genuinely concurrent load the launcher takes
+`-Parallel 4 -PerSlotCtx 262144 -NoSpec`. Multi-slot also has a stability ceiling far below the memory
+budget — the full table, and how to spot the crash it causes, are in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md#multi-slot-speculation-and-batching-compete-ornith15-b11330--ub-1024-2026-10-02).
 
 ## What we found
 
@@ -257,9 +278,13 @@ string as the API key (see [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)).
 .\scripts\windows\run-solo.ps1 -Model .\models\Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf `
                        -Ctx 131072 -Spec draft-mtp
 
-# TWO models at once from :8080 (router mode) -- route by the OpenAI `model` field.
-# Coding on the dense model, big-text on a faster MoE, both kept warm in VRAM.
-.\scripts\windows\run-router.ps1                      # -> :8080; curl -d '{"model":"qwen38",...}' or "ornith"
+# Router mode on :8080 -- route by the OpenAI `model` field. What this box runs (see "Serving today"):
+.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144
+# ...or two models at once, both kept warm in VRAM:
+.\scripts\windows\run-router.ps1 -Models qwen38,ornith  # curl -d '{"model":"qwen38",...}' or "ornith"
+
+# Live metrics for Prometheus/Grafana (t/s, slots, context fill, child crashes) on a fixed port
+.\scripts\windows\metrics-exporter.ps1                # -> :9114/metrics
 
 # Benchmark at real context depths, not the misleading depth 0
 .\scripts\windows\bench-big.ps1
@@ -287,7 +312,9 @@ strix-halo-llm/
 │   ├── GOING-FASTER.md     the settings worth copying, and five that measurement killed
 │   ├── OPTIMIZATION.md     the full tuning playbook (long -- a reference)
 │   ├── BENCHMARKS.md       ⭐ what to measure, how, and how not to fool yourself
-│   ├── MULTI-USER.md       serving real people: saved chats, capacity, restart cost
+│   ├── MULTI-USER.md       serving real people: slots, capacity, restart cost, metrics
+│   ├── MULTI-BOX.md        design: splitting work across several boxes over Ethernet
+│   ├── ROADMAP.md          pending models and engines, and what each is waiting on
 │   ├── PUBLISHING.md       what is safe to publish, and what must never be
 │   └── index.html          the GitHub Pages report -> strix.lazarev.cloud
 │
@@ -295,10 +322,13 @@ strix-halo-llm/
 │   ├── windows/            PowerShell 5.1 -- supported, and where every number came from
 │   │   ├── fetch-llamacpp.ps1  ⭐ step zero: the engine, into bin\
 │   │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
-│   │   ├── run-router.ps1      serve TWO models at once on :8080 (router mode; route by model name)
+│   │   ├── run-router.ps1      router mode on :8080: per-model presets, -Parallel/-PerSlotCtx/-NoSpec
+│   │   ├── metrics-exporter.ps1  Prometheus exporter on a fixed :9114 (children use random ports)
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
-│   │   ├── bench-big.ps1       depth-aware benchmark
-│   │   ├── bench-spec.ps1      A/B baseline vs speculative decoding
+│   │   ├── stage-nextgen.ps1   isolated test-load + Vulkan determinism gate for a new arch/engine
+│   │   ├── bench-big.ps1       depth-aware benchmark (-Bin A/Bs engines, -UBatch sweeps)
+│   │   ├── bench-spec.ps1      A/B baseline vs speculative decoding (-NMax sweeps depth)
+│   │   ├── bench-parallel.ps1  aggregate t/s vs concurrent clients
 │   │   ├── build-poolside.ps1  build poolside's llama.cpp fork (DFlash drafting)
 │   │   └── legacy/             superseded multi-model launchers
 │   ├── linux/              bash DRAFTS -- unproven, see its README
@@ -313,6 +343,7 @@ strix-halo-llm/
 │       └── run-solo.sh         serve one model on Metal (prompts for model; has --dry-run)
 │
 └── evals/                  ⭐ the evaluation harness
+    ├── run-guarded.ps1     ⭐ the entry point: smoke-gated, one model at a time
     ├── run-full-bench.ps1  the whole stack: speed, then hard tier, then easy + tools
     ├── run-model-suite.ps1 one model, both suites, sole GPU occupant
     ├── summarize-bench.py  turn a run into the published table
@@ -344,9 +375,10 @@ case counts, what each isolates, each coding task's entry point and per-turn tes
 results are interpretable without handing over the answers.
 [docs/PUBLISHING.md](docs/PUBLISHING.md) shows the file shapes so you can author your own.
 
-**The most reusable part may be the failure list.** **Thirteen** harness bugs each produced a
+**The most reusable part may be the failure list.** **Sixteen** harness bugs each produced a
 *believable* wrong number during development — `17.2%`, `"34/34 = 100%"`, `92.2%`, `44.3%`,
-`"first-shot 64.3%"`, and finally `70/70` for four models at once — and one task turned out to be
+`"first-shot 64.3%"`, `70/70` for four models at once, and on the speed side a fully-formed
+`0 t/s => 0x` speculation sweep and a `0.00 GiB` memory column — and one task turned out to be
 **unsatisfiable**, quietly rewarding models that ignored the user. Each is written up with the fake
 number it produced in [evals/README.md](evals/README.md).
 
@@ -392,6 +424,7 @@ PowerShell-on-Linux dependency. Setup for all three platforms is in
 | [`linux/fetch-llamacpp.sh`](scripts/linux/fetch-llamacpp.sh) | [`windows/fetch-llamacpp.ps1`](scripts/windows/fetch-llamacpp.ps1) | download a prebuilt Vulkan release into `bin/` | curl + unzip; **untested against a real driver stack** |
 | [`macos/fetch-llamacpp.sh`](scripts/macos/fetch-llamacpp.sh) | — | Homebrew, or the prebuilt `macos-arm64` release | **never run on macOS** |
 | [`macos/run-solo.sh`](scripts/macos/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve one model on Metal; prompts for model; has `--dry-run` | **never run on macOS**; `-ub` deliberately left at 512, not the Windows 256 |
+| [`linux/run-router.sh`](scripts/linux/run-router.sh) | [`windows/run-router.ps1`](scripts/windows/run-router.ps1) | router mode: several models on one port, per-model presets; asks on start; has `--dry-run` | **never run on Linux**; preset logic checked with `--dry-run` only |
 | [`run-solo.sh`](scripts/linux/run-solo.sh) | [`windows/run-solo.ps1`](scripts/windows/run-solo.ps1) | serve ONE model with the whole memory budget; prompts for model; has `--dry-run` | flags ported 1:1; **GPU accounting unverified** |
 | [`fetch-models.sh`](scripts/linux/fetch-models.sh) | [`windows/fetch-models.ps1`](scripts/windows/fetch-models.ps1) | resume-capable download + byte verification | most portable; byte counts verified |
 | [`bench-big.sh`](scripts/linux/bench-big.sh) | [`windows/bench-big.ps1`](scripts/windows/bench-big.ps1) | depth-aware benchmark sweep | **dirty-GPU guard only warns, doesn't block** |
@@ -436,8 +469,9 @@ as llama.cpp's own ROCm backend.
 - **Windows 11** + PowerShell 5.1 (scripts are 5.1-compatible throughout — no PS7 required), or
   bash on Linux / macOS — see [docs/INSTALL.md](docs/INSTALL.md)
 - **llama.cpp Vulkan build** in `bin\` — `.\scripts\windows\fetch-llamacpp.ps1` puts it there,
-  nothing to compile. Every number in this repo is from **b10431**; pin it with `-Build b10431`
-  when reproducing one
+  nothing to compile. The qwen38-era published numbers (RESULTS, the tables above) are from
+  **b10431** — pin it with `-Build b10431` when reproducing one. Later rows name their own build
+  (b11003 / b11046 / b11330); newer engines install side by side with `-Dest .\bin-bNNNNN`
 - **A current GPU driver.** If the startup banner lists no Vulkan device, that is the problem —
   nothing else here works until it does
 - **Docker Desktop** — only for the coding-eval sandbox

@@ -141,6 +141,14 @@ so re-measure per model class rather than inheriting it.
 | **1024** | **652.80 ± 0.09** | **401.31 ± 2.82** | 44.23 | 38.12 | **50.51 GiB** |
 | 2048 | 637.37 ± 1.23 | 339.19 ± 4.06 | 44.11 | 38.14 | 51.63 GiB |
 
+So the MoE optimum is **1024, worth +34.8% at depth and +43.9% at depth 0**, for +0.5 GiB — the exact
+inverse of the dense result three rounds above, which is why this document keeps both. Two further
+readings: **`-ub 2048` regresses at depth** (339 vs 401), so the widely-circulated "MoE wants ub2048 on
+Strix Halo" advice does not transfer; and **tg is flat to four values across an 8× `-ub` range**,
+independently re-confirming that batch size does not move tg on this box. Short prompts (`pp512`) are
+flat above 512 with ±7% spread and settle nothing. The global default stays 256; `coder` carries a
+per-model override.
+
 **Engine A/B at that same `-ub 1024`, b11003 → b11046 (2026-09-19, same model, solo, 2 reps):**
 
 | test | b11003 | b11046 | Δ |
@@ -172,14 +180,15 @@ standard attention — solo, b11046, `-b 2048`, 2 reps.**
 almost nothing with `qwen3next` beyond being a MoE. That replication is what turns "sweep per model
 class" into a usable prior: **on gfx1151, expect MoE to want 1024 and dense to want 256**, then verify.
 
-**`draft-mtp` depth on the same model** (greedy, seed 42, n_predict 256, one discarded warm-up run,
+**`draft-mtp` depth on the same model** (seed 42, llama-cli default sampler — *not* greedy, see the
+correction below; n_predict 256, one discarded warm-up run,
 one shared baseline): baseline **58 t/s** → n=1 **64.2 (1.11×)**, n=2 62.2 (1.07×), n=3 **64.1
 (1.11×)**, n=4 **54.3 (0.94×)**. Two readings worth keeping: the **ceiling is only 1.11×**, nowhere
 near qwen38's 1.79× — speculation is strongly model-dependent — and **n=4 is already below baseline**,
 re-confirming non-monotonic depth on a second model. n=1 and n=3 tie within noise (0.16%, single
 runs), so n=3 is shipped as llama.cpp's default rather than claiming a winner.
 
-**Speculator A/B on ornith15 (2026-10-02, b11046, greedy, seed 42, n_predict 256).** `ornith-ai`
+**Speculator A/B on ornith15 (2026-10-02, b11046, seed 42, default sampler, n_predict 256).** `ornith-ai`
 published a first-party DFlash block-diffusion **draft model** for this exact base on 2026-09-28,
 so `draft-dflash` became testable against the incumbent `draft-mtp`:
 
@@ -206,13 +215,67 @@ that figure is SGLang/vLLM on datacenter GPUs and does not transfer to Vulkan on
 > this document exists to catalogue. `bench-spec.ps1` now **aborts** when a run yields no timing line
 > and prints llama-cli's first error, instead of dividing by it.
 
-So the MoE optimum is **1024, worth +34.8% at depth and +43.9% at depth 0**, for +0.5 GiB — the exact
-inverse of the dense result three rounds above, which is why this document keeps both. Two further
-readings: **`-ub 2048` regresses at depth** (339 vs 401), so the widely-circulated "MoE wants ub2048 on
-Strix Halo" advice does not transfer; and **tg is flat to four values across an 8× `-ub` range**,
-independently re-confirming that batch size does not move tg on this box. Short prompts (`pp512`) are
-flat above 512 with ±7% spread and settle nothing. The global default stays 256; `coder` carries a
-per-model override.
+> **Label correction (2026-10-02): these spec A/B runs were NOT greedy.** Both paragraphs above said
+> "greedy, seed 42", but `bench-spec.ps1` never passed `--temp`, so every run used **llama-cli's
+> default sampler** at seed 42. The numbers stand as measured — they are just a sampled regime, which
+> is closer to how the server actually runs (temp 0.6) than greedy would be. The script now prints the
+> sampler it used and takes `-Temp 0` for a genuinely greedy run; don't mix the two regimes in one
+> table, since draft acceptance differs between them.
+
+**Engine A/B b11046 → b11330 on ornith15 (2026-10-02, `-ub 1024`, solo, 2 reps).** Taken for
+**correctness first**: [#28956](https://github.com/ggml-org/llama.cpp/pull/28956) fixes *wrong
+results* when a `mul_mat` reads a slice of a larger cache, so b11046 could silently emit incorrect
+output on some shapes. The speed was a bonus:
+
+| test | b11046 | b11330 | Δ |
+|---|---|---|---|
+| pp512 | 1030.44 ± 15.60 | **1162.28 ± 1.86** | **+12.8%** |
+| pp4096 | 985.29 ± 0.77 | 1017.98 ± 0.72 | +3.3% |
+| pp512 @ d32768 | 547.01 ± 19.48 | 600.61 ± 45.30 | +9.8% *(±8%, weak)* |
+| pp4096 @ d32768 | 548.49 ± 4.95 | 563.21 ± 4.30 | +2.7% |
+| tg128 | 58.88 ± 0.33 | 58.98 ± 0.44 | +0.2% *(noise)* |
+| tg128 @ d32768 | 50.99 ± 0.05 | 50.70 ± 0.23 | −0.6% *(noise)* |
+| peak GPU | 30.38 GiB | 30.38 GiB | — |
+
+Determinism re-confirmed on b11330 at the serving `-ub 1024`: 12/12 byte-identical. The ubatch knee
+was re-swept in case [#29182](https://github.com/ggml-org/llama.cpp/pull/29182) (MoE-aware
+`mat_mul_id` tile selection) had moved it; it had not — `pp4096 @ d32768` 508.8 (512) / **561.7
+(1024)** / 506.6 (2048). tg has now been flat across **four** engine builds.
+
+### Multi-slot: speculation and batching compete (ornith15, b11330, `-ub 1024`, 2026-10-02)
+
+Aggregate generation t/s with N clients firing at once, one slot per client:
+
+| concurrent clients | `draft-dflash` ON | speculation OFF |
+|---|---|---|
+| 1 | **51.0** | 44.3 |
+| 2 | **61.8** | 58.1 |
+| 4 | 49.3 | **84.9** |
+| 8 | — | **92.1** |
+
+Speculation wins below ~3 concurrent requests and loses badly above (**−42% at 4 clients**): both
+techniques spend the same per-step batch dimension, one on draft tokens, the other on other users.
+This reproduces the qwen38 result on a different model *and* a different speculator. Scaling plateaus
+after 8 slots (+7% from 4 → 8). **Pick the config from the traffic you actually have**: this box's apps
+were observed via `/slots` holding several cached conversations with only ever **one**
+`is_processing`, i.e. sequential — so the shipped config is 2 slots *with* speculation.
+
+**Stability has a total-KV ceiling well under the memory budget, and speculation lowers it:**
+
+| slots × per-slot ctx | total KV | spec | result |
+|---|---|---|---|
+| **2 × 262144** | 512 K | on | **stable** — 10/10, 51.3 @1 / 60.1 @2 clients, 40.8 GB ← shipped |
+| 3 × 262144 | 768 K | on | unstable — 4/10 OK, 6 child restarts |
+| 4 × 262144 | 1 M | on | unstable — child crashes repeatedly |
+| 4 × 262144 | 1 M | off | stable — 10/10, 82.5 t/s @4, 40.6 GB |
+| 8 × 65536 | 512 K | off | stable — 92.1 t/s @8, 34.9 GB |
+| 8 × 262144 | 2 M | off | unstable — 2/10 OK, 5 child restarts |
+
+Every failure sat at **45–52 GB committed of ~109**, so this is an allocation limit, not capacity.
+**The failure mode is easy to misdiagnose:** the *child* model process crashes and the router parent
+reloads it, so clients see intermittent `HTTP 500 "proxy error"` while `llama-server` still shows as
+running. `metrics-exporter.ps1` now exports `llamacpp_child_restarts_total` for exactly this — alert on
+`increase(llamacpp_child_restarts_total[1h]) > 0`.
 
 `-b` genuinely does not matter: at matched `-ub` it moves nothing (129.5 vs 129.8 at 1024;
 107.8 vs 112.4 at 2048; 167.4 / 168.9 / 169.0 across three configs at 256 or below).

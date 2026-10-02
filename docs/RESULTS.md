@@ -1,7 +1,10 @@
 # Results
 
 Everything measured on one machine: **AMD Ryzen AI MAX+ 395 "Strix Halo"**, Radeon 8060S,
-128 GB unified memory (32/96 split), Windows, llama.cpp **b10431**, Vulkan.
+128 GB unified memory (32/96 split), Windows, llama.cpp **b10431**, Vulkan — except rows that name a
+later build (b11003 / b11046), which are labelled inline and are not comparable with b10431 rows. What
+the box serves *today* (Ornith-1.5 on b11330) is summarised in the
+[README](../README.md#serving-today) and measured in [BENCHMARKS.md](BENCHMARKS.md).
 
 New to this? **[EXPLAIN.md](EXPLAIN.md)** defines every term used here.
 

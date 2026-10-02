@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
 **Vulkan** backend (build **b10431** — the pin for the qwen38-era published numbers; the live `:8080`
-router runs **b11003**, which cannot be compared against b10431 rows and is labelled as such), serving
+router runs **b11330**, which cannot be compared against b10431 rows and is labelled as such), serving
 an OpenAI-compatible API on `:8080`. **This is a public repo** (MIT, GitHub Pages at
 strix.lazarev.cloud); read `docs/PUBLISHING.md` before adding files or relaxing `.gitignore`.
 
@@ -28,16 +28,20 @@ invalidates every number in the repo.
 ```
 scripts/windows/    PowerShell 5.1 — supported; every number came from here
   run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (-DryRun prints the cmdline)
-  run-router.ps1      serve TWO models at once on :8080 (llama.cpp router mode; route by model name)
+  run-router.ps1      ⭐ what :8080 runs: llama.cpp router mode, per-model presets ($known),
+                      -Parallel/-PerSlotCtx/-NoSpec, -DefaultModels (no -Models => ornith15)
   fetch-llamacpp.ps1  step zero: prebuilt Vulkan release -> bin\
   fetch-models.ps1    resume-capable GGUF downloader, byte-verifies against the HF API
   stage-nextgen.ps1   isolated test-load of a pending model (docs/ROADMAP.md): arch-check -> :8099 ->
                       #27805 determinism diff; stops+restarts the router only if it can't co-reside
   bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0); -Bin A/Bs builds,
                       -UBatch sweeps ubatch (one run per value, ub recorded per CSV row)
-  bench-spec.ps1      A/B baseline vs --spec-type
+  bench-spec.ps1      A/B baseline vs --spec-type; -NMax sweeps depth; -Temp ('' = llama-cli default
+                      sampler, which is what every published spec row used -- NOT greedy)
+  bench-parallel.ps1  aggregate t/s vs N concurrent clients (the spec-vs-batching table)
   metrics-exporter.ps1 Prometheus exporter on a FIXED :9114 (router children use RANDOM ports
-                      and the parent serves no /metrics); relabels each child with model=<id>
+                      and the parent serves no /metrics); relabels each child with model=<id>;
+                      llamacpp_child_restarts_total counts the crash+auto-reload failure mode
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform
@@ -62,8 +66,10 @@ Don't assume either style; check the file.
 .\scripts\windows\run-solo.ps1 -DryRun                 # print the llama-server invocation only
 ```
 
-**No launcher has a default model.** With no `-Model` / `-m` they list the GGUFs they can see and
-ask (taking the only one if there is just one). They look in `<repo>/models` unless `MODELS_DIR`
+**No launcher has a hardcoded model PATH.** With no `-Model` / `-m` they list the GGUFs they can see
+and ask (taking the only one if there is just one). One exception to "ask": `run-router.ps1`'s
+Enter / non-interactive choice is `-DefaultModels` (`ornith15`), used only if that model is on disk —
+it previously defaulted to *every* known model present, which over-commits the budget. They look in `<repo>/models` unless `MODELS_DIR`
 says otherwise — **this box needs it set**, since its weights are on `C:\llm-router\models` and
 `D:\llamacpp-vulkan\models`, not in the checkout. The previous hardcoded defaults pointed at those
 same paths, which is why every other clone died on startup.
@@ -105,15 +111,19 @@ python evals\rescore.py --tier hard         # re-derive scores from stored runs;
 if anything else holds GPU memory. Both guards exist because every harness bug so far produced a
 *believable wrong number*, never a crash.
 
-**Read `docs/BENCHMARKS.md` and `evals/README.md` before quoting any eval number.** **Fifteen** harness
-bugs are written up there with the fake number each produced (`17.2%`, `34/34 = 100%`, `92.2%`,
-`70/70` for four models at once, `peak GPU 0.00 GiB`, `draft-mtp 0 t/s => 0x`). The two newest are
-speed-side, not eval-side, and both produced a *complete, plausible* result rather than a crash:
-**#14** `bench-big.ps1` had a hardcoded GPU adapter LUID that Windows had reassigned, so every memory
-column read `0.00 GiB` while the run reported OK; **#15** `llama-cli` removed `-no-cnv`, so every
+**Read `docs/BENCHMARKS.md` and `evals/README.md` before quoting any eval number.** **Sixteen** harness
+bugs are written up in `evals/README.md` (the canonical numbering) with the fake number each produced
+(`17.2%`, `34/34 = 100%`, `92.2%`, `70/70` for four models at once, `draft-mtp 0 t/s => 0x`,
+`peak GPU 0.00 GiB`). The two newest are speed-side, not eval-side, and both produced a *complete,
+plausible* result rather than a crash: **#15** `llama-cli` removed `-no-cnv`, so every
 `bench-spec.ps1` process died in <1 s and the t/s regex fell back to 0 — yielding a fully-formed
-sweep of `0 t/s => 0x` rows plus a confident `best:` line. `bench-spec.ps1` now aborts on a missing
-timing line instead of dividing by it. Current rules that came out of them:
+sweep of `0 t/s => 0x` rows plus a confident `best:` line (`bench-spec.ps1` now aborts on a missing
+timing line instead of dividing by it); **#16** `bench-big.ps1` had a hardcoded GPU adapter LUID that
+Windows had reassigned, so every memory column read `0.00 GiB` while the run reported OK. (An earlier
+revision of this file numbered the LUID bug #14, colliding with evals/README's #14 — the ubatch one.)
+**Related label error, 2026-10-02:** every spec-decoding A/B was published as "greedy, seed 42", but
+`bench-spec.ps1` never passed `--temp` — those runs used llama-cli's default sampler. Numbers stand,
+label corrected; the script now prints its sampler and takes `-Temp`. Current rules that came out of them:
 
 - **Quality scores are withdrawn and being re-measured.** The four-way tie came from temperature 0
   sending thinking models into repetition loops plus a truncation rule that rescued the empty turns.
@@ -135,7 +145,8 @@ timing line instead of dividing by it. Current rules that came out of them:
   idle model's dedicated bytes to ~0 while it still holds the reservation — that counter
   under-reported two resident servers by 42.5 GB, which is how the box blew past its ceiling with
   the console showing plenty of room.
-- **`-b 2048 -ub 256`**, not 1024. `-ub` is the most architecture-specific flag here: 256 is +29%
+- **`-b 2048 -ub 256` for DENSE models; MoE gets 1024 per model** (see the scope note at the end of
+  this entry — both served MoEs run 1024). `-ub` is the most architecture-specific flag here: 256 is +29%
   prefill over 1024 on gfx1151 because a 256-row tile fits its 32 KB of shared memory. 128 measured
   0.9% higher on one run — the curve is flat below 256, so 256 is the knee. **Sweep it on other
   hardware, don't copy it.** Every serving and eval path now defaults to 256; the one deliberate
@@ -166,8 +177,12 @@ timing line instead of dividing by it. Current rules that came out of them:
   draft-dflash 1.22×), with every n≥4 measurement at or below 1.01×. Treat n=3 as this box's
   default and **always sweep downward, never upward** — vendor cards suggesting 5–7 cost 37% here.
   **The gain is strongly model-dependent:** the same technique gives 1.79× on qwen38 and 1.22× on
-  ornith15, so never carry a speedup figure across models. Generic `ngram-mod` is neutral-to-negative; a
-  separate draft model loses on these MoEs.
+  ornith15, so never carry a speedup figure across models. Generic `ngram-mod` is neutral-to-negative.
+  ~~A separate draft model loses on these MoEs.~~ **Narrowed 2026-10-02:** that rule came from
+  *community* data on *generic* drafts (−3 to −12% on MoE text; never measured here). A
+  *purpose-trained* draft is different — ornith15's first-party DFlash draft is a separate model and
+  it **won** here (1.22×, the serving config). The rule is "only a draft trained for this target",
+  not "no separate drafts".
 - **`--mlock`: never on this box.** It pins weights in the ~32 GB system-RAM partition and blocks
   the Vulkan upload, so `-ngl 999` silently runs from host RAM. Related: b10182 deprecated
   `--no-mmap`/`--mlock` in favour of `--load-mode`, **which defaults to mmap** — use `-lm none`.
@@ -236,8 +251,11 @@ timing line instead of dividing by it. Current rules that came out of them:
   - Cumulative on `pp4096 @ d32768`: **275.0 → 453.8 t/s, +65%** from b10677/ub256. Every step was
     prefill. **tg has not moved once**, across two builds and an 8× ubatch range — the tg lever
     remains the 7500→8533 RAM clock.
-- **`:8080` serves `ornith15` SOLO as of 2026-09-19** — Ornith-1.5-35B-A3B Q6_K (arch `qwen35moe`,
-  36B/~3B active, MIT), ctx 262144, **vision** via first-party mmproj, `draft-mtp n=3`, ~34 GB of 109.
+- **`:8080` serves `ornith15` SOLO since 2026-09-19** — Ornith-1.5-35B-A3B Q6_K (arch `qwen35moe`,
+  36B/~3B active, MIT), **vision** via first-party mmproj. **Current config (2026-10-02):** engine
+  `bin-b11330`, **2 slots × 262144** (`--ctx-size 524288`), `draft-dflash` + Q8_0 draft n=3,
+  `-ub 1024`, ~41 GB of 109 — verify with `GET /models` → `status.args`. (Single-slot at
+  2026-09-19 was ctx 262144 + `draft-mtp n=3`, ~34 GB; superseded by the A/B below.)
   Verified working: text+thinking, vision, **tool calling**, and needle retrieval at 9 k tokens.
   It is a **thinking model** — budget `max_tokens` 2048+ or `content` returns EMPTY. A *counting*
   prompt can still spiral past 4096 and return `finish_reason=length` with empty `content`; that is
@@ -246,7 +264,7 @@ timing line instead of dividing by it. Current rules that came out of them:
   `-ub 1024` (`pp4096 @ d32768` 391.3 → 477.8 → **543.8** → 481.7 t/s for ub 256/512/1024/2048 =
   **+39.0%** at the knee, +46.1% at depth 0, +0.8 GiB; 2048 regresses — re-swept on b11330, knee
   unchanged) and, **since 2026-10-02, `draft-dflash` rather than `draft-mtp`.**
-  **Spec A/B (b11046, greedy, seed 42):** baseline 57.9 t/s → `draft-mtp n=3` **64.1 (1.11×)** →
+  **Spec A/B (b11046, seed 42, llama-cli default sampler — published as "greedy" until the label fix):** baseline 57.9 t/s → `draft-mtp n=3` **64.1 (1.11×)** →
   `draft-dflash` + **BF16** draft n=3 **66.1 (1.15×)** → `draft-dflash` + **Q8_0** draft n=3
   **70.8 (1.22×)** ← serving. **The smaller Q8_0 draft (0.39 GB) BEATS the BF16 one (0.73 GB)** —
   draft latency costs more than its lower acceptance buys, the same shape as this repo's
@@ -257,7 +275,9 @@ timing line instead of dividing by it. Current rules that came out of them:
   The ceiling is **1.22×, not DFlash's advertised ~1.8×** (that figure is SGLang/vLLM on datacenter
   GPUs and does not transfer to Vulkan on an APU). Draft is first-party
   `ornith-ai/Ornith-1.5-35B-A3B-DFlash` (MIT), GGUF arch `dflash`, registry key `ornith15-dflash`.
-- **MULTI-SLOT: speculation must be turned OFF, and `--ctx-size` is SPLIT across slots.**
+- **MULTI-SLOT: speculation and batching COMPETE — keep spec ON for sequential traffic (shipped:
+  2 slots, spec on), turn it OFF only under genuine concurrency (≥4 overlapping requests). And
+  `--ctx-size` is SPLIT across slots.**
   MEASURED 2026-10-02 on ornith15 / b11330 / `-ub 1024`, aggregate t/s by concurrent clients:
 
   | clients | `draft-dflash` ON | spec OFF |

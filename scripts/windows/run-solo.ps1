@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Serve ONE model at a time, using the full measured memory ceiling of this box (~109 GB).
 
@@ -122,7 +122,7 @@ if (-not (Test-Path $Model)) { Write-Error "Model not found: $Model"; exit 1 }
 $Model = (Resolve-Path $Model).Path
 
 # GiB still COMMITTED by llama-* processes. This used to read one hardcoded adapter LUID's
-# 'dedicated usage' -- harness bug #14's pattern: Windows reassigns LUIDs, the counter path then
+# 'dedicated usage' -- harness bug #16's pattern: Windows reassigns LUIDs, the counter path then
 # does not exist, this returned -1, and the drain loop below broke out on its FIRST pass. The
 # launch then raced the previous server's VRAM release, and a stale allocation surfaced as a bogus
 # ErrorOutOfDeviceMemory. Summing Total Committed over llama-* PIDs has no adapter id in it to go
