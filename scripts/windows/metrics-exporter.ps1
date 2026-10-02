@@ -47,6 +47,20 @@
 param(
     [int]    $Port      = 9114,
     [string] $RouterUrl = 'http://127.0.0.1:8080',
+    # Listen address. '+' = all interfaces (0.0.0.0), so Prometheus/Grafana on another host can
+    # scrape this box. Binding '+' needs either an elevated shell or a one-time URL ACL.
+    # In an ELEVATED shell, pass the account LITERALLY -- `whoami` gives the right string:
+    #     netsh http add urlacl url=http://+:9114/ user="DOMAIN\user"
+    #     netsh advfirewall firewall add rule name="llamacpp-metrics" dir=in action=allow protocol=TCP localport=9114
+    # DO NOT copy %USERDOMAIN%\%USERNAME% into PowerShell -- those are cmd.exe variables and are NOT
+    # expanded there, so netsh receives the literal text and fails with
+    #     "Create SDDL failed, Error: 1332 The parameter is incorrect."
+    # (In PowerShell use "$env:USERDOMAIN\$env:USERNAME" or just paste the output of whoami.)
+    # Without the ACL, HttpListener throws Access Denied and this falls back to 127.0.0.1.
+    # NOTE: these metrics are UNAUTHENTICATED. On all-interfaces they expose model names, slot
+    # occupancy, context sizes and token counts to anyone who can reach the port. Fine on a trusted
+    # LAN; put it behind the firewall otherwise. No prompt or completion text is ever exposed.
+    [string] $Bind      = '+',
     [switch] $Once
 )
 $ErrorActionPreference = 'Continue'
@@ -152,17 +166,36 @@ function Build-Metrics {
 if ($Once) { Build-Metrics; exit 0 }
 
 $listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://+:$Port/")
+$listener.Prefixes.Add("http://${Bind}:$Port/")
+$boundAll = ($Bind -eq '+' -or $Bind -eq '0.0.0.0')
 try { $listener.Start() }
 catch {
-    # HttpListener on + needs a URL ACL or admin; fall back to loopback, which is enough for a
-    # local Prometheus and needs no elevation.
+    # '+' needs an elevated shell or a URL ACL. Fall back to loopback rather than dying, but say
+    # loudly what was lost and exactly how to fix it -- a silent downgrade to 127.0.0.1 would look
+    # like "Prometheus can't reach the box" from the other machine.
+    Write-Warning "Could not bind http://${Bind}:$Port/ ($($_.Exception.Message.Split([char]10)[0]))"
+    Write-Host   "  -> falling back to 127.0.0.1 (LOCAL ONLY). To expose on all interfaces, run ONCE as admin:" -ForegroundColor Yellow
+    # Resolve the account here so the printed command can be pasted verbatim. Printing the
+    # cmd.exe form (%USERDOMAIN%\%USERNAME%) fails in PowerShell with "Create SDDL failed, 1332"
+    # because those are not expanded there.
+    $acct = try { (whoami).Trim() } catch { "$env:USERDOMAIN\$env:USERNAME" }
+    Write-Host   "     netsh http add urlacl url=http://+:$Port/ user=`"$acct`"" -ForegroundColor Yellow
+    Write-Host   "     netsh advfirewall firewall add rule name=`"llamacpp-metrics`" dir=in action=allow protocol=TCP localport=$Port" -ForegroundColor Yellow
     $listener = New-Object System.Net.HttpListener
     $listener.Prefixes.Add("http://127.0.0.1:$Port/")
     $listener.Start()
-    Write-Host "  (bound to 127.0.0.1 only -- 'http://+:$Port/' needs an admin URL ACL)" -ForegroundColor DarkGray
+    $boundAll = $false
 }
-Write-Host "llama.cpp Prometheus exporter -> http://127.0.0.1:$Port/metrics" -ForegroundColor Green
+if ($boundAll) {
+    $ips = @(Get-NetIPAddress -AddressFamily IPv4 -EA SilentlyContinue |
+             Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+             Select-Object -Expand IPAddress)
+    Write-Host "llama.cpp Prometheus exporter -> ALL INTERFACES :$Port/metrics" -ForegroundColor Green
+    foreach ($ip in $ips) { Write-Host "    http://${ip}:$Port/metrics" -ForegroundColor Green }
+    Write-Host "  UNAUTHENTICATED -- anyone who can reach this port sees model/slot/token stats (never prompt text)." -ForegroundColor DarkYellow
+} else {
+    Write-Host "llama.cpp Prometheus exporter -> http://127.0.0.1:$Port/metrics (local only)" -ForegroundColor Green
+}
 Write-Host "  discovering children through $RouterUrl/v1/models" -ForegroundColor DarkGray
 Write-Host "  Ctrl-C to stop" -ForegroundColor DarkGray
 

@@ -279,10 +279,20 @@ timing line instead of dividing by it. Current rules that came out of them:
 
   | config | total KV | spec | result |
   |---|---|---|---|
-  | 4 × 262144 | 1 M | **off** | **STABLE** — 10/10, 0 child restarts, 82.5 t/s @4, 40.6 GB ✅ shipped |
-  | 8 × 65536 | 512 K | off | **STABLE** — 92.1 t/s @8 clients, 34.9 GB ✅ |
+  | **2 × 262144** | 512 K | **on** | **STABLE** — 10/10, 0 restarts, 51.3 @1 / 60.1 @2, 40.8 GB ✅ **shipped** |
+  | 4 × 262144 | 1 M | off | STABLE — 10/10, 82.5 t/s @4, 40.6 GB |
+  | 8 × 65536 | 512 K | off | STABLE — 92.1 t/s @8 clients, 34.9 GB |
+  | 3 × 262144 | 768 K | on | unstable — 4/10 OK, 6 child restarts |
   | 4 × 262144 | 1 M | **on** | unstable — child crashes repeatedly |
-  | 8 × 262144 | 2 M | off | unstable — 2 OK / 6 FAIL / 5 child restarts out of 10 |
+  | 8 × 262144 | 2 M | off | unstable — 2/10 OK, 5 child restarts |
+
+  **Speculation LOWERS the usable KV ceiling**: 512 K is fine with it, 768 K is not; without it 1 M
+  is fine and 2 M is not. Every failure sat at **45–52 GB committed**, far below ~109 GB, so this is
+  a Vulkan allocation limit, not capacity — a bigger carve-out will not help.
+  **Match the config to the actual traffic, not to the peak benchmark.** `/slots` showed this box's
+  apps holding four cached conversations with only ever **one** `is_processing` — i.e. sequential,
+  not concurrent. Speculation wins there (+15% at 1 client) and loses under real concurrency (−42%
+  at 4), so the shipped config is 2 slots **with** speculation.
 
   **The failure mode is NOT a dead server, and that matters for diagnosis:** the *child* model
   process crashes and the router parent **auto-reloads** it, so the symptom is intermittent
@@ -294,9 +304,11 @@ timing line instead of dividing by it. Current rules that came out of them:
   server crash. Both were wrong — 4 × 262144 is fine *without* speculation, and the parent survives.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` →
-  `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 4 -PerSlotCtx 262144 -NoSpec`
-  as of 2026-10-02 — **multi-slot, full native window per slot, speculation off**; see the slot entry above. For a single-client
-  box the faster config is `-Ctx 262144` with speculation on. It is **outside the
+  `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144`
+  as of 2026-10-02 — **2 slots × full native window, speculation ON**, matched to this box's
+  sequential app traffic; see the slot entry above. The launcher also starts
+  `metrics-exporter.ps1 -Port 9114 -Bind "+"`. For genuinely concurrent load switch to
+  `-Parallel 4 -PerSlotCtx 262144 -NoSpec`. It is **outside the
   repo**, so it drifts silently — it once still said `-Models gemma` after :8080 had moved to `coder`.
   Re-check it whenever the served set changes. `run-router` splits `-Models` on commas, so the
   `powershell.exe -File` "a,b arrives as one string" gotcha does **not** bite here; verified, don't

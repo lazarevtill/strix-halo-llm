@@ -327,3 +327,45 @@ slots with `slots_busy = 1` means four cached conversations and a client issuing
 > against four live slots. Use `Invoke-WebRequest` + `ConvertFrom-Json`, and count by **iterating**
 > rather than trusting `.Count`. Same family as the `ConvertTo-Json` collection-rewrapping gotcha in
 > CLAUDE.md.
+
+### Binding the exporter on all interfaces
+
+The exporter defaults to `-Bind '+'` (all interfaces) so Prometheus on another host can scrape it.
+`HttpListener` cannot bind `+` without a URL ACL, so the **first** run needs this once, elevated:
+
+```
+netsh http add urlacl url=http://+:9114/ user="DOMAIN\user"
+netsh advfirewall firewall add rule name="llamacpp-metrics" dir=in action=allow protocol=TCP localport=9114
+```
+
+> **Do not paste `%USERDOMAIN%\%USERNAME%` into PowerShell.** Those are cmd.exe variables and are
+> *not* expanded there, so netsh receives the literal text and fails with
+> `Create SDDL failed, Error: 1332 The parameter is incorrect.` Use the output of `whoami`, or
+> `"$env:USERDOMAIN\$env:USERNAME"`. The exporter prints the correct, already-resolved command when
+> its bind fails, so copy it from there.
+
+Without the ACL the exporter still starts, but **loopback-only** — it warns loudly rather than
+downgrading silently, because from the scraping host that is indistinguishable from "the box is
+down". Check the banner: it prints either `ALL INTERFACES` with each reachable URL, or `(local only)`.
+
+**The endpoint is unauthenticated.** It exposes model names, slot occupancy, context sizes and token
+counters — never prompt or completion text. Fine on a trusted LAN or tailnet; firewall it otherwise.
+
+## 10. Slot count is capped by STABILITY, not memory
+
+Measured 2026-10-02 on ornith15 / b11330 / `-ub 1024`, 10 sequential requests each, counting child
+process restarts:
+
+| slots × per-slot ctx | total KV | spec | result |
+|---|---|---|---|
+| 2 × 262144 | 512 K | **on** | 10/10, 0 restarts — **STABLE**, shipped |
+| 3 × 262144 | 768 K | on | 4/10, 6 restarts — unstable |
+| 4 × 262144 | 1 M | on | child crashes repeatedly — unstable |
+| 4 × 262144 | 1 M | off | 10/10, 0 restarts — **STABLE** |
+| 8 × 65536 | 512 K | off | stable |
+| 8 × 262144 | 2 M | off | 2/10, 5 restarts — unstable |
+
+Speculation **lowers** the usable KV ceiling: 512 K is fine with it, 768 K is not, while without it
+1 M is fine and 2 M is not. Every failure occurred at **45–52 GB committed**, far below the ~109 GB
+budget, so this is a Vulkan allocation limit rather than capacity — raising the carve-out will not
+help. Re-test concurrency after any change to slot count, per-slot context, or speculation.
