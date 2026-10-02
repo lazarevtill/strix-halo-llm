@@ -37,6 +37,18 @@ REGISTRY=(
   "qwen122b-1|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf|10943808"
   "qwen122b-2|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00002-of-00003.gguf|49667346080"
   "qwen122b-3|unsloth/Qwen3.5-122B-A10B-MTP-GGUF|UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00003-of-00003.gguf|28968190016"
+  # Copied from scripts/windows/fetch-models.ps1 (byte counts verified there against the HF API).
+  # A key MAY span several rows: `--only ornith15` fetches the model AND its projector, matching the
+  # Windows key, because run-router.sh serves ornith15 with vision.
+  "coder-next|unsloth/Qwen3-Coder-Next-GGUF|Qwen3-Coder-Next-UD-Q4_K_XL.gguf|49608478720"
+  "ornith15|ornith-ai/Ornith-1.5-35B-A3B-GGUF|Ornith-1.5-35B-Q6_K.gguf|29208731392"
+  "ornith15|ornith-ai/Ornith-1.5-35B-A3B-GGUF|mmproj-Ornith-1.5-35B-BF16.gguf|902822240"
+  # DFlash DRAFT for ornith15 (a speed lever, not a servable model -- run-router.sh skips it as a
+  # target and points spec-draft-model at the Q8_0, which measured faster than the BF16 on Windows).
+  # THIRD-PARTY conversion of the first-party ornith-ai draft: confirm acceptance > 0 before trusting
+  # any speedup -- a speculator that never engages reads as 1.00x, not as an error.
+  "ornith15-dflash|na0x2c6/Ornith-1.5-35B-A3B-DFlash-GGUF|Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf|421060960"
+  "ornith15-dflash|na0x2c6/Ornith-1.5-35B-A3B-DFlash-GGUF|Ornith-1.5-35B-A3B-DFlash-BF16.gguf|782819680"
 )
 # Every byte count here is VERIFIED — the original four against files on disk (2026-08-04), the
 # two qwen38 rows against the HF API and the Windows registry they mirror (2026-08-16). Worth
@@ -82,28 +94,47 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -z "$MODE" ]] && { usage; exit 0; }
+if [[ "$MODE" == "only" && -z "$ONLY" ]]; then echo "--only needs KEY[,KEY]" >&2; exit 2; fi
 
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 mkdir -p "$DEST"
 
 human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"; }
+# Portable byte count: `stat -c%s` is GNU-only (macOS stat wants -f%z), and the macOS docs point
+# here. `wc -c <file` works on both; tr strips the padding BSD wc adds.
+fsize() { wc -c <"$1" | tr -d ' \t'; }
 
 # key|repo|path|expected_bytes[|save_as]   -- save_as (optional) overrides the on-disk name, needed
 # when two repos ship an identically-named file (both huihui GGUFs have mmproj-model-bf16.gguf).
 entry_fields() { IFS='|' read -r KEY REPO RPATH WANT AS <<<"$1"; FNAME="${AS:-$(basename "$RPATH")}"; }
 
+# An unknown --only key is an ERROR, not a silent no-op: a typo used to exit 0 having fetched
+# nothing, which reads exactly like "already complete".
+if [[ "$MODE" == "only" ]]; then
+  IFS=',' read -r -a WANT_KEYS <<<"$ONLY"
+  for wk in "${WANT_KEYS[@]}"; do
+    hit=0
+    for e in "${REGISTRY[@]}"; do entry_fields "$e"; if [[ "$KEY" == "$wk" ]]; then hit=1; break; fi; done
+    if [[ $hit -eq 0 ]]; then
+      echo "unknown key '$wk'. Known keys:" >&2
+      for e in "${REGISTRY[@]}"; do entry_fields "$e"; printf '  %s\n' "$KEY"; done | uniq >&2
+      exit 1
+    fi
+  done
+fi
+
 if [[ "$MODE" == "list" || "$MODE" == "verify" ]]; then
-  printf '%-14s %-14s %-14s %s\n' KEY EXPECTED ONDISK STATUS
+  printf '%-18s %-10s %-10s %-26s %s\n' KEY EXPECTED ONDISK STATUS FILE
   for e in "${REGISTRY[@]}"; do
     entry_fields "$e"
     local_path="${DEST}/${FNAME}"
     if [[ -f "$local_path" ]]; then
-      have=$(stat -c%s "$local_path")
+      have=$(fsize "$local_path")
       if [[ "$have" == "$WANT" ]]; then status="OK"; else status="SIZE MISMATCH — re-fetch"; fi
     else
       have=0; status="missing"
     fi
-    printf '%-14s %-14s %-14s %s\n' "$KEY" "$(human "$WANT")" "$(human "$have")" "$status"
+    printf '%-18s %-10s %-10s %-26s %s\n' "$KEY" "$(human "$WANT")" "$(human "$have")" "$status" "$FNAME"
   done
   exit 0
 fi
@@ -114,17 +145,26 @@ for e in "${REGISTRY[@]}"; do
   local_path="${DEST}/${FNAME}"
   url="${HF_BASE}/${REPO}/resolve/main/${RPATH}"
 
-  if [[ -f "$local_path" ]] && [[ "$(stat -c%s "$local_path")" == "$WANT" ]]; then
-    echo "[skip] ${KEY} already complete ($(human "$WANT"))"
-    continue
+  if [[ -f "$local_path" ]]; then
+    have=$(fsize "$local_path")
+    if [[ "$have" == "$WANT" ]]; then
+      echo "[skip] ${KEY} ${FNAME} already complete ($(human "$WANT"))"
+      continue
+    fi
+    # A partial LARGER than expected cannot be resumed into a valid file: curl -C - would ask for a
+    # range past the end (416) or append to the wrong bytes. It is a different or corrupt file.
+    if [[ "$have" -gt "$WANT" ]]; then
+      echo "[warn] ${FNAME} is ${have} bytes, larger than the expected ${WANT} -- deleting, re-fetching" >&2
+      rm -f "$local_path"
+    fi
   fi
 
-  echo "[get ] ${KEY} -> ${local_path}"
+  echo "[get ] ${KEY} ${FNAME} -> ${local_path}"
   # -C - resumes; --retry survives the flaky-link case this was written for.
   curl -L -C - --retry 8 --retry-delay 5 --retry-all-errors \
        --progress-bar -o "$local_path" "$url"
 
-  have=$(stat -c%s "$local_path")
+  have=$(fsize "$local_path")
   if [[ "$have" != "$WANT" ]]; then
     echo "[FAIL] ${KEY}: got $(human "$have"), expected $(human "$WANT") — NOT usable, re-run to resume" >&2
     exit 1

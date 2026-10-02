@@ -15,8 +15,9 @@
 | `fetch-llamacpp.sh` | `../windows/fetch-llamacpp.ps1` | **step zero** — downloads a prebuilt Vulkan release into `bin/`. Plain curl + unzip; the untested part is whether that build runs on your driver stack |
 | `run-solo.sh` | `../windows/run-solo.ps1` | flags ported 1:1; **GPU accounting and occupancy logic unverified** |
 | `fetch-models.sh` | `../windows/fetch-models.ps1` | most portable of the set — curl + arithmetic, no OS-specific behaviour; byte counts verified |
-| `bench-big.sh` | `../windows/bench-big.ps1` | depth sweep ported; **the dirty-GPU guard only warns, it does not block** |
-| `bench-spec.sh` | `../windows/bench-spec.ps1` | A/B harness ported; **output parsing is llama.cpp-version-sensitive** |
+| `bench-big.sh` | `../windows/bench-big.ps1` | depth + `--ubatch` sweep ported, OOM/FAIL rows recorded; **the dirty-GPU guard only warns, it does not block** |
+| `bench-spec.sh` | `../windows/bench-spec.ps1` | A/B harness ported: warm-up, depth sweep (`--nmax 1,2,3`) against one baseline, hard failure on a missing timing line; **output parsing is llama.cpp-version-sensitive** |
+| `run-router.sh` | `../windows/run-router.ps1` | router mode, per-model presets, `--parallel` / `--per-slot-ctx` / `--no-spec`; **`--dry-run` preset asserted in CI, never launched on Linux** |
 
 ## What was verified, and what wasn't
 

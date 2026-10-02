@@ -137,16 +137,6 @@ fi
 [[ -f "$MODEL" ]] || { echo "model not found: $MODEL" >&2
                        echo "  get one with scripts/linux/fetch-models.sh --list" >&2; exit 1; }
 
-# One model at a time. Two resident models share one memory pool; a contended measurement is
-# not slightly wrong, it is meaningless -- and on a unified-memory machine the second one may
-# simply fail to allocate rather than evicting the first.
-if pgrep -x llama-server >/dev/null 2>&1; then
-  echo "another llama-server is running:"
-  pgrep -lx llama-server | sed 's/^/  /'
-  echo "stop it first (pkill -x llama-server)." >&2
-  exit 1
-fi
-
 ARGS=(
   -m "$MODEL"
   -ngl 999                    # offload everything; on Metal this is the normal case
@@ -177,6 +167,18 @@ if [[ $DRY_RUN -eq 1 ]]; then
   printf ' %q' "${ARGS[@]}"
   printf '\n'
   exit 0
+fi
+
+# One model at a time. Two resident models share one memory pool; a contended measurement is
+# not slightly wrong, it is meaningless -- and on a unified-memory machine the second one may
+# simply fail to allocate rather than evicting the first.
+# AFTER the --dry-run exit on purpose: printing a command line launches nothing, so a running
+# server is no reason to refuse it (and it made --dry-run unusable on a box that is serving).
+if pgrep -x llama-server >/dev/null 2>&1; then
+  echo "another llama-server is running:" >&2
+  pgrep -lx llama-server | sed 's/^/  /' >&2
+  echo "stop it first (pkill -x llama-server)." >&2
+  exit 1
 fi
 
 exec "$BIN" "${ARGS[@]}"

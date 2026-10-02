@@ -217,7 +217,75 @@ jobs:
             esac
           done
 
-          rm -rf "$ONE" "$TWO" "$EMPTY"
+          echo "linux/run-router.sh:"
+          # Fixtures are empty files: KNOWN models are matched by filename and never opened, so
+          # nothing here needs real weights. RT = the shipped ornith15 shape (model + projector +
+          # DFlash draft) plus a text-only, no-spec model; NODRAFT = the same without the draft.
+          RT="$(mktemp -d)"
+          : > "${RT}/Ornith-1.5-35B-Q6_K.gguf"; : > "${RT}/mmproj-Ornith-1.5-35B-BF16.gguf"
+          : > "${RT}/Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf"; : > "${RT}/Qwen3-Coder-Next-UD-Q4_K_XL.gguf"
+          NODRAFT="$(mktemp -d)"
+          : > "${NODRAFT}/Ornith-1.5-35B-Q6_K.gguf"; : > "${NODRAFT}/mmproj-Ornith-1.5-35B-BF16.gguf"
+          DRAFTONLY="$(mktemp -d)"; : > "${DRAFTONLY}/Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf"
+          section() {  # section <label> <preset text>: just that model's [label] block
+            printf '%s\n' "$2" | awk -v want="[$1]" '
+              { t = $0; sub(/^[ \t]+/, "", t) }
+              t ~ /^\[/ { on = (t == want) } on'
+          }
+          rm -f scripts/linux/router-models.generated.ini
+
+          RR="$(dry scripts/linux/run-router.sh "$RT" --models ornith15,coder --parallel 2 --per-slot-ctx 262144)"
+          O15="$(section ornith15 "$RR")"
+          want   'metrics = 1'               "$RR"  'g) every child exposes /metrics'
+          want   'parallel = 2'              "$RR"  'h) --parallel 2 reaches the preset'
+          want   'ctx-size = 524288'         "$RR"  'h) --per-slot-ctx 262144 x 2 slots = ctx-size 524288'
+          want   'ubatch-size = 1024'        "$O15" 'i) ornith15 carries its measured ubatch-size 1024'
+          wantno 'ubatch-size = 256'         "$O15" 'i) ...and the common 256 is suppressed, not duplicated'
+          want   'spec-type = draft-dflash'  "$O15" 'j) ornith15 speculates with its DFlash draft'
+          want   'DFlash-Q8_0.gguf'          "$O15" 'j) spec-draft-model resolves into MODELS_DIR'
+          want   'mmproj = '                 "$O15" 'j) ornith15 keeps its vision projector'
+          if [ -e scripts/linux/router-models.generated.ini ]; then
+            bad 'l) --dry-run wrote the live preset into the repo'
+          else
+            ok  'l) --dry-run leaves the live preset alone'
+          fi
+
+          RRNS="$(dry scripts/linux/run-router.sh "$RT" --models ornith15 --no-spec)"
+          wantno 'spec-'                     "$RRNS" 'm) --no-spec leaves no spec-* line'
+          want   'ubatch-size = 1024'        "$RRNS" 'm) --no-spec keeps the non-spec tuning'
+
+          RRND="$(dry scripts/linux/run-router.sh "$NODRAFT" --models ornith15)"
+          wantno 'spec-'                     "$RRND" 'n) a missing draft drops every spec-* line'
+          want   'ubatch-size = 1024'        "$RRND" 'n) ...but keeps ubatch-size 1024'
+
+          RRDD="$(dry scripts/linux/run-router.sh "$RT" --models ornith15,ornith15)"
+          n15="$(printf '%s\n' "$RRDD" | grep -c '\[ornith15\]')"
+          if [ "$n15" = 1 ]; then ok 'o) --models a,a emits one section'; else bad "o) --models a,a emitted $n15 sections"; fi
+
+          # The DFlash file must not be OFFERED: with only a draft on disk there is nothing to serve.
+          if MODELS_DIR="$DRAFTONLY" LLAMA_BIN=/bin/echo bash scripts/linux/run-router.sh --dry-run >/dev/null 2>&1; then
+            bad 'k) a dir holding only a DFlash draft was treated as servable'
+          else
+            ok  'k) a dir holding only a DFlash draft has nothing servable'
+          fi
+          AVAIL="$(MODELS_DIR="$RT" LLAMA_BIN=/bin/echo bash scripts/linux/run-router.sh --dry-run --models nosuch 2>&1)"
+          want   'Available:'                "$AVAIL" 'k) an unknown --models name lists what is available'
+          wantno 'dflash'                    "$AVAIL" 'k) ...and the list has no dflash entry'
+
+          # DISCOVERED (not KNOWN) models: spec comes from the gguf header. The match sits at byte 0
+          # of a 3 MB file on purpose -- `head -c 3000000 | grep -q` SIGPIPEs head there, and under
+          # pipefail that read as "no MTP head". Only a Linux pipe buffer reproduces it.
+          AD="$(mktemp -d)"
+          { printf 'nextn_predict_layers'; head -c 3000000 /dev/zero; } > "${AD}/Mtpmodel-Q4_K_M.gguf"
+          : > "${AD}/Plain-Q4_K_M.gguf"
+          RA="$(dry scripts/linux/run-router.sh "$AD" --models mtpmodel,plain)"
+          want   'spec-type = draft-mtp'     "$(section mtpmodel "$RA")" 'p) an MTP head in the gguf header auto-enables draft-mtp'
+          want   'ubatch-size = 256'         "$(section plain "$RA")"    'p) a plain discovered model gets the common defaults'
+          wantno 'spec-'                     "$(section plain "$RA")"    'p) ...and no speculation'
+          RANS="$(dry scripts/linux/run-router.sh "$AD" --models mtpmodel,plain --no-spec)"
+          wantno 'spec-'                     "$RANS" 'p) --no-spec also drops an auto-detected draft-mtp'
+
+          rm -rf "$ONE" "$TWO" "$EMPTY" "$RT" "$NODRAFT" "$DRAFTONLY" "$AD"
           echo
           if [ "$FAIL" -eq 0 ]; then echo 'launcher contract: ALL PASS'; else echo 'launcher contract: FAILURES'; fi
           exit "$FAIL"
