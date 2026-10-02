@@ -17,7 +17,7 @@
   .\fetch-models.ps1 -List                       # show the registry, sizes, what's already present
   .\fetch-models.ps1 -Only ornith-bf16           # one model
   .\fetch-models.ps1 -Only ornith-bf16,qwen122b  # several
-  .\fetch-models.ps1 -All                        # the whole bench set (~314 GiB)
+  .\fetch-models.ps1 -All                        # every LOADABLE entry (WILL-NOT-LOAD ones skipped; size: -All -WhatIf)
   .\fetch-models.ps1 -All -WhatIf                # plan only
 #>
 [CmdletBinding()]
@@ -516,13 +516,31 @@ if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Force $Dest | Out-Nu
 $curl = (Get-Command curl.exe -EA SilentlyContinue).Source
 if (-not $curl) { Write-Error "curl.exe not found (expected in C:\Windows\System32). Cannot resume large downloads."; exit 1 }
 
-$sel = if ($All) { @($REG.Keys) } elseif ($Only) { $Only } else { Write-Error "Specify -Only <label,...> / -All / -List"; exit 1 }
+# -All skips entries marked WILL NOT LOAD: 60-90 GB each of files this repo has already proven
+# cannot be served. Name one explicitly with -Only to fetch it anyway (e.g. to re-test after an
+# upstream reconversion).
+$sel = if ($All) { @($REG.Keys | Where-Object { $REG[$_].note -notmatch 'WILL NOT LOAD' }) } elseif ($Only) { $Only } else { Write-Error "Specify -Only <label,...> / -All / -List"; exit 1 }
+if ($All) {
+    foreach ($k in @($REG.Keys | Where-Object { $REG[$_].note -match 'WILL NOT LOAD' })) {
+        Write-Host "  -All skips '$k' (marked WILL NOT LOAD; use -Only $k to force)" -ForegroundColor DarkYellow
+    }
+}
 foreach ($s in $sel) { if (-not $REG.Contains($s)) { Write-Error "unknown label '$s'. Known: $($REG.Keys -join ', ')"; exit 1 } }
 
+# Plan only the bytes still MISSING. Counting full sizes refused to resume an 82 GB download with
+# 20 GB left to fetch and 30 GB free.
 $plannedBytes = 0
-foreach ($s in $sel) { foreach ($f in $REG[$s].files) { if ($f.b -gt 0) { $plannedBytes += $f.b } } }
+foreach ($s in $sel) {
+    foreach ($f in $REG[$s].files) {
+        if ($f.b -le 0) { continue }
+        $lp = Join-Path $Dest $(if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) })
+        $haveB = if (Test-Path $lp) { (Get-Item $lp).Length } else { 0 }
+        if ($haveB -gt $f.b) { $haveB = 0 }   # oversized -> will be deleted and refetched
+        $plannedBytes += ($f.b - $haveB)
+    }
+}
 $drv = Get-PSDrive ($Dest.Substring(0,1))
-Write-Host ("`nPlan: {0} model(s), ~{1:N1} GiB into {2}" -f $sel.Count, ($plannedBytes/1GB), $Dest) -ForegroundColor Cyan
+Write-Host ("`nPlan: {0} model(s), ~{1:N1} GiB still to download into {2}" -f $sel.Count, ($plannedBytes/1GB), $Dest) -ForegroundColor Cyan
 Write-Host ("{0}: {1:N1} GiB free -> ~{2:N1} GiB after" -f $drv.Name, ($drv.Free/1GB), (($drv.Free-$plannedBytes)/1GB)) -ForegroundColor DarkGray
 if ($plannedBytes -gt $drv.Free) { Write-Error "Not enough free space on $($drv.Name):"; exit 1 }
 if ($WhatIf) { Write-Host "[WhatIf] nothing downloaded." -ForegroundColor Yellow; return }
@@ -549,15 +567,34 @@ foreach ($s in $sel) {
             Write-Host ("  [bad size, refetching] $name") -ForegroundColor Yellow
             Remove-Item $out -Force
         }
+        # A partial that does not start with the GGUF magic is not a partial download -- it is an
+        # HTTP error body (401 gated / 404) that curl wrote before --fail was added. Resuming onto it
+        # with -C - would produce a file of exactly the right SIZE with garbage in its first bytes,
+        # and the size check would call it complete.
+        if ((Test-Path $out) -and $name -like '*.gguf' -and (Get-Item $out).Length -gt 0) {
+            $fs = [IO.File]::OpenRead($out); $hd = New-Object byte[] 4; $null = $fs.Read($hd, 0, 4); $fs.Close()
+            if ([Text.Encoding]::ASCII.GetString($hd) -ne 'GGUF') {
+                Write-Host ("  [not a GGUF -- an old error body? deleting] $name") -ForegroundColor Yellow
+                Remove-Item $out -Force
+            }
+        }
         $existing = if (Test-Path $out) { (Get-Item $out).Length } else { 0 }
         if ($existing -gt 0) { Write-Host ("  [resume @ {0:N2} GiB] {1}" -f ($existing/1GB), $name) -ForegroundColor Yellow }
         else                 { Write-Host ("  [get] {0}" -f $name) -ForegroundColor Green }
 
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        # -L follow redirects (HF -> CDN), -C - resume, --retry survive transient CDN faults
-        & $curl -L -C - --retry 8 --retry-delay 5 --retry-all-errors `
+        # -L follow redirects (HF -> CDN), -C - resume, --retry survive transient CDN faults.
+        # --fail: an HTTP error (401 gated, 404 renamed) must NOT be written into the output file as
+        # if it were model bytes -- see the GGUF-magic check above for what that used to cause.
+        & $curl -L -C - --fail --retry 8 --retry-delay 5 --retry-all-errors `
                 --connect-timeout 30 -o $out $url
+        $rc = $LASTEXITCODE
         $sw.Stop()
+        if ($rc -ne 0) {
+            Write-Host ("  FAILED {0}: curl exit {1}{2}" -f $name, $rc, $(if ($rc -eq 22) { ' (HTTP error -- gated repo needs a token, or the file was renamed upstream)' } else { ' (re-run to resume)' })) -ForegroundColor Red
+            if (Test-Path $out) { $doneBytes += (Get-Item $out).Length }
+            continue
+        }
 
         if (-not (Test-Path $out)) { Write-Host "  FAILED (no file): $name" -ForegroundColor Red; continue }
         $got = (Get-Item $out).Length

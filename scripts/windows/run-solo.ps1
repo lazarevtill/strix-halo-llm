@@ -83,7 +83,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
 $bin = "$repoRoot\bin\llama-server.exe"
-$gpu = 'luid_0x00000000_0x01c3ed4a_phys_0'
 if (-not (Test-Path $bin))   { Write-Error "llama-server.exe not found: $bin"; exit 1 }
 
 # ---- 0) pick a model, if one was not named ------------------------------------------------------
@@ -122,8 +121,23 @@ if (-not $Model) {
 if (-not (Test-Path $Model)) { Write-Error "Model not found: $Model"; exit 1 }
 $Model = (Resolve-Path $Model).Path
 
+# GiB still COMMITTED by llama-* processes. This used to read one hardcoded adapter LUID's
+# 'dedicated usage' -- harness bug #14's pattern: Windows reassigns LUIDs, the counter path then
+# does not exist, this returned -1, and the drain loop below broke out on its FIRST pass. The
+# launch then raced the previous server's VRAM release, and a stale allocation surfaced as a bogus
+# ErrorOutOfDeviceMemory. Summing Total Committed over llama-* PIDs has no adapter id in it to go
+# stale, and ignores the desktop's own ~1.6 GiB, which would otherwise never "drain".
 function Get-GpuDedGB {
-    try { return [math]::Round((Get-Counter "\GPU Adapter Memory($gpu)\dedicated usage" -EA Stop).CounterSamples[0].CookedValue/1GB, 2) } catch { return -1 }
+    try {
+        $sum = 0.0
+        foreach ($s in (Get-Counter '\GPU Process Memory(*)\Total Committed' -EA Stop).CounterSamples) {
+            $q = ([regex]::Match($s.InstanceName, 'pid_(\d+)')).Groups[1].Value
+            if (-not $q) { continue }
+            $pr = Get-Process -Id ([int]$q) -EA SilentlyContinue
+            if ($pr -and $pr.ProcessName -like 'llama*') { $sum += $s.CookedValue }
+        }
+        return [math]::Round($sum / 1GB, 2)
+    } catch { return -1 }
 }
 
 # ---- 1) enforce solo occupancy ------------------------------------------------------------------
@@ -156,18 +170,30 @@ if ($others.Count -and -not $DryRun) {
     foreach ($o in $blocking) {
         if (-not $Force) {
             # refuse to kill a server that is mid-request (unless -Force)
+            # Every port this process listens on (router children use RANDOM ports), and
+            # Invoke-WebRequest + iteration -- see the same guard in run-router.ps1 for why
+            # Invoke-RestMethod reads an idle multi-slot server as busy on PS 5.1.
             $busy = 0
-            foreach ($prt in 8080..8099) {
-                $owner = (Get-NetTCPConnection -LocalPort $prt -State Listen -EA SilentlyContinue).OwningProcess
-                if ($owner -eq $o.Id) {
-                    try { $busy = @((Invoke-RestMethod "http://127.0.0.1:$prt/slots" -TimeoutSec 3) | Where-Object { $_.is_processing }).Count } catch {}
-                }
+            $ports = @(Get-NetTCPConnection -State Listen -EA SilentlyContinue | Where-Object { $_.OwningProcess -eq $o.Id } | Select-Object -Expand LocalPort -Unique)
+            foreach ($prt in $ports) {
+                try {
+                    $raw = (Invoke-WebRequest "http://127.0.0.1:$prt/slots" -TimeoutSec 3 -UseBasicParsing).Content
+                    foreach ($sl in ($raw | ConvertFrom-Json)) { if ($sl.is_processing -eq $true) { $busy++ } }
+                } catch {}
             }
             if ($busy -gt 0) { Write-Error "llama-server PID $($o.Id) has $busy active request(s). Wait, or use -Force."; exit 1 }
         }
+        # A router CHILD dies with its parent, so by the time we reach it it may already be gone.
+        # That is the goal, not an error -- only a process that is STILL alive after the attempt
+        # means we lacked the rights (elevated). Same handling as run-router.ps1.
+        if (-not (Get-Process -Id $o.Id -EA SilentlyContinue)) { continue }
         Write-Host "  stopping other llama-server PID $($o.Id) (solo mode)" -ForegroundColor Yellow
         try { Stop-Process -Id $o.Id -Force -EA Stop }
-        catch { Write-Error "Cannot stop PID $($o.Id): $($_.Exception.Message)`nIt is probably ELEVATED. Re-run this script as Administrator, or kill it from an elevated shell."; exit 1 }
+        catch {
+            if (Get-Process -Id $o.Id -EA SilentlyContinue) {
+                Write-Error "Cannot stop PID $($o.Id): $($_.Exception.Message)`nIt is probably ELEVATED. Re-run this script as Administrator, or kill it from an elevated shell."; exit 1
+            }
+        }
     }
 }
 
@@ -177,7 +203,7 @@ if (-not $DryRun) {
     for ($i = 0; $i -lt 40; $i++) {
         $d = Get-GpuDedGB
         if ($d -lt 0 -or $d -le 3.0) { break }
-        Write-Host ("  waiting for GPU to drain... dedicated {0} GB" -f $d) -ForegroundColor DarkYellow
+        Write-Host ("  waiting for GPU to drain... llama-* still commit {0} GB" -f $d) -ForegroundColor DarkYellow
         Start-Sleep -Seconds 5
     }
     $d = Get-GpuDedGB

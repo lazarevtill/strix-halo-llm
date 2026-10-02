@@ -8,13 +8,14 @@
   2026-08-18: both models stay co-resident (models-max 2), and per-model tuned flags survive into
   each child (checked via GET /models -> status.args).
 
-  Why this over two hand-run servers: one port, one process tree, LRU eviction if you ever exceed
-  models-max, and no manual juggling. Route coding -> "qwen38", big-text -> "ornith" (MoE, ~2.5x the
-  dense 27B's generation speed).
+  Why this over hand-run servers: one port, one process tree, LRU eviction if you ever exceed
+  models-max, and no manual juggling. Since 2026-09-19 the box serves ONE model this way
+  ("ornith15"); router mode is still used because it gives per-model presets, multi-slot, and a
+  stable :8080 that survives a child crash (the parent auto-reloads it).
 
   ASKS ON START which models to serve. With no -Models it scans MODELS_DIR and, when run
-  interactively, prints a numbered menu and prompts (Enter = the tuned default qwen38 + ornith).
-  Non-interactive (a task/pipe) uses the default. The two published models carry their exact tuning;
+  interactively, prints a numbered menu and prompts (Enter = -DefaultModels, i.e. ornith15).
+  Non-interactive (a task/pipe) uses the same default. The models in $known carry their exact tuning;
   ANY other gguf on the box is offered too and auto-tuned -- spec read from its own GGUF header
   (draft-mtp when it has an MTP head), vision projector matched by sibling filename -- so a private
   or newly-downloaded model is servable without being named in this committed script.
@@ -25,20 +26,31 @@
       exhaust it. `none` keeps weights in the VRAM carve-out, host copy paged out (the old -lm none).
     * Pre-load. Autoload does NOT fire on the first /v1/chat/completions call -- it 400s
       ("model is not loaded"). We POST /models/load for each model at startup so clients never see it.
-    * Context is 131072 per model, NOT the 262144 a solo model gets: two resident models split the
-      ~109 GB budget. 131072 x2 (q8_0 KV) fits with room to spare (~54 GB measured).
+    * --ctx-size is SPLIT across slots. Use -PerSlotCtx to ask for "each slot gets N tokens";
+      it sets Ctx = PerSlotCtx * Parallel. (-Ctx alone is the TOTAL per model.)
+    * Multi-slot stability has a total-KV ceiling well under the 109 GB budget, and speculation
+      LOWERS it: 2 x 262144 with spec is stable, 3 x 262144 with spec is not; 4 x 262144 without
+      spec is stable. See CLAUDE.md. Failure = child crash + auto-reload (HTTP 500 "proxy error").
 
 .EXAMPLE
-  .\run-router.ps1                              # ask on start (menu); Enter = qwen38 + ornith
-  .\run-router.ps1 -Models qwen38,ornith        # non-interactive: serve exactly these
-  .\run-router.ps1 -Models cyberstrike-offsec-35b -ModelsMax 1   # a single on-demand model
-  .\run-router.ps1 -DryRun                       # print the cmdline + generated preset, launch nothing
+  .\run-router.ps1                              # ask on start (menu); Enter = ornith15
+  .\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144
+                                                # THE SHIPPED CONFIG (sequential traffic, spec ON)
+  .\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 4 -PerSlotCtx 262144 -NoSpec
+                                                # genuinely concurrent load (+72% at 4 clients)
+  .\run-router.ps1 -Models qwen38,ornith        # two models co-resident
+  .\run-router.ps1 -DryRun                       # print the cmdline + preset (to a TEMP file), launch nothing
 #>
 [CmdletBinding()]
 param(
-    [string[]] $Models    = @(),   # which models to serve. Empty => ASK on start (interactive), or the
-                                   # tuned default (qwen38, ornith) when non-interactive. Names or the
-                                   # menu numbers; any gguf in MODELS_DIR is offered, auto-tuned.
+    [string[]] $Models    = @(),   # which models to serve. Empty => ASK on start (interactive), or
+                                   # -DefaultModels when non-interactive. Names or the menu numbers;
+                                   # any gguf in MODELS_DIR is offered, auto-tuned.
+    # What Enter / no -Models means. EXPLICIT on purpose: an earlier version defaulted to "every
+    # $known label present on disk", raised ModelsMax to match and pre-loaded them all -- with five
+    # tuned models on disk that asks for far more than the ~109 GB budget, while the help text
+    # still promised a two-model default.
+    [string[]] $DefaultModels = @('ornith15'),
     [int]      $Port      = 8080,
     [int]      $Ctx       = 131072,
     # Server slots per model. llama.cpp SPLITS --ctx-size across slots, so per-slot context is
@@ -80,9 +92,18 @@ $known = @(
     @{ match = 'CyberStrike-OffSec-35B-abliterated'; label = 'cyberstrike';       spec = @('spec-type = ngram-mod');                        mmproj = 'mmproj-CyberStrike-OffSec-35B-bf16.gguf' }          # abliterated pentest MoE (qwen35moe); ngram-mod per Ornith. draft-mtp loads but is UNMEASURED -- A/B first
     @{ match = 'creative-writer-plus-35b';          label = 'writer';            spec = @();                                              mmproj = $null }                                             # Command-R prose finetune (no MTP head, text-only); NOT abliterated. Serve at writing sampling (temp 0.7-0.9) per request. NB: Command-R tool-use format leaks in the web UI (Action: json ...) -- disable tools client-side, or prefer 'gemma'
     @{ match = 'Qwen3-Coder-Next-UD-Q4_K_XL';        label = 'coder';             spec = @('ubatch-size = 1024');                          mmproj = $null }                                             # Qwen3-Coder-Next 80B/A3B coding MoE, arch qwen3next (linear-attention/SSM). TEXT-ONLY (no vision tower). REQUIRES -Bin .\bin-b11003 (arch + #27805 fix); will NOT load on the pinned bin\. No MTP head -> no spec. ubatch 1024 (NOT the global 256) is MEASURED on this model: b11003, solo, 2026-09-16 -- pp4096@d32768 297.8 -> 401.3 t/s (+34.8%), tg unchanged, +0.5 GiB. ub 2048 REGRESSES at depth (339.2). Vulkan determinism re-CONFIRMED on b11003 @ub1024, 12/12 identical, 2026-09-16. temp 0.7 top-p 0.8 for Qwen coder.
-    @{ match = 'Ornith-1.5-35B-Q6_K';                label = 'ornith15';          spec = @('ubatch-size = 1024','spec-type = draft-dflash','spec-draft-n-max = 3','spec-draft-model = D:\llamacpp-vulkan\models\Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf'); mmproj = 'mmproj-Ornith-1.5-35B-BF16.gguf' }  # SPEC SWITCHED draft-mtp -> draft-dflash 2026-10-02, MEASURED on b11046: baseline 57.9 t/s; draft-mtp n=3 = 64.1 (1.11x); draft-dflash+BF16-draft n=3 = 66.1 (1.15x); draft-dflash+Q8_0-draft n=3 = 70.8 (1.22x) <- winner, ~+10% over draft-mtp. The SMALLER Q8_0 draft (0.39 GB) BEATS the BF16 one (0.73 GB): draft latency costs more than its lower acceptance rate, same shape as "below Q4 smaller is slower" -- optimum in the middle. Draft is first-party ornith-ai/Ornith-1.5-35B-A3B-DFlash (MIT), GGUF arch 'dflash'. DEPTH IS SHARP: n=1 0.87x, n=2 1.11x, n=3 1.22x, n=4 1.01x, n=5 0.85x, n=7 0.63x -- do NOT follow vendor advice to raise it; n=7 would cost 37%. n=3 is now the peak for the THIRD different speculator on this box. Ceiling is only 1.22x, NOT DFlash's advertised ~1.8x (that is SGLang/vLLM on datacenter GPUs, does not transfer to Vulkan/APU). # Ornith-1.5-35B-A3B: successor to ornith-1.0 (same org -- deepreinforce-ai 307-redirects to ornith-ai). 36B/A3B, arch qwen35moe (standard attention, NOT an SSM hybrid -> no #27805 class), 262144 native, MIT. VISION via first-party mmproj. THINKING model (<think> -> reasoning_content) => needs ample max-tokens or `content` returns EMPTY. 256 experts, so the b11046 >256-expert fix (#28501) does NOT apply to it -- that win is coder-only. ubatch 1024 is MEASURED (b11046, solo, 2026-09-19): pp4096@d32768 391.3 (ub256) -> 477.8 (512) -> 543.8 (1024) -> 481.7 (2048) = +39.0% at the knee, +46.1% at depth 0, for +0.8 GiB; tg flat throughout (58.4/58.8/58.9/58.7). ub 2048 REGRESSES -- same shape as the coder despite a different arch. draft-mtp MEASURED too: baseline 58 t/s; n=1 64.2 (1.11x), n=2 62.2 (1.07x), n=3 64.1 (1.11x), n=4 54.3 (0.94x = WORSE than no speculation). n=1 and n=3 tie within noise (0.16% on single runs) so n=3 is kept as llama.cpp's default; do NOT raise it. Sampling temp 0.6/top-p 0.95/top-k 20 == the $common defaults already, so no override needed.
+    @{ match = 'Ornith-1.5-35B-Q6_K';                label = 'ornith15';          spec = @('ubatch-size = 1024','spec-type = draft-dflash','spec-draft-n-max = 3','spec-draft-model = @MODELS@\Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf'); mmproj = 'mmproj-Ornith-1.5-35B-BF16.gguf' }  # SPEC SWITCHED draft-mtp -> draft-dflash 2026-10-02, MEASURED on b11046: baseline 57.9 t/s; draft-mtp n=3 = 64.1 (1.11x); draft-dflash+BF16-draft n=3 = 66.1 (1.15x); draft-dflash+Q8_0-draft n=3 = 70.8 (1.22x) <- winner, ~+10% over draft-mtp. The SMALLER Q8_0 draft (0.39 GB) BEATS the BF16 one (0.73 GB): draft latency costs more than its lower acceptance rate, same shape as "below Q4 smaller is slower" -- optimum in the middle. Draft is first-party ornith-ai/Ornith-1.5-35B-A3B-DFlash (MIT), GGUF arch 'dflash'. DEPTH IS SHARP: n=1 0.87x, n=2 1.11x, n=3 1.22x, n=4 1.01x, n=5 0.85x, n=7 0.63x -- do NOT follow vendor advice to raise it; n=7 would cost 37%. n=3 is now the peak for the THIRD different speculator on this box. Ceiling is only 1.22x, NOT DFlash's advertised ~1.8x (that is SGLang/vLLM on datacenter GPUs, does not transfer to Vulkan/APU). # Ornith-1.5-35B-A3B: successor to ornith-1.0 (same org -- deepreinforce-ai 307-redirects to ornith-ai). 36B/A3B, arch qwen35moe (standard attention, NOT an SSM hybrid -> no #27805 class), 262144 native, MIT. VISION via first-party mmproj. THINKING model (<think> -> reasoning_content) => needs ample max-tokens or `content` returns EMPTY. 256 experts, so the b11046 >256-expert fix (#28501) does NOT apply to it -- that win is coder-only. ubatch 1024 is MEASURED (b11046, solo, 2026-09-19): pp4096@d32768 391.3 (ub256) -> 477.8 (512) -> 543.8 (1024) -> 481.7 (2048) = +39.0% at the knee, +46.1% at depth 0, for +0.8 GiB; tg flat throughout (58.4/58.8/58.9/58.7). ub 2048 REGRESSES -- same shape as the coder despite a different arch. draft-mtp MEASURED too: baseline 58 t/s; n=1 64.2 (1.11x), n=2 62.2 (1.07x), n=3 64.1 (1.11x), n=4 54.3 (0.94x = WORSE than no speculation). n=1 and n=3 tie within noise (0.16% on single runs) so n=3 is kept as llama.cpp's default; do NOT raise it. Sampling temp 0.6/top-p 0.95/top-k 20 == the $common defaults already, so no override needed.
     @{ match = 'gemma4-26B-A4B-abliterated-Q6_K';    label = 'gemma';             spec = @();                                              mmproj = 'mmproj-gemma-4-26B-A4B-f16.gguf' }                  # ABLITERATED Gemma-4-26B-A4B MoE (gemma4, GQA -> small KV -> large ctx cheap); uncensored prose + VISION (mmproj from base repo -- abliteration doesn't touch the vision tower). Q6_K won the fast-vs-good A/B (2026-09-12): clean Q8-grade prose @50 t/s vs Q4's 60 t/s-but-corrupted, Q8's 43 t/s-no-gain. Thinking model -> ample max-tokens; temp ~1.0 top-p 0.95
 )
+# `@MODELS@` in a spec line is resolved to MODELS_DIR, so a draft model is found wherever the
+# weights live instead of on one hardcoded drive. If the draft file is MISSING, every spec-* line
+# for that model is dropped with a warning (see the preset writer): a missing --model-draft makes
+# the child fail to load, and the router then reloads it in a loop -- the same intermittent-500
+# symptom as a real crash.
+foreach ($k in $known) {
+    $k.spec = @($k.spec | ForEach-Object { $_.Replace('@MODELS@', $modelsDir) })
+}
+
 # shared tuned flags -- the measured optima for gfx1151 (see docs/BENCHMARKS.md, docs/OPTIMIZATION.md)
 if ($PerSlotCtx -gt 0) {
     $Ctx = $PerSlotCtx * $Parallel
@@ -151,8 +172,8 @@ foreach ($g in $ggufs) {
 if ($catalog.Count -eq 0) { Write-Error "no .gguf models found in $modelsDir"; exit 1 }
 
 # ---- choose which to serve: -Models, else ASK on start, else the tuned default -------------------
-$defaultSel = @($known | ForEach-Object { $_.label } | Where-Object { $catalog.Contains($_) })
-if (-not $defaultSel) { $defaultSel = @($catalog.Keys | Select-Object -First 2) }
+$defaultSel = @($DefaultModels | Where-Object { $catalog.Contains($_) })
+if (-not $defaultSel) { $defaultSel = @($catalog.Keys | Select-Object -First 1) }
 $keys = @($catalog.Keys)
 
 if ($Models.Count -gt 0) {
@@ -191,7 +212,10 @@ if (-not $PSBoundParameters.ContainsKey('ModelsMax') -and $ModelsMax -lt $sel.Co
 if (-not $PSBoundParameters.ContainsKey('Preload') -or $Preload.Count -eq 0) { $Preload = $sel }
 
 # ---- build the preset INI -----------------------------------------------------------------------
-$iniPath = "$repoRoot\scripts\windows\router-models.generated.ini"
+# -DryRun writes to a TEMP file. It used to overwrite the LIVE preset, which the running router
+# re-reads whenever it (re)spawns a child -- so a "launch nothing" dry run of a different config
+# could silently change what the next crash-reload served.
+$iniPath = if ($DryRun) { Join-Path $env:TEMP 'router-models.dryrun.ini' } else { "$repoRoot\scripts\windows\router-models.generated.ini" }
 $lines = New-Object System.Collections.Generic.List[string]
 foreach ($name in $sel) {
     $c = $catalog[$name]
@@ -207,8 +231,18 @@ foreach ($name in $sel) {
         $overridden = @($c.spec | Where-Object { ($_ -split '=', 2)[0].Trim() -eq $key }).Count -gt 0
         if (-not $overridden) { $lines.Add($x) }
     }
+    $dropSpec = [bool]$NoSpec
     foreach ($s in $c.spec) {
-        if ($NoSpec -and (($s -split '=', 2)[0].Trim() -like 'spec-*')) { continue }
+        if ((($s -split '=', 2)[0].Trim()) -eq 'spec-draft-model') {
+            $draft = ($s -split '=', 2)[1].Trim()
+            if (-not (Test-Path $draft)) {
+                Write-Warning "draft model missing for [$name], serving WITHOUT speculation: $draft"
+                $dropSpec = $true
+            }
+        }
+    }
+    foreach ($s in $c.spec) {
+        if ($dropSpec -and (($s -split '=', 2)[0].Trim() -like 'spec-*')) { continue }
         $lines.Add($s)
     }
     if ($c.mmproj) {
@@ -235,6 +269,7 @@ Write-Host "llama-server ROUTER -> http://0.0.0.0:$Port  (route by OpenAI `"mode
 Write-Host ("  models   : {0}" -f ($sel -join ', '))
 $ubCommon = (($common | Where-Object { $_ -like 'ubatch-size*' }) -split '=', 2)[1].Trim()
 Write-Host ("  each     : ctx=$Ctx  fa=on  kv=q8_0  batch=2048/$ubCommon(default)  load-mode=none  + per-model spec/vision")
+Write-Host ("  slots    : $Parallel x {0} ctx each   speculation: {1}" -f [int][math]::Floor($Ctx / [math]::Max(1, $Parallel)), $(if ($NoSpec) { 'OFF (-NoSpec)' } else { 'per model' }))
 foreach ($n in $sel) {
     $ubOv = @($catalog[$n].spec | Where-Object { $_ -like 'ubatch-size*' })
     if ($ubOv) { Write-Host ("             $n overrides ubatch -> " + (($ubOv[0] -split '=', 2)[1].Trim()) + " (measured)") -ForegroundColor DarkGray }
@@ -252,12 +287,18 @@ if ($DryRun) {
 $others = @(Get-Process llama-server -EA SilentlyContinue)
 foreach ($o in $others) {
     if (-not $Force) {
+        # Probe EVERY port this process listens on, not just 8080-8099: router children listen on
+        # RANDOM ports, and they are the ones holding requests -- the parent has no /slots.
+        # Invoke-WebRequest + iteration, NOT Invoke-RestMethod: PS 5.1 can collapse a multi-slot
+        # JSON array into one object whose is_processing is an ARRAY, and a non-empty array is
+        # truthy -- an idle multi-slot server would read as busy.
         $busy = 0
-        foreach ($prt in 8080..8099) {
-            $owner = (Get-NetTCPConnection -LocalPort $prt -State Listen -EA SilentlyContinue).OwningProcess
-            if ($owner -eq $o.Id) {
-                try { $busy = @((Invoke-RestMethod "http://127.0.0.1:$prt/slots" -TimeoutSec 3) | Where-Object { $_.is_processing }).Count } catch {}
-            }
+        $ports = @(Get-NetTCPConnection -State Listen -EA SilentlyContinue | Where-Object { $_.OwningProcess -eq $o.Id } | Select-Object -Expand LocalPort -Unique)
+        foreach ($prt in $ports) {
+            try {
+                $raw = (Invoke-WebRequest "http://127.0.0.1:$prt/slots" -TimeoutSec 3 -UseBasicParsing).Content
+                foreach ($sl in ($raw | ConvertFrom-Json)) { if ($sl.is_processing -eq $true) { $busy++ } }
+            } catch {}
         }
         if ($busy -gt 0) { Write-Error "llama-server PID $($o.Id) has $busy active request(s). Wait, or use -Force."; exit 1 }
     }

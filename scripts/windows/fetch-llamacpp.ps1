@@ -12,8 +12,10 @@
   anything.
 
   Pinning matters. Benchmark numbers move between builds, so every result in this repo names
-  the build it came from (currently b10431). -Build lets you reproduce against exactly that
-  one rather than whatever is newest today.
+  the build it came from. bin\ holds the PIN (b10431, behind the qwen38-era published numbers);
+  newer engines go side by side in bin-bNNNNN\ via -Dest (the live server runs bin-b11330\ as of
+  2026-10-02) and are selected per launcher with -Bin. That way an upgrade never rewrites the
+  build that old numbers came from.
 
 .PARAMETER Build
   Build tag such as b10431. Default 'latest' resolves whatever GitHub currently publishes.
@@ -25,8 +27,8 @@
   Overwrite an existing install instead of stopping.
 
 .EXAMPLE
-  .\scripts\windows\fetch-llamacpp.ps1
-  .\scripts\windows\fetch-llamacpp.ps1 -Build b10431      # the build this repo's numbers use
+  .\scripts\windows\fetch-llamacpp.ps1 -Build b10431                          # the pin, into bin\
+  .\scripts\windows\fetch-llamacpp.ps1 -Build b11330 -Dest .\bin-b11330       # a newer engine, side by side
 #>
 [CmdletBinding()]
 param(
@@ -37,7 +39,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'   # Invoke-WebRequest is ~10x slower with the bar on
 
-if (-not $Dest) { $Dest = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'bin' }
+$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+if (-not $Dest) { $Dest = Join-Path $repoRoot 'bin' }
+elseif (-not [IO.Path]::IsPathRooted($Dest)) { $Dest = Join-Path $repoRoot $Dest }
 
 # TLS 1.2 is not the default in PowerShell 5.1 on older builds, and github.com refuses anything
 # less -- the failure is an opaque "underlying connection was closed", so set it up front.
@@ -68,7 +72,8 @@ if (-not $asset) {
 Write-Host ("release {0}  ->  {1} ({2:N1} MB)" -f $rel.tag_name, $asset.name, ($asset.size / 1MB)) -ForegroundColor Cyan
 
 if ((Test-Path (Join-Path $Dest 'llama-server.exe')) -and -not $Force) {
-    Write-Host "$Dest already contains llama-server.exe -- re-run with -Force to replace it." -ForegroundColor Yellow
+    Write-Host "$Dest already contains llama-server.exe -- re-run with -Force to replace it," -ForegroundColor Yellow
+    Write-Host "or install side by side:  -Dest .\bin-$($rel.tag_name)" -ForegroundColor Yellow
     exit 0
 }
 
@@ -85,6 +90,16 @@ if ($got -ne $asset.size) {
 }
 
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+# -Force REPLACES a build; it must not MERGE two. Expand-Archive -Force only overwrites files present
+# in the new zip, so a DLL the new release dropped or renamed would survive next to the new exe and
+# be loaded by it -- a mixed build whose numbers belong to neither tag. Clear the old binaries first.
+if ($Force) {
+    $old = @(Get-ChildItem $Dest -File -EA SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' })
+    if ($old.Count) {
+        Write-Host ("removing {0} old binaries from {1}" -f $old.Count, $Dest) -ForegroundColor DarkGray
+        $old | Remove-Item -Force
+    }
+}
 Write-Host "unpacking -> $Dest" -ForegroundColor DarkGray
 Expand-Archive -Path $tmp -DestinationPath $Dest -Force
 Remove-Item $tmp -Force -EA SilentlyContinue

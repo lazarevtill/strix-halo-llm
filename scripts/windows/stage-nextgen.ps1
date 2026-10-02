@@ -26,12 +26,11 @@
   # Flash-Next (needs router down -- 87 GB can't co-reside):
   .\stage-nextgen.ps1 -Bin .\bin-b10665 -Model .\models\Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf
 
-  # DFlash2 draft as a speculative draft for qwen38 (small -- co-resides), once #27805 is fixed.
-  # NOTE: --model-draft / draft-dflash are this script's reading of the model card's -hfd usage,
-  # UNVERIFIED on llama.cpp (untestable until #27805 lands). Confirm the flag names against the
-  # engine's --help before trusting this line.
-  .\stage-nextgen.ps1 -Bin .\bin-<build> -Model .\models\Qwen3.8-27B-UD-Q4_K_XL.gguf `
-      -Draft .\models\Qwen3.8-27B-DFlash2-Q4_K_M.gguf -SpecType draft-dflash
+  # A DFlash draft for a served model (small -- co-resides). --model-draft / --spec-type
+  # draft-dflash are VERIFIED (b11046 --help, and ornith15 serves this way since 2026-10-02).
+  # Pass -UBatch at the SERVING value: the gate is per-binary AND per-config.
+  .\stage-nextgen.ps1 -Bin .\bin-b11330 -Model .\models\Ornith-1.5-35B-Q6_K.gguf -UBatch 1024 `
+      -Draft .\models\Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf -SpecType draft-dflash
 #>
 [CmdletBinding()]
 param(
@@ -47,17 +46,23 @@ param(
     # #27805-class corruption is compute-path dependent, so confirm determinism at the ubatch you
     # actually intend to SERVE, not at a fixed 256. (2026-09-16: the coder now serves -ub 1024.)
     [int]    $UBatch    = 256,
-    # What to bring back if this script had to stop the router. These were hardcoded to
-    # 'qwen38, ornith', which stopped being the served config on 2026-09-12 -- an aborted test would
-    # have silently restored the WRONG models. Keep in sync with the Startup-folder autostart.
-    [string[]] $RestoreModels = @('coder'),
-    [string]   $RestoreBin    = '.\bin-b11003'
+    # What to bring back if this script had to stop the router. MUST MATCH the Startup-folder
+    # autostart. This has drifted TWICE: hardcoded 'qwen38, ornith' after the box moved to gemma
+    # (2026-09-12), then 'coder' on bin-b11003 after it moved to ornith15 -- an aborted test would
+    # have silently restored the wrong model, engine and slot layout. Current (2026-10-02):
+    # ornith15 on bin-b11330, 2 slots x 262144, speculation ON.
+    [string[]] $RestoreModels     = @('ornith15'),
+    [string]   $RestoreBin        = '.\bin-b11330',
+    [int]      $RestoreParallel   = 2,
+    [int]      $RestorePerSlotCtx = 262144,
+    [switch]   $RestoreNoSpec
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
 $srv = Join-Path $Bin 'llama-server.exe'
 $dll = Join-Path $Bin 'llama.dll'
 if (-not (Test-Path $srv)) { Write-Error "no llama-server.exe in $Bin"; exit 1 }
+if (-not (Test-Path $dll)) { Write-Error "no llama.dll in $Bin (needed for the arch check)"; exit 1 }
 if (-not (Test-Path $Model)) { Write-Error "model not found: $Model"; exit 1 }
 
 function Get-GgufArch([string]$path) {
@@ -80,7 +85,13 @@ function Committed-GB {
 # ---- 1. arch known to THIS engine? --------------------------------------------------------------
 $arch = Get-GgufArch $Model
 $dllTxt = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($dll))
-$archOk = $dllTxt.Contains("models/$arch.cpp") -or ($dllTxt -match [regex]::Escape($arch))
+# Exact matches only. The fallback used to be a bare substring regex over the whole DLL, so a new
+# arch whose name CONTAINS an old one's (or any other string) passed the check and then failed to
+# load. The arch-name table stores NUL-terminated C strings, so "\0<arch>\0" is an exact hit --
+# checked against bin-b11330: matches qwen35moe/qwen3next/glm5-next/nemotron_h_moe (the last has
+# no models/*.cpp marker), rejects xing4_0 and k2_horizon.
+$nul = [char]0
+$archOk = $dllTxt.Contains("models/$arch.cpp") -or $dllTxt.Contains("$nul$arch$nul")
 Write-Host ("model arch : {0}" -f $arch) -ForegroundColor Cyan
 Write-Host ("engine     : {0} ({1})" -f $Bin, $(if ($archOk) { "knows '$arch'  OK" } else { "does NOT know '$arch'" }))
 if (-not $archOk) { Write-Error "engine $Bin cannot load arch '$arch' -- fetch a build that includes it first."; exit 1 }
@@ -101,23 +112,41 @@ $testPid = $null
 try {
     if ($needStop) {
         $running = @(Get-Process llama-server -EA SilentlyContinue)
+        # In-flight check ONCE, before stopping anything, on every port any llama-server listens on:
+        # requests are held by router CHILDREN on random ports (the parent's /slots is not the
+        # place to ask). Invoke-WebRequest + iteration for the PS 5.1 array-collapse reason.
+        $busy = 0
         foreach ($p in $running) {
-            $busy = 0
-            try { $busy = @((Invoke-RestMethod "http://127.0.0.1:8080/slots" -TimeoutSec 3) | Where-Object { $_.is_processing }).Count } catch {}
-            if ($busy -gt 0) { Write-Error "router has $busy request(s) in flight -- aborting rather than interrupt."; exit 1 }
-            Write-Host "  stopping router PID $($p.Id)" -ForegroundColor Yellow
-            Stop-Process -Id $p.Id -Force
+            $ports = @(Get-NetTCPConnection -State Listen -EA SilentlyContinue | Where-Object { $_.OwningProcess -eq $p.Id } | Select-Object -Expand LocalPort -Unique)
+            foreach ($prt in $ports) {
+                try {
+                    $raw = (Invoke-WebRequest "http://127.0.0.1:$prt/slots" -TimeoutSec 3 -UseBasicParsing).Content
+                    foreach ($sl in ($raw | ConvertFrom-Json)) { if ($sl.is_processing -eq $true) { $busy++ } }
+                } catch {}
+            }
         }
-        if ($running.Count) { $stoppedRouter = $true; Start-Sleep 6 }  # let WDDM drain VRAM
+        if ($busy -gt 0) { Write-Error "router has $busy request(s) in flight -- aborting rather than interrupt."; exit 1 }
+        # Mark BEFORE the first kill. It used to be set only after the loop -- but killing the router
+        # parent takes its children with it, the next Stop-Process on an already-dead child threw
+        # under ErrorActionPreference=Stop, and the finally block saw $stoppedRouter=$false and
+        # skipped the restore: the exact serverless outcome that block exists to prevent.
+        if ($running.Count) { $stoppedRouter = $true }
+        foreach ($p in $running) {
+            if (-not (Get-Process -Id $p.Id -EA SilentlyContinue)) { continue }   # died with its parent
+            Write-Host "  stopping router PID $($p.Id)" -ForegroundColor Yellow
+            Stop-Process -Id $p.Id -Force -EA SilentlyContinue
+        }
+        if ($running.Count) { Start-Sleep 6 }  # let WDDM drain VRAM
     }
 
     # ---- 3. launch the test server on the isolated port -----------------------------------------
     $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
     $a = @('-m', $Model, '-ngl', 999, '--ctx-size', $Ctx, '-fa', 'on',
            '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0', '-b', 2048, '-ub', $UBatch,
+           '-lm', 'none',   # as served. Default load-mode is mmap, which pins a host mirror of the
+                            # weights in the ~32 GB system RAM -- for an 87-93 GB model that is the
+                            # test failing for a reason the served config never has.
            '--host', '127.0.0.1', '--port', $Port)
-    # NB: --model-draft / --spec-type flag names are UNVERIFIED for draft-dflash (from the model card's
-    # -hfd usage; untestable until #27805 lands). Verify against `llama-server --help` before relying on this.
     if ($Draft -and (Test-Path $Draft)) { $a += @('--model-draft', $Draft) }
     if ($SpecType) { $a += @('--spec-type', $SpecType) }
     Write-Host "  launching test server on :$Port ..." -ForegroundColor DarkGray
@@ -142,12 +171,13 @@ try {
         Write-Host "  warming up (3 discarded runs)..." -ForegroundColor DarkGray
         for ($w = 0; $w -lt 3; $w++) { try { Invoke-RestMethod "http://127.0.0.1:$Port/v1/completions" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 60 | Out-Null } catch {} }
         Write-Host "  running $Runs fixed-seed temp-0 raw completions (Vulkan #27805 check)..." -ForegroundColor Green
-        $hashes = @{}; $sample = ''
+        $hashes = @{}; $sample = ''; $failed = 0; $empty = 0
         for ($i = 1; $i -le $Runs; $i++) {
             try {
                 $r = Invoke-RestMethod "http://127.0.0.1:$Port/v1/completions" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 60
                 $t = $r.choices[0].text
-            } catch { $t = "<request failed: $($_.Exception.Message)>" }
+                if (-not "$t".Trim()) { $empty++ }
+            } catch { $t = "<request failed: $($_.Exception.Message)>"; $failed++ }
             if (-not $sample) { $sample = $t }
             $sha = [BitConverter]::ToString(([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes([string]$t)))).Replace('-', '').Substring(0, 12)
             if ($hashes.ContainsKey($sha)) { $hashes[$sha]++ } else { $hashes[$sha] = 1 }
@@ -155,7 +185,13 @@ try {
         }
         Write-Host ""
         $distinct = $hashes.Keys.Count
-        if ($distinct -eq 1) { Write-Host "  RESULT: 1 distinct output over $Runs runs -> DETERMINISTIC. Vulkan looks correct for '$arch'." -ForegroundColor Green }
+        # A failed or empty run must never vote. If the server died, every run "fails the same way",
+        # hashes identically, and an earlier version printed a green DETERMINISTIC over N copies of
+        # an error message -- a believable wrong verdict, the class this repo keeps catching.
+        if ($failed -gt 0 -or $empty -gt 0) {
+            Write-Host "  RESULT: INCONCLUSIVE -- $failed failed and $empty empty of $Runs runs. No verdict; see logs\stage-nextgen-$Port.err" -ForegroundColor Red
+        }
+        elseif ($distinct -eq 1) { Write-Host "  RESULT: 1 distinct output over $Runs runs -> DETERMINISTIC. Vulkan looks correct for '$arch'." -ForegroundColor Green }
         else { Write-Host "  RESULT: $distinct distinct outputs over $Runs runs -> NON-DETERMINISTIC. Likely #27805 silent corruption on Vulkan for '$arch'. DO NOT trust this config." -ForegroundColor Red }
         Write-Host "`n  --- sample output (first 300 chars) ---" -ForegroundColor DarkGray
         Write-Host ("  " + ([string]$sample).Substring(0, [Math]::Min(300, ([string]$sample).Length)))
@@ -167,12 +203,14 @@ finally {
     if ($stoppedRouter) {
         Start-Sleep 4
         Write-Host ("  restarting the live router ({0})..." -f ($RestoreModels -join ' + ')) -ForegroundColor Yellow
-        & (Join-Path $PSScriptRoot 'run-router.ps1') -Models $RestoreModels -Bin $RestoreBin
+        $restore = @{ Models = $RestoreModels; Bin = $RestoreBin; Parallel = $RestoreParallel; PerSlotCtx = $RestorePerSlotCtx }
+        if ($RestoreNoSpec) { $restore.NoSpec = $true }
+        & (Join-Path $PSScriptRoot 'run-router.ps1') @restore
         # confirm it actually came back -- a failed restart here is the exact serverless outcome this block exists to prevent
         Start-Sleep 3
         $back = 0
         try { $back = @((Invoke-RestMethod "http://127.0.0.1:8080/models" -TimeoutSec 5).data | Where-Object { $_.status.value -eq 'loaded' }).Count } catch {}
         if ($back -ge $RestoreModels.Count) { Write-Host "  router restored ($back models loaded)." -ForegroundColor Green }
-        else { Write-Warning "ROUTER DID NOT COME BACK ($back/$($RestoreModels.Count) loaded). Re-run: .\scripts\windows\run-router.ps1 -Models $($RestoreModels -join ',') -Bin $RestoreBin" }
+        else { Write-Warning "ROUTER DID NOT COME BACK ($back/$($RestoreModels.Count) loaded). Re-run: .\scripts\windows\run-router.ps1 -Models $($RestoreModels -join ',') -Bin $RestoreBin -Parallel $RestoreParallel -PerSlotCtx $RestorePerSlotCtx$(if ($RestoreNoSpec) { ' -NoSpec' })" }
     }
 }

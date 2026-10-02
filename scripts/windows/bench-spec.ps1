@@ -15,6 +15,13 @@
   at 1.79x while n=5 collapsed to 0.68x, i.e. WORSE than no speculation. Always sweep, never assume
   a vendor's recommended depth is the local optimum.
 
+.PARAMETER Temp
+  Sampling temperature. EMPTY (the default) passes nothing, i.e. llama-cli's own default sampler --
+  which is what EVERY published spec number in this repo was measured with. Until 2026-10-02 the
+  summary line called those runs "greedy"; they were not (no --temp was ever passed). The numbers
+  stand, the label was wrong. Pass -Temp 0 for a genuinely greedy run -- but then do not put it in
+  the same table as the published rows: acceptance rates under greedy and under sampling differ.
+
 .PARAMETER Bin
   Engine dir holding llama-cli.exe. Defaults to bin\ (the pinned b10431). New arches need a newer
   build -- e.g. -Bin .\bin-b11003 for nemotron_h_moe / qwen3next, which do NOT load in bin\ at all.
@@ -33,6 +40,7 @@ param(
     [string] $DraftModel = '',
     [string] $Bin = '',
     [string] $Csv = '',
+    [string] $Temp = '',
     [string] $Prompt = "Write a complete, well-documented Python implementation of an LRU cache class with get, put, and eviction. Then write 8 unit tests for it."
 )
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
@@ -51,13 +59,18 @@ function RunOne($extra,$label){
     # and still printed a confident "best: n=3" plus the non-monotonic warning. '-st/--single-turn'
     # already gives the non-conversation behaviour that '-no-cnv' was there for.
     $a = @('-m',$Model,'-ngl','99','-fa','1','-n',"$NPredict",'-f',$pf,'--no-warmup','--simple-io','-st','--seed','42') + $extra
+    if ($Temp -ne '') { $a += @('--temp', $Temp) }
     $err = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\spec_$label.err"
     $out = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\spec_$label.out"
     Start-Process $bin -ArgumentList $a -NoNewWindow -Wait -RedirectStandardError $err -RedirectStandardOutput $out
     # --simple-io prints "[ Prompt: X t/s | Generation: Y t/s ]" to stdout
     $genline = (Get-Content $out -EA SilentlyContinue | Select-String 'Generation:\s*([\d\.]+)\s*t/s' | Select-Object -Last 1) -join ''
     $tps = if ($genline -match 'Generation:\s*([\d\.]+)\s*t/s') { [double]$Matches[1] }
-           elseif ((Get-Content $err -EA SilentlyContinue | Out-String) -match '([\d\.]+)\s*tokens per second') { [double]$Matches[1] }
+           # Old-format fallback: the GENERATION line only. A bare 'tokens per second' match on the whole
+           # log returns the FIRST hit, which is the 'prompt eval time' line -- prefill speed silently
+           # recorded as generation speed if the --simple-io summary were ever missing.
+           elseif ($evl = (Get-Content $err -EA SilentlyContinue | Where-Object { $_ -match '\beval time' -and $_ -notmatch 'prompt eval' } | Select-Object -Last 1)) {
+               if ($evl -match '([\d\.]+)\s*tokens per second') { [double]$Matches[1] } else { 0 } }
            else { 0 }
     $accept = (Get-Content $err -EA SilentlyContinue | Select-String 'accept|draft|n_drafted' | Select-Object -Last 2) -join '  '
     # FAIL LOUDLY on a dead run. 0 t/s is not a measurement, it is the parser's fallback when llama-cli
@@ -97,7 +110,8 @@ foreach ($n in $NMax) {
     $rows += [pscustomobject]@{ config=$Spec; n=$n; tps=$s.Tps; mult=$mult }
 }
 
-Write-Host "`n--- summary (engine $(Split-Path $binDir -Leaf), greedy, seed 42, n_predict $NPredict) ---" -ForegroundColor Cyan
+$sampler = if ($Temp -ne '') { "temp $Temp" } else { 'llama-cli default sampler (NOT greedy)' }
+Write-Host "`n--- summary (engine $(Split-Path $binDir -Leaf), $sampler, seed 42, n_predict $NPredict) ---" -ForegroundColor Cyan
 $rows | Format-Table -AutoSize | Out-String -Width 120 | Write-Host
 $best = $rows | Sort-Object tps -Descending | Select-Object -First 1
 Write-Host ("best: {0} n={1} at {2} t/s ({3}x)" -f $best.config,$best.n,$best.tps,$best.mult) -ForegroundColor Green

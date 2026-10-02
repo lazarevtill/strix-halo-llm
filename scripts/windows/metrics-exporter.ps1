@@ -83,32 +83,91 @@ function Get-Children {
 
 function Esc([string]$s) { ($s -replace '\\', '\\\\') -replace '"', '\"' }
 
+# Child-restart tracking. The KNOWN failure mode on this box (CLAUDE.md, multi-slot stability) is a
+# child crash that the router parent silently auto-reloads: clients see an intermittent HTTP 500
+# "proxy error" while the parent stays alive, so "is llama-server running?" says yes. A reload
+# always lands on a NEW random port and a NEW pid, so remembering the last child identity per model
+# turns that hand-diagnosis (counting PID churn) into a counter Prometheus can alert on:
+#     increase(llamacpp_child_restarts_total[1h]) > 0
+# The counter only covers this exporter's lifetime; llamacpp_child_start_time_seconds survives an
+# exporter restart, so `changes(llamacpp_child_start_time_seconds[1h])` is the durable form.
+$script:LastChild = @{}   # model id -> "pid:port"
+$script:Restarts  = @{}   # model id -> int
+
+function Get-ChildProcess([string]$port) {
+    # The process LISTENING on the child's port. Get-NetTCPConnection is the only PS 5.1 way to map
+    # a port to a pid without parsing netstat text.
+    try {
+        $c = @(Get-NetTCPConnection -LocalPort ([int]$port) -State Listen -ErrorAction Stop)
+        if ($c.Count -gt 0) { return Get-Process -Id $c[0].OwningProcess -ErrorAction Stop }
+    } catch { }
+    return $null
+}
+
 function Build-Metrics {
-    $sb = New-Object System.Text.StringBuilder
-    $null = $sb.AppendLine('# HELP llamacpp_exporter_up 1 if the exporter reached the router.')
-    $null = $sb.AppendLine('# TYPE llamacpp_exporter_up gauge')
+    # Samples are collected PER METRIC FAMILY and emitted grouped at the end. The Prometheus text
+    # format requires every sample of a family to be contiguous and its # HELP / # TYPE to appear
+    # once, before them. Emitting child-by-child (as an earlier version did) is only valid while a
+    # single model is loaded: with two, the families interleave and the native # TYPE lines repeat,
+    # and Prometheus rejects the WHOLE scrape on "second TYPE line" -- every series goes dark at
+    # once, which looks like the box died rather than like an exporter bug.
+    $order = New-Object System.Collections.ArrayList   # family names, first-seen order
+    $meta  = @{}                                        # family -> ArrayList of # lines
+    $data  = @{}                                        # family -> ArrayList of sample lines
+    function Add-Fam([string]$f) {
+        if (-not $data.ContainsKey($f)) {
+            $null = $order.Add($f)
+            $data[$f] = New-Object System.Collections.ArrayList
+            $meta[$f] = New-Object System.Collections.ArrayList
+        }
+    }
+    function Add-Meta([string]$f, [string]$type, [string]$help) {
+        Add-Fam $f
+        if ($meta[$f].Count -eq 0) {
+            $null = $meta[$f].Add("# HELP $f $help")
+            $null = $meta[$f].Add("# TYPE $f $type")
+        }
+    }
+    function Add-Sample([string]$f, [string]$line) { Add-Fam $f; $null = $data[$f].Add($line) }
+
+    Add-Meta 'llamacpp_exporter_up'             'gauge'   '1 if the exporter reached the router.'
+    Add-Meta 'llamacpp_model_loaded'            'gauge'   '1 if the model child is loaded and serving.'
+    Add-Meta 'llamacpp_child_restarts_total'    'counter' 'Child (re)starts seen by this exporter after its first scrape -- a crash the router auto-reloaded counts here.'
+    Add-Meta 'llamacpp_child_start_time_seconds' 'gauge'  'Unix start time of the model child process.'
+    Add-Meta 'llamacpp_slots_total'             'gauge'   'Configured server slots (--parallel).'
+    Add-Meta 'llamacpp_slots_busy'              'gauge'   'Slots currently processing a request.'
+    Add-Meta 'llamacpp_slot_ctx_used_tokens'    'gauge'   'Prompt tokens currently held in a slot.'
+    Add-Meta 'llamacpp_slot_ctx_size_tokens'    'gauge'   'Per-slot context window.'
+    $notes = New-Object System.Collections.ArrayList
 
     $kids = @(Get-Children)
     if (-not $kids.Count) {
-        $null = $sb.AppendLine('llamacpp_exporter_up 0')
-        return $sb.ToString()
+        Add-Sample 'llamacpp_exporter_up' 'llamacpp_exporter_up 0'
+    } else {
+        Add-Sample 'llamacpp_exporter_up' 'llamacpp_exporter_up 1'
     }
-    $null = $sb.AppendLine('llamacpp_exporter_up 1')
-
-    $null = $sb.AppendLine('# HELP llamacpp_model_loaded 1 if the model child is loaded and serving.')
-    $null = $sb.AppendLine('# TYPE llamacpp_model_loaded gauge')
-    $null = $sb.AppendLine('# HELP llamacpp_slots_total Configured server slots (--parallel).')
-    $null = $sb.AppendLine('# TYPE llamacpp_slots_total gauge')
-    $null = $sb.AppendLine('# HELP llamacpp_slots_busy Slots currently processing a request.')
-    $null = $sb.AppendLine('# TYPE llamacpp_slots_busy gauge')
-    $null = $sb.AppendLine('# HELP llamacpp_slot_ctx_used_tokens Prompt tokens currently held in a slot.')
-    $null = $sb.AppendLine('# TYPE llamacpp_slot_ctx_used_tokens gauge')
-    $null = $sb.AppendLine('# HELP llamacpp_slot_ctx_size_tokens Per-slot context window.')
-    $null = $sb.AppendLine('# TYPE llamacpp_slot_ctx_size_tokens gauge')
 
     foreach ($k in $kids) {
         $lbl = 'model="' + (Esc $k.id) + '"'
-        $null = $sb.AppendLine("llamacpp_model_loaded{$lbl} " + $(if ($k.loaded) { 1 } else { 0 }))
+        Add-Sample 'llamacpp_model_loaded' ("llamacpp_model_loaded{$lbl} " + $(if ($k.loaded) { 1 } else { 0 }))
+        if (-not $script:Restarts.ContainsKey($k.id)) { $script:Restarts[$k.id] = 0 }
+
+        # ---- child identity: restart detection + start time ------------------------------------
+        if ($k.port) {
+            $proc = Get-ChildProcess $k.port
+            if ($proc) {
+                $ident = "$($proc.Id):$($k.port)"
+                $prev  = $script:LastChild[$k.id]
+                # First sighting establishes the baseline; only a CHANGE of identity is a restart.
+                if ($prev -and $prev -ne $ident) { $script:Restarts[$k.id]++ }
+                $script:LastChild[$k.id] = $ident
+                try {
+                    $epoch = [int64](($proc.StartTime.ToUniversalTime() - [datetime]'1970-01-01').TotalSeconds)
+                    Add-Sample 'llamacpp_child_start_time_seconds' "llamacpp_child_start_time_seconds{$lbl} $epoch"
+                } catch { }
+            }
+        }
+        Add-Sample 'llamacpp_child_restarts_total' "llamacpp_child_restarts_total{$lbl} $($script:Restarts[$k.id])"
         if (-not $k.port) { continue }
 
         # ---- slot state (always available; --slots defaults to enabled) -------------------------
@@ -127,14 +186,14 @@ function Build-Metrics {
             foreach ($item in ($slotsRaw | ConvertFrom-Json)) { $null = $slots.Add($item) }
             $total = 0; $busy = 0
             foreach ($s in $slots) { $total++; if ($s.is_processing) { $busy++ } }
-            $null = $sb.AppendLine("llamacpp_slots_total{$lbl} $total")
-            $null = $sb.AppendLine("llamacpp_slots_busy{$lbl} $busy")
+            Add-Sample 'llamacpp_slots_total' "llamacpp_slots_total{$lbl} $total"
+            Add-Sample 'llamacpp_slots_busy'  "llamacpp_slots_busy{$lbl} $busy"
             foreach ($s in $slots) {
                 $sl = $lbl + ',slot="' + $s.id + '"'
                 $used = 0
                 if ($null -ne $s.n_prompt_tokens) { $used = [int]$s.n_prompt_tokens }
-                $null = $sb.AppendLine("llamacpp_slot_ctx_used_tokens{$sl} $used")
-                $null = $sb.AppendLine("llamacpp_slot_ctx_size_tokens{$sl} $([int]$s.n_ctx)")
+                Add-Sample 'llamacpp_slot_ctx_used_tokens' "llamacpp_slot_ctx_used_tokens{$sl} $used"
+                Add-Sample 'llamacpp_slot_ctx_size_tokens' "llamacpp_slot_ctx_size_tokens{$sl} $([int]$s.n_ctx)"
             }
         } catch { }
 
@@ -146,20 +205,36 @@ function Build-Metrics {
             foreach ($line in ($raw -split "`n")) {
                 $t = $line.TrimEnd("`r")
                 if ($t -match '^\s*$') { continue }
-                if ($t.StartsWith('#')) { $null = $sb.AppendLine($t); continue }
+                if ($t -match '^#\s+(HELP|TYPE)\s+([a-zA-Z_:][a-zA-Z0-9_:]*)') {
+                    $f = $Matches[2]
+                    Add-Fam $f
+                    # one HELP and one TYPE per family, however many children report it
+                    $kind = $Matches[1]
+                    $dup = $false
+                    foreach ($m in $meta[$f]) { if ($m -match "^#\s+$kind\s") { $dup = $true } }
+                    if (-not $dup) { $null = $meta[$f].Add($t) }
+                    continue
+                }
+                if ($t.StartsWith('#')) { continue }
                 # inject model= into the label set (or create one) without disturbing the value
                 if ($t -match '^([a-zA-Z_:][a-zA-Z0-9_:]*)\{([^}]*)\}(.*)$') {
-                    $null = $sb.AppendLine($Matches[1] + '{' + $lbl + ',' + $Matches[2] + '}' + $Matches[3])
+                    Add-Sample $Matches[1] ($Matches[1] + '{' + $lbl + ',' + $Matches[2] + '}' + $Matches[3])
                 } elseif ($t -match '^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+(.*)$') {
-                    $null = $sb.AppendLine($Matches[1] + '{' + $lbl + '} ' + $Matches[2])
-                } else {
-                    $null = $sb.AppendLine($t)
+                    Add-Sample $Matches[1] ($Matches[1] + '{' + $lbl + '} ' + $Matches[2])
                 }
             }
         } catch {
-            $null = $sb.AppendLine("# NOTE model=$($k.id) /metrics unavailable ($($_.Exception.Message.Split([char]10)[0])) -- child needs `metrics = 1` in the preset")
+            $null = $notes.Add("# NOTE model=$($k.id) /metrics unavailable ($($_.Exception.Message.Split([char]10)[0])) -- child needs ``metrics = 1`` in the preset")
         }
     }
+
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($f in $order) {
+        if ($data[$f].Count -eq 0) { continue }   # no HELP/TYPE for a family with no samples
+        foreach ($m in $meta[$f]) { $null = $sb.AppendLine($m) }
+        foreach ($d in $data[$f]) { $null = $sb.AppendLine($d) }
+    }
+    foreach ($n in $notes) { $null = $sb.AppendLine($n) }
     return $sb.ToString()
 }
 
@@ -202,20 +277,31 @@ Write-Host "  Ctrl-C to stop" -ForegroundColor DarkGray
 try {
     while ($listener.IsListening) {
         $ctx = $listener.GetContext()
-        $body = ''
-        if ($ctx.Request.Url.AbsolutePath -eq '/metrics') {
-            $body = Build-Metrics
-            $ctx.Response.StatusCode = 200
-            $ctx.Response.ContentType = 'text/plain; version=0.0.4; charset=utf-8'
-        } else {
-            $body = "llama.cpp exporter. Metrics at /metrics`n"
-            $ctx.Response.StatusCode = 200
-            $ctx.Response.ContentType = 'text/plain; charset=utf-8'
+        # EVERY request is isolated. A scraper that disconnects mid-response (timeout, Grafana tab
+        # closed) makes OutputStream.Write throw "The specified network name is no longer
+        # available". Uncaught, that unwound the loop and ENDED THE EXPORTER -- it ran from the
+        # Startup folder with no supervisor, so :9114 stayed dark until the next logon (observed
+        # 2026-10-02: dead from 07:50, found hours later by review). One bad client must cost one
+        # response, never the process.
+        try {
+            $body = ''
+            if ($ctx.Request.Url.AbsolutePath -eq '/metrics') {
+                $body = Build-Metrics
+                $ctx.Response.StatusCode = 200
+                $ctx.Response.ContentType = 'text/plain; version=0.0.4; charset=utf-8'
+            } else {
+                $body = "llama.cpp exporter. Metrics at /metrics`n"
+                $ctx.Response.StatusCode = 200
+                $ctx.Response.ContentType = 'text/plain; charset=utf-8'
+            }
+            $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+            $ctx.Response.ContentLength64 = $bytes.Length
+            $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+        } catch {
+            Write-Warning ("{0:s} request failed: {1}" -f (Get-Date), $_.Exception.Message.Split([char]10)[0])
+        } finally {
+            try { $ctx.Response.OutputStream.Close() } catch { }
         }
-        $bytes = [Text.Encoding]::UTF8.GetBytes($body)
-        $ctx.Response.ContentLength64 = $bytes.Length
-        $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-        $ctx.Response.OutputStream.Close()
     }
 } finally {
     $listener.Stop(); $listener.Close()
