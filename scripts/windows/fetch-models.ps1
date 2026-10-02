@@ -270,6 +270,28 @@ $REG = [ordered]@{
         # below self-reported. Do NOT rank it against the coder on these. Byte counts verified 2026-09-19.
         note  = 'Ornith-1.5-35B-A3B Q6_K + mmproj (36B/A3B, qwen35moe, MIT, VISION, thinking). Successor to ornith-1.0; co-resides with coder.'
     }
+    'ornith15-dflash' = @{
+        repo  = 'na0x2c6/Ornith-1.5-35B-A3B-DFlash-GGUF'
+        files = @(
+            @{ p='Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf'; b=421060960 }
+            @{ p='Ornith-1.5-35B-A3B-DFlash-BF16.gguf'; b=782819680 }
+        )
+        # DFlash block-diffusion DRAFT model for the SERVED ornith15 -- a speed lever, not a model.
+        # Base is FIRST-PARTY: ornith-ai/Ornith-1.5-35B-A3B-DFlash (published 2026-09-28, MIT, tagged
+        # speculative-decoding-draft / block-diffusion). These GGUFs are a THIRD-PARTY conversion
+        # (na0x2c6) of a custom_code model -- confirm it actually loads and that acceptance > 0 before
+        # trusting any speedup number; a speculator that silently fails to engage reads as 1.00x, not
+        # as an error. GGUF arch is 'dflash' (confirmed by range-fetching the header), present in b11046.
+        # Usage: --spec-type draft-dflash --spec-draft-model <this> --spec-draft-n-max N
+        #   (both --spec-draft-model and --model-draft are valid aliases in b11046 -- verified in --help,
+        #    which resolves the long-standing UNVERIFIED note in stage-nextgen.ps1.)
+        # WHY IT MATTERS HERE: ornith15's current draft-mtp peaks at only 1.11x (measured 2026-09-19),
+        # far below qwen38's 1.79x. A dedicated draft has much more room. draft-mtp and draft-dflash are
+        # MUTUALLY EXCLUSIVE -- whichever wins REPLACES the other in run-router's $known.
+        # Two quants on purpose: Q8_0 drafts faster, BF16 should accept more often, and for speculative
+        # decoding that tradeoff is the whole game. Both are negligible on disk. Byte-verified 2026-10-02.
+        note  = 'DFlash draft for ornith15 (Q8_0 0.39 GB + BF16 0.73 GB, arch dflash). Speed lever: A/B vs draft-mtp n=3 (current 1.11x).'
+    }
     'nemotron-puzzle-q6' = @{
         repo  = 'RemySkye/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-GGUF'
         files = @(

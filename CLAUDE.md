@@ -159,7 +159,12 @@ timing line instead of dividing by it. Current rules that came out of them:
   verify per model — but 1024 is now the *expected* MoE answer, not a coin flip.
 - **Speculative decoding is model-dependent, and depth is not monotonic.** `draft-mtp` at
   `--spec-draft-n-max 3` is the peak (Qwen3.8-27B: 11.33 → 20.27 t/s, 1.79×); n=5 collapses to
-  **0.68× — worse than no speculation at all**. Generic `ngram-mod` is neutral-to-negative; a
+  **0.68× — worse than no speculation at all**. **n=3 has now been the peak for THREE different
+  speculators across two models** (qwen38 draft-mtp 1.79×, ornith15 draft-mtp 1.11×, ornith15
+  draft-dflash 1.22×), with every n≥4 measurement at or below 1.01×. Treat n=3 as this box's
+  default and **always sweep downward, never upward** — vendor cards suggesting 5–7 cost 37% here.
+  **The gain is strongly model-dependent:** the same technique gives 1.79× on qwen38 and 1.22× on
+  ornith15, so never carry a speedup figure across models. Generic `ngram-mod` is neutral-to-negative; a
   separate draft model loses on these MoEs.
 - **`--mlock`: never on this box.** It pins weights in the ~32 GB system-RAM partition and blocks
   the Vulkan upload, so `-ngl 999` silently runs from host RAM. Related: b10182 deprecated
@@ -206,8 +211,15 @@ timing line instead of dividing by it. Current rules that came out of them:
   `scripts/windows/stage-nextgen.ps1`. **The gate is per-BINARY and per-config, not per-arch** —
   `qwen3next` passing on b10677 did not carry to b11003; it was re-run there at the serving ubatch
   (12/12 byte-identical, 2026-09-16). `stage-nextgen.ps1 -UBatch` exists for exactly that reason.
-- **`bin-b11046` is the live engine** (b10431 stays pinned for published numbers). Two measured steps,
-  both on Qwen3-Coder-Next, solo:
+- **`bin-b11330` is the live engine as of 2026-10-02** (b10431 stays pinned for published numbers).
+  **Upgraded for CORRECTNESS first:** [PR #28956](https://github.com/ggml-org/llama.cpp/pull/28956)
+  fixes *wrong results* when a `mul_mat` reads a slice of a larger cache — b11046 could silently
+  emit incorrect output on some shapes. Perf was a bonus: on ornith15 at ub 1024, `pp512`
+  **1030 → 1162 t/s (+12.8%)**, `pp4096` 985 → 1018 (+3.3%), `pp4096 @ d32768` 548 → 563 (+2.7%),
+  **tg flat**, identical peak GPU. Determinism re-confirmed on b11330 @ub1024: 12/12 identical.
+  The ubatch knee was **re-swept on b11330** in case #29182 (MoE-aware `mat_mul_id` tile selection)
+  moved it — it did not: 508.8 (512) / **561.7 (1024)** / 506.6 (2048).
+- Earlier engine steps, both on Qwen3-Coder-Next, solo:
   - b10677 → **b11003** at ub 256: `pp4096 @ d32768` **275.0 → 298.1 t/s (+8.4%)**, `pp4096 @ d0`
     444.7 → 455.5 (+2.4%), **tg flat**. Don't quote that run's `pp512` rows — ±11% spread.
   - b11003 → **b11046** at ub 1024: `pp512` **583.1 → 822.3 (+41.0%)**, `pp4096` **648.9 → 802.7
@@ -230,14 +242,22 @@ timing line instead of dividing by it. Current rules that came out of them:
   the known thinking-model pathology (cf. eval Bug 13), **not** a misconfiguration — retrieval over
   the same context is fine. **Both per-model settings are MEASURED (2026-09-19), not defaults:**
   `-ub 1024` (`pp4096 @ d32768` 391.3 → 477.8 → **543.8** → 481.7 t/s for ub 256/512/1024/2048 =
-  **+39.0%** at the knee, +46.1% at depth 0, +0.8 GiB; 2048 regresses) and **`draft-mtp n=3`**
-  (baseline 58 t/s; n=1 **64.2**, n=2 62.2, n=3 **64.1**, n=4 **54.3 = 0.94×, worse than no
-  speculation**). n=1 and n=3 tie within noise (0.16%, single runs) so n=3 stays as llama.cpp's
-  default — **do not raise it.** End-to-end after tuning: 9041-token prefill in **12.0 s**, down
-  from 19.3 s at ub 256.
+  **+39.0%** at the knee, +46.1% at depth 0, +0.8 GiB; 2048 regresses — re-swept on b11330, knee
+  unchanged) and, **since 2026-10-02, `draft-dflash` rather than `draft-mtp`.**
+  **Spec A/B (b11046, greedy, seed 42):** baseline 57.9 t/s → `draft-mtp n=3` **64.1 (1.11×)** →
+  `draft-dflash` + **BF16** draft n=3 **66.1 (1.15×)** → `draft-dflash` + **Q8_0** draft n=3
+  **70.8 (1.22×)** ← serving. **The smaller Q8_0 draft (0.39 GB) BEATS the BF16 one (0.73 GB)** —
+  draft latency costs more than its lower acceptance buys, the same shape as this repo's
+  "below Q4, smaller is slower" finding: the optimum is in the middle, not at an end.
+  **Depth is sharp:** n=1 0.87× / n=2 1.11× / n=3 **1.22×** / n=4 1.01× / n=5 0.85× / n=7 0.63×.
+  **n=3 is now the peak for the third different speculator on this box** — that looks like a
+  hardware property, not a model one. Do **not** follow vendor advice to raise it; n=7 costs 37%.
+  The ceiling is **1.22×, not DFlash's advertised ~1.8×** (that figure is SGLang/vLLM on datacenter
+  GPUs and does not transfer to Vulkan on an APU). Draft is first-party
+  `ornith-ai/Ornith-1.5-35B-A3B-DFlash` (MIT), GGUF arch `dflash`, registry key `ornith15-dflash`.
 - **The router auto-starts at logon** via a Startup-folder launcher
-  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models ornith15 -Bin .\bin-b11046 -Ctx 262144`
-  as of 2026-09-19; it is **outside the
+  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Ctx 262144`
+  as of 2026-10-02; it is **outside the
   repo**, so it drifts silently — it once still said `-Models gemma` after :8080 had moved to `coder`.
   Re-check it whenever the served set changes. `run-router` splits `-Models` on commas, so the
   `powershell.exe -File` "a,b arrives as one string" gotcha does **not** bite here; verified, don't

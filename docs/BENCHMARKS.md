@@ -179,6 +179,26 @@ near qwen38's 1.79× — speculation is strongly model-dependent — and **n=4 i
 re-confirming non-monotonic depth on a second model. n=1 and n=3 tie within noise (0.16%, single
 runs), so n=3 is shipped as llama.cpp's default rather than claiming a winner.
 
+**Speculator A/B on ornith15 (2026-10-02, b11046, greedy, seed 42, n_predict 256).** `ornith-ai`
+published a first-party DFlash block-diffusion **draft model** for this exact base on 2026-09-28,
+so `draft-dflash` became testable against the incumbent `draft-mtp`:
+
+| config | t/s | ratio |
+|---|---|---|
+| no speculation | 57.9 | 1.00× |
+| `draft-mtp n=3` (previous default) | 64.1 | 1.11× |
+| `draft-dflash` + **BF16** draft (0.73 GB), n=3 | 66.1 | 1.15× |
+| **`draft-dflash` + Q8_0 draft (0.39 GB), n=3** | **70.8** | **1.22×** |
+
+Two findings worth keeping. **The smaller, lower-fidelity draft wins.** Speculative decoding pays the
+draft's latency on every step, so a draft that is half the size and slightly less accurate still comes
+out ahead — the same "optimum in the middle" shape as this repo's *below Q4, smaller is slower* result.
+And the **depth curve is sharper than draft-mtp's**: n=1 0.87× / n=2 1.11× / n=3 **1.22×** / n=4 1.01×
+/ n=5 0.85× / **n=7 0.63×**. Following a vendor card's "use 5–7 for latency" would have cost 37%.
+**n=3 has now won for three different speculators on this box**, which starts to look like a property
+of the hardware rather than of any model. The ceiling is **1.22×, not the ~1.8× DFlash advertises** —
+that figure is SGLang/vLLM on datacenter GPUs and does not transfer to Vulkan on an APU.
+
 > **Harness bug found doing this (number 15).** The first run of that sweep reported **0 t/s for the
 > baseline and all four depths**, then printed a confident `best: draft-mtp n=3 at 0 t/s (0x)` and the
 > non-monotonic warning. Cause: `llama-cli` **removed `-no-cnv`**, so every process died in <1 s and

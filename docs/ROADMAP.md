@@ -152,8 +152,10 @@ the router **stopped** for the big ones, so it's a human-approved, router-down o
   file has in `blk.87`/`blk.89`. But #29018 targets Nemotron **Super 3**, not **Puzzle**, and the
   #28779 verdict stands: the file needs *reconverting*, not a better loader. **Two builds, same
   error — stop retesting this file and watch the publishers instead.**
-- **All four publishers still stale** (re-checked 2026-09-19, unchanged): RemySkye 07-14,
-  YanissAmz 07-08, MRockatansky 08-03, Myric 09-09.
+- **All publishers still stale** (re-checked **2026-10-02**, third check, unchanged): RemySkye 07-14,
+  YanissAmz 07-08, MRockatansky 08-03, Myric 09-09. The only Puzzle work in the 284 commits from
+  b11046→b11330 was CUDA-side ([#28717](https://github.com/ggml-org/llama.cpp/pull/28717), ssm_scan
+  state size 96). **Stop checking this monthly** — it needs a publisher action, not an upstream one.
 - **Gate:** a **re-upload converted after 2026-09-13**, or a local conversion from the BF16
   safetensors (~150 GB). Re-check publisher `lastModified` before spending the bandwidth again.
 - **Lesson worth keeping:** the arch string resolving (`nemotron_h_moe`, confirmed by range-fetching
@@ -191,7 +193,24 @@ present in b11003 and absent from b10677. No GGUF assessed yet.
 
 ## Still engine-gated (arch NOT in any build here)
 
-### GLM-5.3-Flash  (arch `glm5-next`) — deprioritised, not just blocked
+### GLM-5.3-Flash  (arch `glm5-next`) — ✅ **REOPENED 2026-10-02: both blockers are gone**
+Ruled out twice (arch unsupported + only 1-bit fit). **Both of those facts have changed:**
+- **Arch support MERGED** — [#27773](https://github.com/ggml-org/llama.cpp/pull/27773) merged
+  2026-09-30, and `glm5-next` / `glm5_next` are **confirmed present in `bin-b11330`**.
+- **REAP makes it fit at an honest quant.** Expert pruning (REAP = 50% of experts removed) takes the
+  320 B-A18B model down to a size where 4-bit fits:
+  [patrickbdevaney/GLM-5.3-Flash-REAP50-GGUF](https://huggingface.co/patrickbdevaney/GLM-5.3-Flash-REAP50-GGUF)
+  — IQ3_M 67.2 / Q3_K_M 73.4 / **IQ4_XS 82.0** / Q4_K_S 87.1 / **Q4_K_M 92.5 GiB**, plus a 1.05 GiB
+  mmproj. All fit the ~109 GB ceiling.
+- **The genuinely interesting question this poses:** at ~92 GiB you can now have *either* **half the
+  experts at honest 4-bit** (REAP50 Q4_K_M) *or* **all the experts at 1-bit** (full IQ1_S, 93.1 GiB).
+  Same footprint, two completely different degradation modes, and **this repo cannot currently
+  measure which is better** — quality scores are withdrawn. Treat any claim either way as unmeasured.
+- **Temper it on speed:** A18B active is ~6× ornith15's ~3B, and tg is bandwidth-bound on *active*
+  params, so expect roughly 10–15 t/s against the 70.8 t/s now being served. REAP does not reduce
+  active params, only total. **This is a "bigger brain, much slower" trade, not a free upgrade.**
+
+### (superseded) GLM-5.3-Flash — the original size verdict, kept for the contrast
 - **What:** Z.ai multimodal GLM-5 — **320 B-A18B**, sparse+linear hybrid, 1 M context.
 - **Size verdict (the real blocker):** at 320 B total, only **1-bit** quants fit the ~109 GB ceiling
   (`UD-IQ1_S` 93.1 GB; everything ≥ IQ3 is 120–200 GB, and `Q8_0` is ~360 GB across 8 shards —
@@ -213,6 +232,26 @@ present in b11003 and absent from b10677. No GGUF assessed yet.
 A/B. Temper expectations: in llama.cpp its ~1.8× decode ≈ our existing `draft-mtp` (1.79×); the
 headline 3.43× is vLLM/SGLang + FA-3 on datacenter GPUs and doesn't transfer here. Note the current
 `:8080` model (`qwen3next`) has **no MTP head and no draft**, so this only applies to the qwen38 line.
+
+## REAP (expert pruning) — the technique that changes what "fits" means here
+
+**REAP** publishes MoEs with a fraction of their experts removed (REAP50 = half). Total params drop,
+**active params do not**, so the effect on this box is specific: it buys *fit*, costs *quality* (by an
+unmeasured amount), and does **nothing** for tg. That makes it exactly the right tool for models that
+were ruled out on size alone, and the wrong tool for anything limited by speed.
+
+Candidates that now fit the ~109 GB ceiling (sizes verified against the HF API 2026-10-02):
+
+| model | REAP size | notes |
+|---|---|---|
+| **GLM-5.3-Flash-REAP50** | IQ4_XS 82.0 / Q4_K_M 92.5 GiB | arch now supported; see above. A18B → slow tg |
+| **MiMo-V2.6-Flash-REAP50** | Q2_K 61.6 / MXFP4_MOE 86.1 GiB | ships mmproj **and** an mtp draft; 1 M ctx, vision |
+| Qwen3.6-35B-A3B-REAP-48 | 8.8 GiB | already small; REAP adds little here |
+
+**MiMo-V2.6-Flash unpruned does NOT fit** — 310.8 B total, smallest GGUF is Q2_K at **117.6 GiB**,
+over the ceiling. Its arch (`mimo_v2` → `mimo2`) *is* in b11330, and **`ggml-org` publishes the GGUF
+themselves**, which is the strongest support signal available — so the REAP50 build is the only way
+to run it here.
 
 ## Month sweep, 2026-08-19 → 2026-09-19 — what is actually runnable here
 
