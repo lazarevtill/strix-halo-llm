@@ -270,14 +270,30 @@ timing line instead of dividing by it. Current rules that came out of them:
   *and* a different speculator, so treat it as a property of the box. Scaling **plateaus after 8
   slots** (4→8 clients is only +7%), so 8 is the knee. 8 × 65536 costs just **~35 GB of 109**.
   `run-router.ps1` gained **`-Parallel`**, **`-PerSlotCtx`** (sets `Ctx = PerSlotCtx × Parallel`,
-  because llama.cpp divides `--ctx-size` among slots — ask for 65536 and 8 slots and you get 8192
+  because llama.cpp divides `--ctx-size` among slots — ask for 262144 with 4 slots and you get 65536
   each unless you do this) and **`-NoSpec`** (strips every `spec-*` line so the A/B is honest).
-  **⚠️ 4 slots × 262144 (1 M total KV) CRASHED the server under concurrent load** — it died rather
-  than slowed. Do not raise per-slot context to native without re-testing concurrency.
+- **Multi-slot stability has a TOTAL-KV ceiling near 1 M tokens that is NOT the 109 GB budget**, and
+  **speculation makes it worse.** Measured 2026-10-02, ornith15 / b11330 / ub 1024:
+
+  | config | total KV | spec | result |
+  |---|---|---|---|
+  | 4 × 262144 | 1 M | **off** | **STABLE** — 10/10, 0 child restarts, 82.5 t/s @4, 40.6 GB ✅ shipped |
+  | 8 × 65536 | 512 K | off | **STABLE** — 92.1 t/s @8 clients, 34.9 GB ✅ |
+  | 4 × 262144 | 1 M | **on** | unstable — child crashes repeatedly |
+  | 8 × 262144 | 2 M | off | unstable — 2 OK / 6 FAIL / 5 child restarts out of 10 |
+
+  **The failure mode is NOT a dead server, and that matters for diagnosis:** the *child* model
+  process crashes and the router parent **auto-reloads** it, so the symptom is intermittent
+  `HTTP 500 "proxy error: Failed to read connection"` with `GET /models` showing `unloaded` between
+  attempts — while `Get-Process llama-server` still shows a live process. Count **child PID churn**,
+  not parent liveness. The 2 M config failed at only **51.6 GB committed**, far under the ceiling,
+  which points at a Vulkan allocation limit rather than capacity.
+  **Correction:** an earlier revision of this file blamed context size alone and called it a whole-
+  server crash. Both were wrong — 4 × 262144 is fine *without* speculation, and the parent survives.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` →
-  `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 8 -PerSlotCtx 65536 -NoSpec`
-  as of 2026-10-02 — **multi-slot, speculation off**; see the slot entry above. For a single-client
+  `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 4 -PerSlotCtx 262144 -NoSpec`
+  as of 2026-10-02 — **multi-slot, full native window per slot, speculation off**; see the slot entry above. For a single-client
   box the faster config is `-Ctx 262144` with speculation on. It is **outside the
   repo**, so it drifts silently — it once still said `-Models gemma` after :8080 had moved to `coder`.
   Re-check it whenever the served set changes. `run-router` splits `-Models` on commas, so the
