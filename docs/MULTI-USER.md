@@ -267,3 +267,63 @@ Two more caveats, both learned the hard way:
   incumbent then waits only 3 s before relaunching, and WDDM hadn't freed the ~55 GB, so the new
   llama-server failed its GPU allocation (a hot-restart VRAM race — harmless at a real boot with no
   incumbent, but the task's session/job semantics are a poor fit for a detached GPU server).
+
+## 9. Prometheus / OpenTelemetry metrics
+
+`scripts\windows\metrics-exporter.ps1` serves merged Prometheus metrics on a **fixed port 9114**:
+
+```powershell
+.\scripts\windows\metrics-exporter.ps1          # serve until Ctrl-C
+.\scripts\windows\metrics-exporter.ps1 -Once    # one scrape to stdout
+```
+
+```yaml
+scrape_configs:
+  - job_name: llamacpp
+    static_configs:
+      - targets: ['127.0.0.1:9114']
+```
+
+**Why an exporter rather than scraping llama.cpp directly** — two reasons, both specific to router mode:
+
+1. **The router parent on `:8080` does not serve `/metrics`** (it returns 400). Only the per-model
+   *child* processes do.
+2. **Each child listens on a random port** chosen at launch (51955, 59026, …, different every
+   restart), so there is no stable target to put in `prometheus.yml`.
+
+The exporter discovers children through the router's own `/v1/models` (each entry carries the
+child's full argv including `--port`), scrapes each child, relabels every series with
+`model="<id>"`, and merges them onto one port.
+
+**`metrics = 1` must be set per child** — it is off by default upstream and `/metrics` answers
+**501 Not Implemented** without it. `run-router.ps1` puts it in `$common` as of 2026-10-02, so any
+router it launches already exports. A child missing it is reported as a `# NOTE` line rather than
+silently dropped.
+
+### The metrics worth alerting on
+
+| metric | meaning |
+|---|---|
+| `llamacpp:predicted_tokens_seconds` | **generation t/s** — the number you watch |
+| `llamacpp:prompt_tokens_seconds` | prefill t/s |
+| `llamacpp:requests_processing` | in-flight requests |
+| `llamacpp:requests_deferred` | **queued** — sustained `> 0` means you need more slots |
+| `llamacpp:prompt_tokens_cached_total` | prompt-cache hits; compare against `prompt_tokens_total` |
+| `llamacpp:spec_decode_num_accepted_tokens_total` ÷ `…_draft_tokens_total` | speculative acceptance rate (0 when `-NoSpec`) |
+| `llamacpp_slots_busy` / `llamacpp_slots_total` | slot occupancy (synthesised here, not upstream) |
+| `llamacpp_slot_ctx_used_tokens` | per-slot context fill — watch for slots nearing their window |
+
+### Reading slot occupancy correctly
+
+A slot stays **assigned** to a conversation between requests so its KV cache can be reused, so
+`llamacpp_slot_ctx_used_tokens` being non-zero on several slots does **not** mean several requests
+are running. Only `is_processing` (→ `llamacpp_slots_busy`) counts active generation. Four occupied
+slots with `slots_busy = 1` means four cached conversations and a client issuing requests
+**sequentially** — not concurrency.
+
+> **PS 5.1 trap, cost real time here.** `Invoke-RestMethod` on the `/slots` JSON array collapses it
+> into a single object whose properties are arrays, so `.Count` reads **1** on a 4-slot server while
+> the data actually holds every slot. An early exporter build reported `slots_total 1, slots_busy 1`
+> against four live slots. Use `Invoke-WebRequest` + `ConvertFrom-Json`, and count by **iterating**
+> rather than trusting `.Count`. Same family as the `ConvertTo-Json` collection-rewrapping gotcha in
+> CLAUDE.md.

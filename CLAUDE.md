@@ -36,6 +36,8 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
   bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0); -Bin A/Bs builds,
                       -UBatch sweeps ubatch (one run per value, ub recorded per CSV row)
   bench-spec.ps1      A/B baseline vs --spec-type
+  metrics-exporter.ps1 Prometheus exporter on a FIXED :9114 (router children use RANDOM ports
+                      and the parent serves no /metrics); relabels each child with model=<id>
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform

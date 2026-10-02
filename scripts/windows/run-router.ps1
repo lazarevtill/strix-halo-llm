@@ -91,6 +91,10 @@ if ($PerSlotCtx -gt 0) {
 $common = @(
     "ctx-size = $Ctx",
     "parallel = $Parallel",
+    # Prometheus endpoint on every child. Off by default upstream (/metrics 501s without it).
+    # The child's port is RANDOM per launch, so scrape scripts/windows/metrics-exporter.ps1 on a
+    # fixed port instead of pointing Prometheus at a child directly.
+    'metrics = 1',
     'load-mode = none',            # VRAM residency; NOT mmap (two host mirrors would blow ~32 GB sys RAM)
     'flash-attn = on',
     'cache-type-k = q8_0','cache-type-v = q8_0',
