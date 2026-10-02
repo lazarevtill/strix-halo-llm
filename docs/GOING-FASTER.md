@@ -28,7 +28,7 @@ Leave `reasoning_effort` at its default.
 | `-fa on` | +14% | |
 | `-ctk/-ctv q8_0` | free | halves KV cache |
 | `-c 262144` | costs 3% | full context is nearly free on this architecture |
-| `UD-Q4_K_XL` | — | fastest *and* highest quality of the quants tested |
+| `UD-Q4_K_XL` | — | ties plain `Q4_K_M` on speed (within 5.5%; `Q4_K_M` is marginally faster) and is measurably **closer to the Q8_0 reference** (KL −34% mean) — the quality pick at Q4. *(Earlier wording "fastest and highest quality" overstated the speed side; corrected 2026-10-02 to match RESULTS.md.)* |
 
 ---
 
@@ -38,12 +38,12 @@ Leave `reasoning_effort` at its default.
 |---|---|
 | `--spec-draft-n-max` 4 or 5 | 16.53 / **7.73** t/s — depth 5 is worse than no speculation |
 | `--spec-type draft-mtp,ngram-mod` | 17.97 — stacking speculators loses |
-| `-ub` 512 / 1024 / 2048 | 159.0 / 129.5 / 107.8 — bigger is worse |
+| `-ub` 512 / 1024 / 2048 (**dense** Qwen3.8-27B) | 159.0 / 129.5 / 107.8 — bigger is worse *on this dense model*. **MoE is the opposite:** two MoEs (`qwen3next`, `qwen35moe`) peak at `-ub 1024` (+34.8% / +39.0% prefill at depth) and regress at 2048 — see §1 and OPTIMIZATION.md row 10 |
 | smaller quant (IQ4_XS, Q3_K_XL) | 19.63 / 18.17 — **smaller is slower** |
 | `-ctk/-ctv q4_0` | 18.99 — 5% worse than q8_0, no benefit |
 | `-fa off` | 17.62 |
 | `reasoning_effort: low` | **74% slower** on hard tasks |
-| porting the chunked GDN kernel | worth <1% of prefill — see §4 |
+| porting the chunked GDN kernel | worth ~1% of prefill (1.1% in the per-op profile) — see §4 |
 
 Two of these deserve a sentence of explanation, because the intuition is strong:
 
@@ -83,7 +83,7 @@ All three kernel candidates were priced and all three are closed:
 
 | candidate | measurement | verdict |
 |---|---|---|
-| Gated DeltaNet prefill | <1% of total prefill time | not worth touching |
+| Gated DeltaNet prefill | 1.1% of prefill in the per-op profile (≈2–3 s of 452 s by the µs estimate below) | not worth touching |
 | weight matmul (`MUL_MAT` q4_K) | 10.83 TFLOPS at prefill batch | near hardware ceiling |
 | flash attention | flat 6.3–7.1 TFLOPS across kv 4k→32k | no defect to fix |
 

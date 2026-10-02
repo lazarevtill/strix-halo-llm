@@ -45,7 +45,8 @@ any model that engaged with the contradiction scored 0.
 
 ## Audited and clean
 
-A scan of all 249 tracked text files (excluding `.venv`, `node_modules`, `.remember`) found:
+A scan of all 249 tracked text files at the time of the original audit (the tree has since been
+trimmed — 80 tracked files on 2026-10-02) (excluding `.venv`, `node_modules`, `.remember`) found:
 
 - **No credentials, tokens, private keys, or `Bearer` headers.** No `.env` files exist in the tree.
 - No AWS/GCP keys, no `glpat-`/`ghp_`/`hf_` tokens.
@@ -59,13 +60,20 @@ A scan of all 249 tracked text files (excluding `.venv`, `node_modules`, `.remem
 | NetBird CIDR | `<netbird-cidr>` | `CLAUDE.md` |
 | internal GitLab URL incl. org/group path | `<your-git-remote>` | `ornith-router/finetune/README.md` |
 
+> **Path note (re-checked 2026-10-02 with `git ls-files`):** neither location in the first and last
+> rows is in this repo. `bench-web/` no longer exists and appears in no commit; `ornith-router/` is a
+> separate private repo, excluded by `.gitignore` (section 3 there). The rows are kept as the record
+> of what was scrubbed, not as files you will find in a clone.
+
 Code defaults now point at `127.0.0.1` and stay overridable via `TARGET_BASE_URL`, so the bench web
-app still works out of the box without advertising anyone's network topology.
+app (where it lives) still works out of the box without advertising anyone's network topology.
 
 ## Excluded by .gitignore
 
 - `models/` — **~640 GB** of GGUF weights. Never commit weights; `fetch-models.ps1` re-downloads them.
-- `bin/`, `bin-b9771/`, `bin-b10182/`, `bin-poolside/` — vendored llama.cpp binaries (~90 MB each).
+- `bin/` and **every `bin-*/`** (glob — e.g. `bin-b10431/`, `bin-b11330/`, `bin-poolside/`) — vendored
+  llama.cpp binaries (~90 MB each). The glob matters: listing builds one by one let `bin-b10338`,
+  `bin-b10431` and `bin-b11003` sit untracked-but-not-ignored until it was added.
 - `.venv/`, `node_modules/`, `__pycache__/` — dependency trees (the venv alone is ~36k files, and it
   is the source of nearly every "secret-like" regex hit in a naive scan: library source code, not
   your secrets).

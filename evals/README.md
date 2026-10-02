@@ -301,7 +301,7 @@ made `env` failures distinguishable from wrong answers in bug 9.
 
 **14. A flag you believe is performance-only can change your scores.** `--ubatch-size` controls how
 many prompt tokens are processed per pass. It is a *speed* knob — 256 is 29% faster at prefill than
-1024 on this GPU — and nothing about it suggests it touches output. Correcting the eval server from
+1024 on this GPU for a dense model (MoE measured the opposite: 1024 is its knee) — and nothing about it suggests it touches output. Correcting the eval server from
 1024 to 256 moved ornith's easy tier from **70/70 to 65/70** at an identical seed, temperature and
 token budget:
 
@@ -335,3 +335,28 @@ Two consequences worth keeping:
    The coding suite (32k tokens of reasoning) diverged. One flipped token is near-certain over tens
    of thousands; over a few hundred it may never happen. So short-form evals can look perfectly
    stable while long-form ones quietly move underneath you.
+
+## Two more, on the speed side (2026-09)
+
+The speed harness is not exempt. Both of these produced a *complete, well-formed* result — not a
+crash — which is exactly why they are numbered with the rest.
+
+**15. A removed CLI flag turned a whole sweep into confident zeros.** `llama-cli` dropped `-no-cnv`
+(b11046 rejects it: `invalid argument`). `bench-spec.ps1` still passed it, so every process died in
+under a second, the t/s regex found no timing line and fell back to 0, and the sweep printed
+`0 t/s => 0x` for the baseline and all four depths — followed by a confident
+`best: draft-mtp n=3` and the "depth is not monotonic" warning. Fix: a run with no timing line now
+**aborts** and prints llama-cli's first error. Written up with the run in
+[docs/BENCHMARKS.md](../docs/BENCHMARKS.md).
+
+**16. A hardcoded GPU adapter id made every memory column read `0.00 GiB`.** `bench-big.ps1` read
+`\GPU Adapter Memory(<LUID>)\...` for one LUID. Windows reassigns adapter LUIDs across reboots and
+driver resets; once it had, the counter path matched nothing, the sum was 0, and every row reported
+`peak GPU 0.00 GiB` with status `OK`. Fix: no adapter id anywhere — sum
+`\GPU Process Memory(*)\Total Committed` instead (wildcard; per process). The same pattern was later
+found and fixed in `run-solo.ps1`, where it silently disabled the wait-for-VRAM-to-drain loop.
+
+A third finding from the same audit is a **label**, not a number: the spec-decoding A/Bs were
+published as "greedy, seed 42", but `bench-spec.ps1` never passed `--temp`, so they ran llama-cli's
+default sampler. The numbers stand; the label was corrected, and the script now prints the sampler it
+used.

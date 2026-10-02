@@ -23,6 +23,8 @@ There is also a rendered report of the results at **<https://strix.lazarev.cloud
 | **[OPTIMIZATION.md](OPTIMIZATION.md)** | You're choosing a model or quant, or hunting the memory ceiling | long — a reference, skim the ⭐ sections |
 | **[BENCHMARKS.md](BENCHMARKS.md)** | You want to measure something, or you're reading numbers someone else produced | medium |
 | **[MULTI-USER.md](MULTI-USER.md)** | Real people are using the endpoint: saved chats, capacity, what a restart costs them | medium |
+| **[MULTI-BOX.md](MULTI-BOX.md)** | You have other GPUs on the LAN and want them to help (design, unmeasured) | short |
+| **[ROADMAP.md](ROADMAP.md)** | You want to know which new models are staged, what blocks each, and what `:8080` serves now | medium |
 | **[PUBLISHING.md](PUBLISHING.md)** | You're about to push this (or a fork) somewhere public | short |
 
 ## If you only read two pages

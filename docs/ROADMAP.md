@@ -1,15 +1,23 @@
 # Next-gen models — staged, tracked, and the exact gate on each
 
-This page is the "not yet fully cleared" list. Everything runnable today is in
-[RESULTS.md](RESULTS.md). The repo's rule is to publish the claim *and* the thing blocking it —
-so each model below records its exact gate, honestly.
+This page is the "not yet fully cleared" list. The published, pinned-build numbers are in
+[RESULTS.md](RESULTS.md); models cleared *after* that pin (Ornith-1.5, Qwen3-Coder-Next) carry their
+own measurements in the "Cleared" section below, not in RESULTS. The repo's rule is to publish the
+claim *and* the thing blocking it — so each model below records its exact gate, honestly.
 
-**Status refreshed 2026-09-16.** Two changes since the last revision:
+**Status refreshed 2026-10-02.** Current state:
 
-1. **Qwen3-Coder-Next cleared its gate and is now the model on `:8080`.** It is no longer on this
-   page as a candidate — see [RESULTS.md](RESULTS.md) and the note below.
-2. **The staged engine moved `b10677` → `b11003`**, which is measurably faster on MoE prefill
-   (numbers below) and adds `hy_v4`. `glm5-next` is still absent.
+1. **`:8080` serves `ornith15` solo** — Ornith-1.5-35B-A3B Q6_K on **`bin-b11330`**, 2 slots × 262144,
+   `draft-dflash` (Q8_0 draft, n=3), `-ub 1024`, vision + tools + thinking, ~41 GB of ~109. Details
+   in the Ornith entry below.
+2. **The live engine is `bin-b11330`**, taken for correctness
+   ([#28956](https://github.com/ggml-org/llama.cpp/pull/28956), wrong `mul_mat` results on sliced
+   caches). `glm5-next` is now **present** in it ([#27773](https://github.com/ggml-org/llama.cpp/pull/27773)
+   merged 2026-09-30); GLM is gated on its *file*, not the engine — see below.
+
+*(history, 2026-09-16 revision: "Qwen3-Coder-Next cleared its gate and is now the model on `:8080`"
+and "the staged engine moved `b10677` → `b11003`… `glm5-next` is still absent". Coder was replaced by
+ornith15 on 2026-09-19; the engine went on to b11046 and then b11330.)*
 
 The earlier milestone still holds: the `ggml_vk_graph_optimize` bug
 ([#27805](https://github.com/ggml-org/llama.cpp/issues/27805)) that silently corrupted
@@ -33,8 +41,10 @@ three upstream things to line up:
 3. that support **working on the Vulkan backend** — new arches land CUDA/Metal-first and Vulkan
    correctness has historically lagged (that was #27805, now fixed).
 
-The current engine for new arches is **`bin-b11003`** (carries `qwen4exp`, `qwen3next`,
-`nemotron_h_moe`, `deepseek4`, `hy_v4`, `laguna`, `muse-glimmer`, `dflash` **plus** the #27805 fix).
+The current engine for new arches is **`bin-b11330`** (the live `:8080` engine since 2026-10-02;
+carries everything b11003 had — `qwen4exp`, `qwen3next`, `nemotron_h_moe`, `deepseek4`, `hy_v4`,
+`laguna`, `muse-glimmer`, `dflash`, the #27805 fix — plus `glm5-next` and `mimo2`).
+*(history: this was `bin-b11003` as of 2026-09-16, then `bin-b11046`.)*
 The pinned **`b10431`** stays the engine for every *published* number — a build change breaks
 comparability. `bin-b10677` is retained only as the A/B baseline for the b11003 measurement.
 
@@ -70,9 +80,16 @@ nothing.
   — Q4_K_M 20.22 / Q5_K_M 23.61 / **Q6_K 27.20** / Q8_0 35.21 / BF16 66.19 GiB, plus
   `mmproj-Ornith-1.5-35B-BF16.gguf` (0.84 GiB). Q6_K chosen; the gemma A/B is the prior that Q8_0
   buys nothing but latency, and that remains **unmeasured on this model**.
+- **Current serving config (2026-10-02, verified from `GET /models` `status.args`):** `bin-b11330`,
+  `--parallel 2 --ctx-size 524288` (2 slots × 262144), `-ub 1024`, `draft-dflash` with the first-party
+  **Q8_0** DFlash draft at n=3, vision mmproj, tools, thinking — **~41 GB of ~109**. Launched at logon
+  by the Startup-folder router (`run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2
+  -PerSlotCtx 262144`); see [MULTI-USER.md](MULTI-USER.md) §8/§10 for why 2 slots *with* speculation
+  and the `-Parallel 4 -PerSlotCtx 262144 -NoSpec` alternative for concurrent load.
 - **Verified working on b11046, re-checked after tuning:** text + thinking, **vision**, **tool
   calling** (`sql_query` emitted with valid JSON args), and needle retrieval at 9 k tokens
-  (`finish_reason=stop`, exact key returned). **~36 GB committed of ~109** solo at `-ub 1024`.
+  (`finish_reason=stop`, exact key returned). *(history: ~36 GB committed of ~109 solo at `-ub 1024`,
+  1 slot, `draft-mtp` — the 2026-09-19 config.)*
 - **Both per-model settings are now MEASURED (2026-09-19, b11046, solo, 2 reps):**
 
   | `-ub` | pp4096 @ d0 | **pp4096 @ d32768** | tg128 | peak GPU |
@@ -86,11 +103,17 @@ nothing.
   shape as the coder despite a completely different arch. See the ubatch note in
   [OPTIMIZATION.md](OPTIMIZATION.md) row 10.
 
-  `draft-mtp` depth, greedy, seed 42, n_predict 256: **baseline 58 t/s**; n=1 **64.2 (1.11×)**,
+  `draft-mtp` depth, seed 42, llama-cli default sampler (**NOT greedy** — label corrected 2026-10-02;
+  `bench-spec.ps1` never passed `--temp`), n_predict 256: **baseline 58 t/s**; n=1 **64.2 (1.11×)**,
   n=2 62.2 (1.07×), n=3 **64.1 (1.11×)**, n=4 **54.3 (0.94×) — worse than no speculation at all.**
   n=1 and n=3 tie within noise (0.16% on single runs), so **n=3 is kept** as llama.cpp's default.
   **Do not raise it**; the n=4 regression confirms non-monotonic depth on a second model.
   Note the ceiling is only **1.11×** here, nowhere near qwen38's 1.79×.
+  *(history: `draft-mtp` n=3 was served 2026-09-19 → 2026-10-02.)* **Superseded 2026-10-02 by
+  `draft-dflash`:** single-stream A/B on b11046, seed 42, llama-cli default sampler — baseline 57.9 →
+  `draft-mtp` n=3 64.1 (1.11×) → `draft-dflash` + BF16 draft 66.1 (1.15×) → **`draft-dflash` + Q8_0
+  draft 70.8 (1.22×)**. DFlash depth peaks at n=3 too (n=4 1.01×, n=7 0.63×). 70.8 is a **single-slot
+  bench** number; the shipped 2-slot server measures **51.0 t/s at 1 client** (MULTI-USER.md §10).
 
   End-to-end after tuning: a 9041-token prefill went **19.3 s → 12.0 s**.
 - **Thinking-model caveat:** budget `max_tokens` ≥ 2048 or `content` returns EMPTY. A *counting* prompt
@@ -114,9 +137,9 @@ Coding MoE, **80 B total / 3 B active**, 262 K context, **text-only** (no vision
 [OPTIMIZATION.md](OPTIMIZATION.md) row 10 and [BENCHMARKS.md](BENCHMARKS.md). It will **not** load on
 the pinned `bin\` (b10431) at all.
 
-## Arch-supported on b11046, pending only a Vulkan confirmation
+## Arch-supported (b11003 and later, incl. live b11330), pending only a Vulkan confirmation
 
-These load on `bin-b11003` today. Because they are linear-attention / SSM hybrids — the exact class
+These arches are present in `bin-b11003` and every later build here, including `bin-b11330`. Because they are linear-attention / SSM hybrids — the exact class
 #27805 used to corrupt — each still gets one **fixed-seed, temp-0, N≥10 raw-completion diff** on an
 isolated port before being trusted (byte-identical = safe; any divergence = a *new* correctness
 issue). Post-#27805 these are expected to pass; the check is confirmation, not a blocker. It needs
@@ -184,14 +207,17 @@ the router **stopped** for the big ones, so it's a human-approved, router-down o
 ### DeepSeek-V4-Flash  (arch `deepseek4`) — downloaded, and b11003 added fused ops for it
 - **GGUF:** `UD-IQ2_M` (~91 GB) already on disk. b11003 adds DeepSeek-V4 hyper-connection fused ops
   ([#26578](https://github.com/ggml-org/llama.cpp/pull/26578)) and vision input
-  ([#28154](https://github.com/ggml-org/llama.cpp/pull/28154)), so a re-test on b11003 is worth more
-  than the previous attempt. 13 B active → expect the slowest tg of anything here.
+  ([#28154](https://github.com/ggml-org/llama.cpp/pull/28154)), so a re-test on a b11003+ build (now
+  `bin-b11330`, since the confirmation is per-binary) is worth more than the previous attempt. 13 B active → expect the slowest tg of anything here.
 
 ### Tencent Hy 4  (arch `hy_v4`) — new in b11003, unexplored
 Preview arch support landed ([#28127](https://github.com/ggml-org/llama.cpp/pull/28127)); `hy_v4` is
 present in b11003 and absent from b10677. No GGUF assessed yet.
 
-## Still engine-gated (arch NOT in any build here)
+## File-gated (arch now in b11330; the GGUF is the blocker)
+
+*(history: this section was "Still engine-gated (arch NOT in any build here)" until #27773 merged
+2026-09-30.)*
 
 ### GLM-5.3-Flash  (arch `glm5-next`) — ⛔ **TESTED 2026-10-02: the only fitting GGUF does not load**
 The two *original* blockers did clear (arch merged, REAP makes 4-bit fit — detail below), so this was
@@ -235,7 +261,8 @@ Ruled out twice (arch unsupported + only 1-bit fit). **Both of those facts have 
   Same footprint, two completely different degradation modes, and **this repo cannot currently
   measure which is better** — quality scores are withdrawn. Treat any claim either way as unmeasured.
 - **Temper it on speed:** A18B active is ~6× ornith15's ~3B, and tg is bandwidth-bound on *active*
-  params, so expect roughly 10–15 t/s against the 70.8 t/s now being served. REAP does not reduce
+  params, so expect roughly 10–15 t/s against ornith15's 70.8 t/s single-slot bench (the shipped
+  2-slot server measures 51.0 t/s at 1 client). REAP does not reduce
   active params, only total. **This is a "bigger brain, much slower" trade, not a free upgrade.**
 
 </details>
@@ -246,9 +273,10 @@ Ruled out twice (arch unsupported + only 1-bit fit). **Both of those facts have 
   (`UD-IQ1_S` 93.1 GB; everything ≥ IQ3 is 120–200 GB, and `Q8_0` is ~360 GB across 8 shards —
   confirmed against the HF file tree 2026-09-16). A 1-bit cut of a 320 B MoE is quality-dubious and
   unmeasured, and it would leave ~15 GB for KV on a 1 M-context model.
-- **Gate:** [#27773](https://github.com/ggml-org/llama.cpp/pull/27773) (`glm5-next`, supersedes
-  [#27752](https://github.com/ggml-org/llama.cpp/pull/27752)) is **still open**, and `glm5-next` is
-  **confirmed absent from b11003**.
+- **Gate (as of 2026-09-16, superseded):** [#27773](https://github.com/ggml-org/llama.cpp/pull/27773)
+  (`glm5-next`, supersedes [#27752](https://github.com/ggml-org/llama.cpp/pull/27752)) was **still
+  open**, and `glm5-next` was **confirmed absent from b11003**. *Superseded 2026-10-02: merged
+  2026-09-30, present in b11330 — see above.*
 - **Recommendation:** treat this as *deprioritised rather than pending*. Even if the PR merges
   tomorrow, the size verdict is independent of it and does not improve. **Don't fetch 93 GB** to find
   out. Nemotron-3-Puzzle-75B-A9B at Q6_K is the better use of the same disk and the same window.
@@ -260,8 +288,11 @@ Ruled out twice (arch unsupported + only 1-bit fit). **Both of those facts have 
 `dflash2-qwen38`). Support merged ([#27342](https://github.com/ggml-org/llama.cpp/pull/27342)) as
 `--spec-type draft-dflash`. It **was** blocked on Vulkan by #27805 — **now fixed**, so it's worth an
 A/B. Temper expectations: in llama.cpp its ~1.8× decode ≈ our existing `draft-mtp` (1.79×); the
-headline 3.43× is vLLM/SGLang + FA-3 on datacenter GPUs and doesn't transfer here. Note the current
-`:8080` model (`qwen3next`) has **no MTP head and no draft**, so this only applies to the qwen38 line.
+headline 3.43× is vLLM/SGLang + FA-3 on datacenter GPUs and doesn't transfer here.
+*(history, 2026-09-16: "the current `:8080` model (`qwen3next`) has no MTP head and no draft, so this
+only applies to the qwen38 line.")* **Superseded:** the current `:8080` model `ornith15` **does** serve
+`draft-dflash` — with its own first-party DFlash draft (Q8_0), measured **1.22×** single-stream, not the
+advertised ~1.8×. The DFlash2 qwen38 draft above remains un-A/B'd.
 
 ## REAP (expert pruning) — the technique that changes what "fits" means here
 
@@ -300,7 +331,8 @@ listicles were useless; everything they surfaced was already on disk.
 
 **NOT runnable — arch absent from b11046 (checked, not assumed):** Xing4.0-29B-A4B (`xing4_0`),
 K2-Horizon-MoVA-36B-A4B (`k2_horizon`), AliceAI-Foundation-80B-A3B (`alice_ai`). All need upstream
-support first. **Still ruled out on size:** GLM-5.3 / 5.3-Flash (320 B).
+support first. **Still ruled out on size:** GLM-5.3 / 5.3-Flash (320 B). *(superseded 2026-10-02:
+REAP50 builds fit at 4-bit and the arch is in b11330 — now file-gated, see above.)*
 
 ## Watching
 
@@ -310,8 +342,9 @@ support first. **Still ruled out on size:** GLM-5.3 / 5.3-Flash (320 B).
 - **[#27742](https://github.com/ggml-org/llama.cpp/pull/27742) `qwen4exp`** — MERGED; in b11003.
 - **[#25444](https://github.com/ggml-org/llama.cpp/pull/25444) Nemotron-3-Puzzle** — MERGED; in b11003.
 - **[#28127](https://github.com/ggml-org/llama.cpp/pull/28127) `hy_v4`** — MERGED; in b11003.
-- **[#27773](https://github.com/ggml-org/llama.cpp/pull/27773) `glm5-next`** — OPEN; absent from all
-  builds here, including b11003.
+- **[#27773](https://github.com/ggml-org/llama.cpp/pull/27773) `glm5-next`** — MERGED 2026-09-30;
+  present in b11330 *(was OPEN and absent from b11003 as of 2026-09-16)*. The published REAP50 GGUF
+  still won't load — file-gated, see above.
 - **Not upstream, don't export:** `GGML_VK_MMID_ROWLISTS` / `_SMALLN` / `_BM64` / `_WAVE32`,
   `GGML_VK_FA_WAVE32` and `--tensor-read-lazy` circulate in Strix-Halo tuning write-ups but exist
   only in a **fork**. Verified 2026-09-16 against `ggml-vulkan.cpp` on master and `--help` on b11003:
@@ -319,6 +352,6 @@ support first. **Still ruled out on size:** GLM-5.3 / 5.3-Flash (320 B).
   `GGML_VK_MAX_NODES_PER_SUBMIT`, `GGML_VK_ALLOW_SYSMEM_FALLBACK`, `GGML_VK_PREFER_HOST_MEMORY`.
 
 The moment a gate clears, the model is fetched (if needed) and test-loaded on an **isolated port with
-`bin-b11003`**; Vulkan correctness is confirmed with the fixed-seed/temp-0 N≥10 diff (a full CPU
+`bin-b11330`** (was `bin-b11003` as of 2026-09-16); Vulkan correctness is confirmed with the fixed-seed/temp-0 N≥10 diff (a full CPU
 reference is impossible for 50–93 GB GGUFs vs ~32 GB system RAM). A test that needs the model resident
 **stops the router first and restarts it after**. See `scripts/windows/stage-nextgen.ps1`.

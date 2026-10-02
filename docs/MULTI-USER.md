@@ -1,7 +1,10 @@
 # Serving real users: saved chats, capacity, and what breaks
 
-Written 2026-08-05, after this box picked up actual users. Nothing here is installed yet — this is
-the decision material.
+Written 2026-08-05, after this box picked up actual users. *(history, 2026-08-05: "Nothing here is
+installed yet — this is the decision material.")* **As of 2026-10-02, installed:** the router
+autostart (§8 — Startup-folder launcher, `ornith15` on `bin-b11330`, 2 slots × 262144, `draft-dflash`)
+and the Prometheus exporter (§9, `:9114`). The chat front-end (§2) and its backup (§3) are **not
+covered by this revision** — treat those sections as decision material.
 
 ---
 
@@ -32,7 +35,8 @@ for it.
 ~700 t/s prefill that is roughly a minute and a half of staring at nothing, for a message that
 would otherwise have started instantly.
 
-The watchdog restarts on failure, and any model or flag change is a restart. **A database-backed
+The router parent auto-reloads a crashed model child (*history: a `serve-daily.ps1` watchdog did this
+before the Startup-folder router, §8*), and any model or flag change is a restart. **A database-backed
 front-end makes a restart invisible** (history is on disk, only the cache warms again) instead of
 looking like the assistant lost the thread. That is the strongest practical argument for adding one.
 
@@ -58,25 +62,32 @@ docker run -d --name open-webui --restart unless-stopped -p 3000:8080 \
   ghcr.io/open-webui/open-webui:main
 ```
 
-⚠️ **The reboot problem.** Docker Desktop on Windows starts **after a user logs in**. Your model
-server runs as SYSTEM and comes back at boot with nobody logged in — Open WebUI would not. After an
-unattended reboot users would find the model up and the chat UI gone. Fixes, cheapest first:
+⚠️ **The reboot problem.** Docker Desktop on Windows starts **after a user logs in**.
+*(history, 2026-08: "your model server runs as SYSTEM and comes back at boot with nobody logged in —
+Open WebUI would not." That was the `serve-daily.ps1` SYSTEM task, since superseded.)* **Since the
+move to the Startup-folder router (§8), the model server ALSO only comes up at interactive logon** —
+Vulkan/WDDM needs the desktop session — so after an unattended reboot *both* the model and Docker
+Desktop wait for a login. The mismatch this section warned about is gone; the shared dependency on a
+logon is what remains. Fixes, cheapest first:
 
 1. Enable auto-login on the box (weakens physical security, trivial to do)
 2. Run Docker Engine inside WSL2 as a systemd service and start WSL from a SYSTEM task
 3. Skip Docker — option B
 
-### B. Open WebUI native, under a SYSTEM task — matches what you already have
+### B. Open WebUI native, under a SYSTEM task
 
 ```powershell
 py -3.12 -m venv D:\open-webui\venv
 D:\open-webui\venv\Scripts\pip install open-webui
-# then wrap it exactly like scripts\windows\serve-daily.ps1 does: SYSTEM task,
+# then wrap it like scripts\windows\serve-daily.ps1 does: SYSTEM task,
 # AtStartup + 15-min watchdog, health check on :3000
 ```
 
-Survives unattended reboot with no login, no Docker dependency, and reuses a pattern that is
-already proven on this box. Costs: pip dependency management, and upgrades are manual.
+Survives unattended reboot with no login and no Docker dependency. Costs: pip dependency management,
+and upgrades are manual. *(history: this was billed as "matches what you already have" when the model
+server was itself a `serve-daily.ps1` SYSTEM task. It no longer is — the router runs from the
+Startup folder at logon (§8) — so the UI surviving a login-less reboot now just means a UI with no
+model behind it until someone logs in.)*
 
 ### C. LibreChat — pick only if you need what it adds
 
@@ -90,7 +101,10 @@ Users keep history in whatever client they use (Claude Code, Codex, a desktop ap
 central storage, no accounts, and no cross-device history. Honest option if "users" means two people
 with their own tooling.
 
-**Recommendation: B if the box must be hands-off, A if you will be around to log in after a reboot.**
+*(history, 2026-08: "Recommendation: B if the box must be hands-off, A if you will be around to log
+in after a reboot.")* **Now:** the model server already needs an interactive logon (§8), so B's
+login-less advantage buys nothing on its own. Pick **A** (or a native install started from the same
+Startup folder) unless you also enable autologin — which is what makes *either* option hands-off.
 
 ---
 
@@ -119,14 +133,20 @@ Measured 2026-08-05 (`scripts\windows\bench-parallel.ps1`), Ornith-1.0-35B Q5_K_
 Concurrency pays despite generation being bandwidth-bound, because one decode pass reads the weights
 once and emits a token for every active sequence.
 
-**Currently configured: 3 slots.** What that means in practice:
+*(history, 2026-08-05, Ornith-1.0 era — "Currently configured: 3 slots"):*
 
 - Up to 3 users can generate **simultaneously**; a 4th waits for a free slot
 - Users are bursty — they read and type far longer than they generate. 3 slots comfortably covers
   perhaps **5-10 light interactive users**; collisions only bite when 4+ hit send at once
 - A lone user still gets the full ~61 t/s. **Idle slots cost nothing.**
 
-**Unknown: where it plateaus past 3.** An attempt to measure 6 slots was invalid — the second
+**Current (2026-10-02): `ornith15`, 2 slots × 262144 with `draft-dflash`** — 51.0 t/s at 1 client,
+61.8 aggregate at 2. Chosen because `/slots` showed this box's traffic is sequential (only ever one
+`is_processing`), where speculation wins; for genuinely concurrent load, `-Parallel 4 -PerSlotCtx
+262144 -NoSpec` measures 84.9 t/s aggregate at 4 clients. Full table and the stability limits in §10.
+
+*(history: "Unknown: where it plateaus past 3." Answered 2026-10-02 on ornith15 — spec off, aggregate
+scales to 92.1 t/s at 8 clients but 4→8 is only +7%, so 8 is the knee; §10.)* The first attempt to find out was invalid: an attempt to measure 6 slots — the second
 llama-server started for "isolation" competed for the same memory bus and dropped the production
 endpoint from ~61 to 24.7 t/s. Do not benchmark alongside a live server; it measures the
 interference, not the config. `bench-parallel.ps1` now refuses to run against a busy endpoint.
@@ -140,22 +160,33 @@ total **halved every user's window**:
 
 | config | total ctx | per user | GPU |
 |---|---|---|---|
-| 1 slot (before) | 262144 | **262144** | 27.7 GiB |
-| 3 slots (now) | 393216 | **131072** | 28.6 GiB |
-| 3 slots (proposed) | 786432 | **262144** | ~33 GiB |
+*(history, 2026-08-05, Ornith-1.0 Q5_K_M — the rows below were measured then; "now"/"proposed" refer
+to that date):*
 
-A user is already sitting at **59,959 tokens — 46% of their 131072 window.** Long agentic sessions
+| config | total ctx | per user | GPU |
+|---|---|---|---|
+| 1 slot (before) | 262144 | **262144** | 27.7 GiB |
+| 3 slots (then current) | 393216 | **131072** | 28.6 GiB |
+| 3 slots (proposed then) | 786432 | **262144** | ~33 GiB |
+
+A user was sitting at **59,959 tokens — 46% of their 131072 window.** Long agentic sessions
 will hit that ceiling where they would not have before.
 
-**The third row is strictly better and there is room for it**: 3 slots at the full 262144 each costs
-about 4 GiB more, against 80 GiB free. Recommended change:
+~~**The third row is strictly better and there is room for it** … `serve-daily.ps1 -Install -Parallel 3
+-Ctx 786432`~~ **Superseded 2026-10-02:** memory was never the limit, *stability* is. On ornith15 /
+b11330, **3 × 262144 with speculation is UNSTABLE** (4/10 requests OK, 6 child restarts — §10), and
+`serve-daily.ps1` is no longer how this box serves (§8). Use instead:
 
 ```powershell
-.\scripts\windows\serve-daily.ps1 -Install -Parallel 3 -Ctx 786432
+# shipped: sequential traffic, 2 slots x full native window, speculation ON (~41 GB)
+.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144
+# genuinely concurrent traffic: 4 slots x full window, speculation OFF (stable, 84.9 t/s @4)
+.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 4 -PerSlotCtx 262144 -NoSpec
 ```
 
-**Requires a restart, so it needs a quiet window** — it will wipe cached contexts of anyone mid-
-conversation.
+`-PerSlotCtx` sets `--ctx-size` = per-slot × slots, so every user keeps the full 262144.
+**Any change requires a restart, so it needs a quiet window** — it wipes cached contexts of anyone
+mid-conversation.
 
 ---
 
@@ -182,7 +213,9 @@ If that ever stops being acceptable:
 3. Create the accounts; disable open signup
 4. **Verify it survives a reboot** — the whole point, and the step most likely to fail (option A)
 5. Set up the backup, then restore it once to prove it
-6. In the same maintenance window, apply the `-Ctx 786432` change from section 5
+6. In the same maintenance window, apply any slot/context change from section 5 — the shipped 2-slot
+   config or the 4-slot `-NoSpec` alternative. *(history: this step said "apply the `-Ctx 786432`
+   change"; 3 × 262144 with speculation was later measured unstable, §10.)*
 
 ---
 
@@ -199,7 +232,7 @@ llama.cpp has this built in (**b10431+**): start `llama-server` with **no `-m`**
 OpenAI `model` field. `scripts\windows\run-router.ps1` wraps it:
 
 ```powershell
-.\scripts\windows\run-router.ps1            # :8080, serves qwen38 (coding) + ornith (big-text)
+.\scripts\windows\run-router.ps1 -Models qwen38,ornith   # :8080, coding + big-text (2026-08 example pair)
 .\scripts\windows\run-router.ps1 -DryRun    # print the router cmdline and the generated preset
 ```
 
@@ -246,12 +279,15 @@ job object around its detached child. Create
 ```bat
 @echo off
 cd /d D:\llamacpp-vulkan
-start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models coder -Bin ".\bin-b11003" -Ctx 262144
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models ornith15 -Bin ".\bin-b11330" -Parallel 2 -PerSlotCtx 262144
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\metrics-exporter.ps1" -Port 9114 -Bind "+"
 ```
 
-(`-Models qwen38,ornith` was the original example. As of 2026-09-16 this box serves `coder`
-— Qwen3-Coder-Next, which **requires** `-Bin .\bin-b11003` because the pinned `bin\` cannot load
-`qwen3next` at all. Substitute whatever you actually serve.)
+As of 2026-10-02 this box serves **`ornith15`** (Ornith-1.5-35B-A3B Q6_K) on **`bin-b11330`**, 2 slots
+× 262144 with `draft-dflash` — see §10 for why. Substitute whatever you actually serve.
+*(history: `-Models qwen38,ornith` was the original example; 2026-09-16 → 09-19 it launched `-Models
+coder -Bin ".\bin-b11003" -Ctx 262144` — Qwen3-Coder-Next, which **requires** a b11003+ engine because
+the pinned `bin\` cannot load `qwen3next` at all.)*
 
 > **This file lives OUTSIDE the repo, so it drifts silently and nothing in CI will catch it.**
 > Learned 2026-09-16: it was still launching `-Models gemma` well after `:8080` had moved to `coder`,
@@ -273,7 +309,7 @@ Two more caveats, both learned the hard way:
 `scripts\windows\metrics-exporter.ps1` serves merged Prometheus metrics on a **fixed port 9114**:
 
 ```powershell
-.\scripts\windows\metrics-exporter.ps1          # serve until Ctrl-C
+.\scripts\windows\metrics-exporter.ps1          # serve until Ctrl-C (autostart runs it with -Port 9114 -Bind "+", §8)
 .\scripts\windows\metrics-exporter.ps1 -Once    # one scrape to stdout
 ```
 
@@ -312,6 +348,27 @@ silently dropped.
 | `llamacpp:spec_decode_num_accepted_tokens_total` ÷ `…_draft_tokens_total` | speculative acceptance rate (0 when `-NoSpec`) |
 | `llamacpp_slots_busy` / `llamacpp_slots_total` | slot occupancy (synthesised here, not upstream) |
 | `llamacpp_slot_ctx_used_tokens` | per-slot context fill — watch for slots nearing their window |
+| `llamacpp_child_restarts_total` | **child (re)starts seen by this exporter** — a child crash the router auto-reloaded (new pid/port). Synthesised here. |
+| `llamacpp_child_start_time_seconds` | Unix start time of each model child; survives an exporter restart. Synthesised here. |
+
+**Alert on child restarts, not on parent liveness.** The known multi-slot failure (§10) is a *child*
+crash that the router parent silently reloads — clients see intermittent `HTTP 500 "proxy error"`
+while `Get-Process llama-server` still looks healthy. The exporter turns that PID churn into:
+
+```promql
+increase(llamacpp_child_restarts_total[1h]) > 0
+```
+
+The counter only covers the exporter's own lifetime; `changes(llamacpp_child_start_time_seconds[1h])`
+is the form that survives an exporter restart.
+
+> **One scraper only.** The `llamacpp:*_seconds` throughput gauges (`predicted_tokens_seconds`,
+> `prompt_tokens_seconds`) appear to be computed over the interval since the **previous** `/metrics`
+> read, not as a fixed-window rate. Observed here: reads drop to **0** between requests. If that
+> reading is right, a second reader of the same endpoint would reset the interval the first one sees
+> (inferred, not separately measured). Treat it as observed behaviour, not a documented upstream
+> contract — but point exactly **one** Prometheus at `:9114`,
+> and don't poll the children's `/metrics` by hand while it scrapes.
 
 ### Reading slot occupancy correctly
 
@@ -369,3 +426,17 @@ Speculation **lowers** the usable KV ceiling: 512 K is fine with it, 768 K is no
 1 M is fine and 2 M is not. Every failure occurred at **45–52 GB committed**, far below the ~109 GB
 budget, so this is a Vulkan allocation limit rather than capacity — raising the carve-out will not
 help. Re-test concurrency after any change to slot count, per-slot context, or speculation.
+
+Throughput, same date/model/build, aggregate t/s by concurrent clients:
+
+| clients | `draft-dflash` ON | spec OFF |
+|---|---|---|
+| 1 | **51.0** | 44.3 |
+| 2 | **61.8** | 58.1 |
+| 4 | 49.3 | **84.9** |
+| 8 | — | **92.1** |
+
+The crossover is between 2 and 4 clients: speculation is +15% at 1, and −42% at 4. This box's apps
+issue requests sequentially, so the shipped config is 2 × 262144 **with** speculation; switch to
+`-Parallel 4 -PerSlotCtx 262144 -NoSpec` for genuinely concurrent load. (The 70.8 t/s `draft-dflash`
+figure in ROADMAP is a single-slot bench, not this 2-slot server.)

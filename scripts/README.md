@@ -10,6 +10,14 @@ scripts/
 ├── windows/     PowerShell 5.1  — supported, and where every number came from
 │   ├── fetch-llamacpp.ps1  ⭐ step zero: download the llama.cpp Vulkan release into bin\
 │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
+│   ├── run-router.ps1      ⭐ serve one or more models from ONE endpoint on :8080 (router mode;
+│   │                          -Parallel / -PerSlotCtx / -NoSpec) — what :8080 runs today
+│   ├── metrics-exporter.ps1  Prometheus exporter for the router, merged on ONE fixed port (:9114)
+│   ├── stage-nextgen.ps1   test-load a pending model on an ISOLATED port with a separate engine
+│   │                          build + the Vulkan determinism check (docs/ROADMAP.md)
+│   ├── bench-parallel.ps1  what `--parallel N` buys: aggregate vs per-request throughput
+│   ├── hold-ports.ps1      hold :8082 and :8088 so the old bench stack cannot come back
+│   ├── serve-daily.ps1     (superseded by the Startup-folder router) SYSTEM-task autostart + watchdog
 │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   ├── download-model.ps1  fetch a single GGUF
 │   ├── bench-big.ps1       depth-aware benchmark (llama-bench -d)
@@ -23,6 +31,7 @@ scripts/
 │   ├── fetch-llamacpp.sh   download a prebuilt Vulkan release into bin/
 │   ├── fetch-models.sh     download + byte-verify (also used on macOS)
 │   ├── run-solo.sh         serve one model; prompts for model; has --dry-run
+│   ├── run-router.sh       port of run-router.ps1 (router mode, --per-slot-ctx, --no-spec); --dry-run
 │   ├── bench-big.sh        depth-aware benchmark
 │   └── bench-spec.sh       A/B speculative decoding
 │
@@ -35,8 +44,10 @@ scripts/
 
 PowerShell **5.1**, not 7 — no `&&`, no ternary, no `??`. That constraint is deliberate: 5.1 is what
 ships with Windows, so nothing here needs installing first. If you are editing these, the 5.1
-gotchas that have actually cost time are listed at the top of
-[docs/BENCHMARKS.md](../docs/BENCHMARKS.md) and in [evals/README.md](../evals/README.md) —
+gotchas that have actually cost time are in
+[docs/BENCHMARKS.md §3 "Running a trustworthy benchmark — the checklist"](../docs/BENCHMARKS.md#3-running-a-trustworthy-benchmark--the-checklist)
+(item 8: JSON re-wrapping, BOM), in [evals/README.md](../evals/README.md), and in the Conventions
+section of the repo-root `CLAUDE.md` (the `[math]::Min` and splatting traps live only there) —
 `ConvertTo-Json` re-wrapping arrays, `Add-Content -Encoding UTF8` emitting a BOM,
 `[math]::Min(1, 0.98)` binding the *integer* overload and silently rounding to 1, and splatting an
 **array** binding positionally (which once made three models die with a type-conversion error
@@ -70,12 +81,14 @@ These are properties of llama.cpp, the model, and the GPU architecture rather th
 
 ### What must be re-measured
 
-`-b 2048 -ub 256` is the measured Windows/gfx1151 optimum, and **`-ub` is the most
-architecture-specific flag in this repo.** 256 wins here because a 256-row tile fits gfx1151's
-32 KB of shared memory — a different GPU has a different threadgroup budget and therefore a
-different answer. Sweep it rather than copying the number. (This repo used `-ub 1024` until
-2026-08-14, when measurement showed 256 was **29% faster**; if you find an older reference to 1024
-anywhere, it is stale.)
+`-b 2048 -ub 256` is the measured Windows/gfx1151 optimum **for dense models**, and **`-ub` is the
+most architecture-specific flag in this repo.** 256 wins on the dense Qwen3.8-27B because a 256-row
+tile fits gfx1151's 32 KB of shared memory — a different GPU has a different threadgroup budget and
+therefore a different answer. **MoE models want `-ub 1024`** on the same GPU (measured on two
+unrelated MoEs, +34.8% / +39.0% prefill at depth; 2048 regresses), carried as a per-model override
+in the router launchers. Sweep it rather than copying either number. (This repo used `-ub 1024` for
+everything until 2026-08-14, when measurement showed 256 was **29% faster on the dense model**; an
+older reference to 1024 *for a dense model* is stale — for a MoE it is the measured answer.)
 
 Genuinely OS-specific, and not to be assumed:
 

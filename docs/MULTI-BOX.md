@@ -1,6 +1,7 @@
 # Adding machines over Ethernet — the design that actually helps
 
-The Strix Halo box has 96 GB of unified memory and runs the big models well. If you own
+The Strix Halo box has 128 GB of unified memory (96 GB carved out as VRAM, ~109 GB usable) and
+runs the big models well. If you own
 smaller CUDA GPUs on other machines (this design was drawn for a **12 GB RTX 3060** and an
 **8 GB RTX 4070**, joined by plain **Ethernet**), the question is how to make them help.
 
@@ -24,8 +25,8 @@ internals.** That is also why the two "obvious" ideas are the wrong ones here:
 | Tempting idea | Why it fails over Ethernet |
 |---|---|
 | **Cross-model KV transfer** (small model prefills, big model answers from a mapped cache — [arXiv:2608.03893](https://arxiv.org/abs/2608.03893)) | Moves GB-scale KV per request; needs a KV-ingest path llama.cpp doesn't have; and the small GPUs can't hold the 27B/35B to be the receiver anyway. Pays off only on a fast local bus (PCIe/NVLink), not Ethernet. |
-| **llama.cpp RPC backend** (`ggml-rpc`, splits one model across machines) | Crosses the network **per layer, per token**. It only helps when you are *out of VRAM* (we are not — 96 GB) and have a *fast* interconnect (we do not). Over Ethernet it makes generation dramatically **slower**. |
-| **Network speculative decoding** (draft model on a remote GPU) | Draft↔verify is a round-trip *per token*; network latency murders it. Keep speculation in-process (`draft-mtp`, already on). |
+| **llama.cpp RPC backend** (`ggml-rpc`, splits one model across machines) | Crosses the network **per layer, per token**. It only helps when you are *out of VRAM* (we are not — ~109 GB usable) and have a *fast* interconnect (we do not). Over Ethernet it makes generation dramatically **slower**. |
+| **Network speculative decoding** (draft model on a remote GPU) | Draft↔verify is a round-trip *per token*; network latency murders it. Keep speculation in-process (`draft-dflash` on `ornith15` as of 2026-10-02; *history: "`draft-mtp`, already on"*). |
 
 None of these can make a single 27B response faster over Ethernet — the 8/12 GB GPUs can't
 even hold the big model to prefill it. So don't try to accelerate the big model across the
@@ -38,9 +39,9 @@ network. **Tier the workload instead.**
    (Open WebUI,     │   health checks, fallback, retries)
     astrolabe,      │
     your apps)      ├──Ethernet──►  Strix Halo :8080   llama.cpp Vulkan router
-                    │                 • qwen38-uncensored (27B dense)
-                    │                 • ornith (35B MoE)  • cyberstrike (35B MoE)
-                    │                 • vision · big context · the HEAVY tier   [96 GB]
+                    │                 • ornith15 (35B-A3B MoE) — what :8080 serves today
+                    │                 • (example extra ids: qwen38-uncensored, cyberstrike)
+                    │                 • vision · big context · the HEAVY tier   [~109 GB]
                     │
                     ├──Ethernet──►  3060 box :8080     llama.cpp CUDA
                     │                 • an 8B / 7B-coder @ Q5     → FAST tier
@@ -63,7 +64,7 @@ weights cross the wire at request time.
 - **4070 (8 GB) = the utility tier.** Faster card, less VRAM — ideal for a small 3–4B plus the
   things you never want eating the Strix Halo: **embeddings, a reranker, STT, a small vision
   model.** Latency-sensitive, cheap, and better kept off the heavy box.
-- **Strix Halo = the heavy tier, unchanged.** Freed from trivia and utilities, its 96 GB and the
+- **Strix Halo = the heavy tier, unchanged.** Freed from trivia and utilities, its ~109 GB and the
   big models are available for what only it can do (big context, the 35B MoEs, vision).
 
 ## The router: LiteLLM
@@ -81,11 +82,13 @@ A minimal config (secrets come from the environment — **never commit a real ke
 model_list:
   # heavy tier — the Strix Halo llama.cpp router (route by the model's own name).
   # <strix-host> / <gpu-a> / <gpu-b> are the LAN or overlay IPs of your three boxes.
-  - model_name: qwen38-uncensored
+  # ornith15 is what :8080 serves as of 2026-10-02. The other two ids are EXAMPLES from the
+  # 2026-08 design — list only what your router actually has loaded (GET /models).
+  - model_name: ornith15
+    litellm_params: { model: openai/ornith15,          api_base: http://<strix-host>:8080/v1, api_key: os.environ/LLAMA_KEY }
+  - model_name: qwen38-uncensored   # example id
     litellm_params: { model: openai/qwen38-uncensored, api_base: http://<strix-host>:8080/v1, api_key: os.environ/LLAMA_KEY }
-  - model_name: ornith
-    litellm_params: { model: openai/ornith,            api_base: http://<strix-host>:8080/v1, api_key: os.environ/LLAMA_KEY }
-  - model_name: cyberstrike
+  - model_name: cyberstrike         # example id
     litellm_params: { model: openai/cyberstrike,       api_base: http://<strix-host>:8080/v1, api_key: os.environ/LLAMA_KEY }
   # fast tier — 3060
   - model_name: fast
@@ -95,8 +98,8 @@ model_list:
     litellm_params: { model: openai/embed, api_base: http://<gpu-b>:8080/v1, api_key: os.environ/LLAMA_KEY }
 
 router_settings:
-  # send "fast" to the Strix Halo big coder if the 3060 is down
-  fallbacks: [{ "fast": ["qwen38-uncensored"] }]
+  # send "fast" to the Strix Halo if the 3060 is down (use a model the router actually serves)
+  fallbacks: [{ "fast": ["ornith15"] }]
 ```
 
 Run it (if you operate an internal image mirror, pull through it rather than Docker Hub direct —
@@ -113,8 +116,8 @@ docker run -d -p 4000:4000 -v $PWD/litellm.config.yaml:/app/config.yaml \
 Keep them on **llama.cpp CUDA**, not vLLM, unless a box must serve many simultaneous users —
 one mental model and the same flags/tooling as the Strix Halo stack. A CUDA llama.cpp build is
 the same `llama-server`, just fetched for the CUDA release instead of Vulkan; the serving flags
-carry over (`-fa on`, `-b 2048`, KV `q8_0`). **Re-sweep `-ub` on each card** — 256 is the
-*measured* knee for gfx1151, not a portable constant (see the `-ub` note in BENCHMARKS.md); an
+carry over (`-fa on`, `-b 2048`, KV `q8_0`). **Re-sweep `-ub` on each card** — 256 (dense) / 1024 (MoE)
+are the *measured* knees for gfx1151, not portable constants (see the `-ub` note in BENCHMARKS.md); an
 Ada/Ampere GPU will have a different optimum. Switch a box to **vLLM** only when you need its
 continuous-batching concurrency.
 

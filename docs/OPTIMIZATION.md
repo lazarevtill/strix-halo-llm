@@ -9,7 +9,7 @@ Many tips there are CUDA/Linux-specific; below is only what applies to AMD 8060S
 | # | Lever | Status | Note |
 |---|-------|--------|------|
 | 1 | **RAM at rated speed (XMP/EXPO)** | ⚠️ YOU | Measured 7500 vs rated 8533 MT/s → article says this is the #1 lever (up to 2-3× on MoE TG). BIOS. ~+14% for us. |
-| 2 | **Speculative decoding — nuanced** | ✅ MEASURED 2026-06-29 | **Native MTP head (`--spec-type draft-mtp`) is a BIG win: Qwen3.6-35B-A3B 67.9 vs 50.2 t/s = +35%.** Generic drafts are NOT: `ngram-mod` ≈ neutral on code (Ornith 59.4 vs 57.6, noise), and community data shows generic draft/ngram **net-negative on general MoE text** (−3 to −12%). Rule: use draft-mtp when the GGUF has the MTP head; ngram-mod only for code; never a separate draft model on these MoEs. (Dense coder still 2.2× — different regime.) |
+| 2 | **Speculative decoding — nuanced** | ✅ MEASURED 2026-06-29 | **Native MTP head (`--spec-type draft-mtp`) is a BIG win: Qwen3.6-35B-A3B 67.9 vs 50.2 t/s = +35%.** Generic drafts are NOT: `ngram-mod` ≈ neutral on code (Ornith 59.4 vs 57.6, noise), and community data shows generic draft/ngram **net-negative on general MoE text** (−3 to −12%). Rule: use draft-mtp when the GGUF has the MTP head; ngram-mod only for code. ~~never a separate draft model on these MoEs~~ **Narrowed 2026-10-02:** that held for *generic* draft models (community data, not measured here). A **purpose-trained** draft is different — ornith15's first-party DFlash draft (`draft-dflash`, Q8_0, n=3) **won 1.22×** single-stream vs `draft-mtp` 1.11× (b11046, seed 42, llama-cli default sampler) and is what `:8080` serves. **Speculation loses under concurrency:** ornith15 / b11330 at 4 clients, spec ON 49.3 vs spec OFF **84.9** t/s aggregate (it still wins at 1 client, 51.0 vs 44.3) — see MULTI-USER.md §10. (Dense coder still 2.2× — different regime.) |
 | 3 | **`--fit on`** for big models | ❌ **USELESS HERE (MEASURED 2026-07-30)** | Two independent reasons it can't work on this box. (a) `-ngl 999` **aborts the fit outright**: `common_fit_params: failed to fit params to free device memory: n_gpu_layers already set by user to 999, abort`. (b) Even without `-ngl`, it sizes against a **fiction** — llama.cpp reports a *constant* `108782 MiB free` whether 0 GB or 42 GB is actually allocated (verified both ways). `llama-fit-params` therefore recommended `-c 125696 -ngl -1` for the 235B regardless of load. **Size manually from the measured ceiling table below.** |
 | 4 | **q8_0 KV cache** (`-ctk q8_0 -ctv q8_0`) | ✅ | frees VRAM for more GPU layers. (Article marks [CUDA] but works on our Vulkan.) |
 | 5 | **`--parallel 1`** for single big model | ⬜ | Each slot = own KV. For the tight-fit 235B, drop 4→1 to reclaim VRAM for weights. |
@@ -19,7 +19,7 @@ Many tips there are CUDA/Linux-specific; below is only what applies to AMD 8060S
 | 9 | **Sampling defaults (quality)** | ✅ set 2026-06-29 | **Qwen3.x thinking: `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0`. NEVER greedy** (endless repetition). Baked into run-qwen36/run-ornith/keep-resident. gpt-oss is different (neutral: temp 1.0/top-p 1.0/top-k 0). Clients may override. |
 | 10 | **batch/ubatch tuning** | ✅ RE-MEASURED 2026-08-14, ⚠️ SCOPE NARROWED 2026-09-16, ✅ **MoE RULE CONFIRMED 2026-09-19** | **RULE NOW: on gfx1151, MoE wants `-ub 1024`; dense wants 256.** Confirmed on a *second, unrelated* MoE: Ornith-1.5-35B-A3B (`qwen35moe`, **256 experts, standard attention** — nothing like `qwen3next`'s 512-expert linear-attention hybrid) hits the **same knee** — `pp4096 @ d32768` = 391.3 (ub 256) → 477.8 (512) → **543.8 (1024)** → 481.7 (2048) t/s, **+39.0%**, **and 2048 regresses again**. tg flat for the third time (58.4/58.8/58.9/58.7). Two independent MoE arches agreeing on 1024-with-a-2048-regression makes 1024 the *expected* MoE answer rather than a coin flip — still verify per model, but the prior is now strong. **SCOPE: this row's 256 was measured on a DENSE model.** Swept again on **Qwen3-Coder-Next 80B/A3B (`qwen3next`, MoE), solo, b11003**: `pp4096 @ d32768` = 297.8 (ub 256) → 356.2 (512) → **401.3 (1024)** → 339.2 (2048) t/s, i.e. **+34.8% at `-ub 1024`**; at depth 0 `pp4096` goes 453.8 → **652.8** (+43.9%). **tg is untouched across the whole 8× range** (44.0/44.0/44.2/44.1 — batch size still does not move tg), and the cost is **+0.5 GiB**. Note **`-ub 2048` REGRESSES at depth** (339 vs 401), so the circulating Strix-Halo advice "MoE wants ub2048" does *not* transfer — 1024 is this box's knee for this arch. The global default stays **256**; `coder` carries a per-model `ubatch-size = 1024` override in `run-router.ps1`'s `$known`, and `run-router.ps1 -DryRun` shows exactly one `ubatch-size` line. **Neither number is withdrawn — they are both correct, for different arches.** The dense result follows. **`-b 2048 -ub 256`** is the pp sweet spot on gfx1151 for dense, and it is the launchers' default. **The `-ub 1024` this table used to recommend costs 29%** (167 vs 129 t/s prefill on Qwen3.8-27B, b10431): a 256-row tile fits gfx1151's 32 KB of shared memory and a 1024-row one does not. `-ub 128` measured 0.9% higher still on one run, so 256 is the knee, not the maximum. The superseded 2026-06-29 MoE figures were pp8192 921 @ub1024 vs 817 @512, 744 @2048 — measured on a different model class, which is why they pointed the wrong way. **tg is unaffected by batch** (~68 t/s either way — tg is bandwidth-bound; the tg lever is RAM XMP). **`-ub` is the most architecture-specific flag in this repo — sweep it, do not copy it.** |
 | 11 | **`--prio` / `--no-warmup`** | ⬜ | minor; faster startup, less scheduler jitter. |
-| 12 | **Build from source (LTO/native)** | ⬜ later | we use prebuilt b9771; a `-DGGML_VULKAN=ON -DGGML_NATIVE=ON -DGGML_LTO=ON` build squeezes a few %. |
+| 12 | **Build from source (LTO/native)** | ⬜ later | we use prebuilt releases — **b10431** is the pin for published numbers (`bin\`), **b11330** is the live `:8080` engine (`bin-b11330\`) as of 2026-10-02 *(history: this row said "prebuilt b9771")*; a `-DGGML_VULKAN=ON -DGGML_NATIVE=ON -DGGML_LTO=ON` build squeezes a few %. |
 
 ## ⭐ The real memory ceiling is ~109 GB, NOT 96 GB (MEASURED 2026-07-30)
 
@@ -66,12 +66,21 @@ reads **~0 GiB dedicated while still committing tens of GiB.** Measured on two i
 With "109 GiB free" on screen, Laguna (needs ~95 GiB) OOM'd on a 1.5 GiB buffer — because 42.5 GiB
 was committed by two *idle, trimmed* servers. **Committed is what the allocator must respect.**
 ```powershell
-# the number that actually matters:
-(Get-Counter '\GPU Adapter Memory(luid_0x00000000_0x01c3ed4a_phys_0)\total committed').CounterSamples[0].CookedValue/1GB
+# the number that actually matters -- summed over llama-* processes, no adapter LUID needed:
+$ll = @(Get-Process llama-* -EA SilentlyContinue | ForEach-Object { "pid_$($_.Id)_" })
+((Get-Counter '\GPU Process Memory(*)\Total Committed').CounterSamples |
+  Where-Object { $i = $_.InstanceName; $ll | Where-Object { $i -like "$_*" } } |
+  Measure-Object CookedValue -Sum).Sum/1GB
 # per process:
 (Get-Counter '\GPU Process Memory(*)\Total Committed').CounterSamples | Where-Object { $_.CookedValue -gt 500MB }
 ```
 `scripts\windows\run-solo.ps1` and `bench-big.ps1` now both key on Total Committed.
+
+> **Don't hardcode the adapter LUID.** An earlier revision of this page used
+> `\GPU Adapter Memory(luid_0x…_phys_0)\…`. Windows **reassigns** that LUID (reboot / driver update),
+> and a stale one silently reads 0 — that is exactly how `bench-big.ps1` once reported `0.00 GiB`
+> peak GPU on every row of a run that otherwise looked OK. Sum the per-process counters as above
+> instead.
 
 ### ⚠️ The dirty-baseline OOM trap (cost me 3 false negatives)
 `ErrorOutOfDeviceMemory` **usually means something else is still holding VRAM**, not that the config
@@ -79,9 +88,10 @@ is too big. All three of `f16 KV @131072`, `q8_0 @196608`, and `q8_0 @262144` fi
 passed on a clean baseline. Stale/trimmed `llama-server` processes had 14–42 GB still allocated.
 **Always confirm the GPU is drained before concluding a model doesn't fit:**
 ```powershell
-(Get-Counter '\GPU Adapter Memory(luid_0x00000000_0x01c3ed4a_phys_0)\dedicated usage').CounterSamples[0].CookedValue/1GB
-# want < ~2 GB. If not, find the holder:
-(Get-Counter '\GPU Process Memory(*)\Dedicated Usage').CounterSamples | Where-Object { $_.CookedValue -gt 500MB }
+(Get-Counter '\GPU Process Memory(*)\Total Committed').CounterSamples |
+  Where-Object { $_.CookedValue -gt 500MB } | Select-Object InstanceName, @{n='GiB';e={$_.CookedValue/1GB}}
+# want no llama-* pid left holding GBs. (Committed, not Dedicated: a trimmed idle server reads
+# ~0 dedicated while still holding its reservation.)
 ```
 `ceiling-test.ps1` now hard-aborts rather than measuring on a dirty baseline. Note that servers
 started **elevated** (e.g. by `remote-host-setup.ps1`) cannot be killed from a non-elevated shell —
@@ -146,8 +156,11 @@ the rollback was already staged before anything was touched. Downtime **26 s** (
 3,557 tokens — a restart when a user is holding 60K costs them ~90 s of re-prefill, so wait for a
 quiet window rather than taking one.
 
-**Restart via `schtasks /run /tn llama-ornith-daily`, NOT by launching the server yourself** — the
-daily server must stay SYSTEM-owned or it dies with your session.
+*(history, 2026-08-10 — superseded:)* ~~**Restart via `schtasks /run /tn llama-ornith-daily`, NOT by
+launching the server yourself** — the daily server must stay SYSTEM-owned or it dies with your
+session.~~ **Now:** `:8080` is the router launched at logon from a Startup-folder `.cmd` in the
+interactive session (Vulkan/WDDM needs it; a scheduled task/service is the wrong fit). Restart it by
+re-running that `.cmd` / `run-router.ps1` with the same arguments — see MULTI-USER.md §8.
 
 Measured after: Ornith Q5_K_M, 3 slots x 131072, 28.58 GiB, **60.2 t/s** (vs ~63 on b10182, with a
 17 MB/s download running concurrently — no regression). New in the `--spec-type` enum: `draft-dspark`
@@ -644,7 +657,9 @@ llama-server -m Qwen3-235B-...UD-Q2_K_XL-00001-of-00002.gguf \
 
 ## Sourced, NOT measured here — Vulkan-vs-ROCm & driver on Strix Halo (2026-08-28)
 
-Everything above is measured on **this** Windows / gfx1151 / Vulkan / b10431 box. This section is
+Everything above is measured on **this** Windows / gfx1151 / Vulkan box, and each section carries
+its own build (b9771 → b10182 → b10338 → b10431 pin; later rows b11003 / b11046 / b11330) — compare
+only within a build. This section is
 **external, single-box, mostly-Linux evidence** from an Opus-5 deep-research pass (6 confirmed
 findings, 19 refuted). Per the repo rule — *port the method, not the numbers* — none of it is a
 verified result here, and its figures are **not comparable** with the Windows numbers above: the

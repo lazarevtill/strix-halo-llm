@@ -35,7 +35,8 @@ part. `docs/BENCHMARKS.md` is what to read before measuring anything.
 
 **PowerShell 5.1, not 7.** No `&&`, no ternary, no `??`. That constraint is deliberate: 5.1 ships
 with Windows, so nothing here needs installing first. The 5.1 traps that have actually cost time are
-listed at the top of `docs/BENCHMARKS.md` and in `evals/README.md`.
+in `docs/BENCHMARKS.md` §3 ("Running a trustworthy benchmark — the checklist", item 8), in
+`evals/README.md`, and in the Conventions section of `CLAUDE.md`.
 
 **The bash scripts use compact, aligned `case` blocks** for argument parsing — one line per option,
 `;;` at the end:
