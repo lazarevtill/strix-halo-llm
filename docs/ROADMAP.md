@@ -193,7 +193,35 @@ present in b11003 and absent from b10677. No GGUF assessed yet.
 
 ## Still engine-gated (arch NOT in any build here)
 
-### GLM-5.3-Flash  (arch `glm5-next`) — ✅ **REOPENED 2026-10-02: both blockers are gone**
+### GLM-5.3-Flash  (arch `glm5-next`) — ⛔ **TESTED 2026-10-02: the only fitting GGUF does not load**
+The two *original* blockers did clear (arch merged, REAP makes 4-bit fit — detail below), so this was
+reopened and the 82 GB IQ4_XS was fetched. **It is rejected by both b11330 and b11324:**
+
+```
+error loading model hyperparameters: key not found in model: glm5-next.attention.indexer.kpool
+```
+
+The file carries `indexer.head_count` / `key_length` / `top_k` but **not `kpool`**. The arch is
+genuinely supported — this is a *file* problem, the same class that killed Nemotron-3-Puzzle.
+
+> **The check that caught it, and the one that fooled me first.** The repo's `lastModified` reads
+> **2026-10-01**, i.e. *after* the 09-30 merge, which is why it looked safe to download. That field
+> is **misleading** — it reflects any file change, and on 10-01 only `README.md` was touched. Per-file
+> `lastCommit.date` from the HF tree API shows the **`.gguf` files were uploaded 2026-08-30/31, a
+> month before upstream support existed**, and the repo ships its own `glm5-next-llama.cpp.patch`
+> + `.bundle`: they were converted with the author's private fork. **Always check per-file dates,
+> never repo `lastModified`.**
+
+Also tried: **b11324**, the last build before
+[#29805](https://github.com/ggml-org/llama.cpp/pull/29805) ("clamp kpool re-pool bound", 2026-10-01
+19:55), on the theory that `kpool` was a late addition. It fails identically — `kpool` was required
+from the original merge, so **no post-merge build will load this file**.
+
+**Gate:** a re-conversion with current upstream `convert_hf_to_gguf.py`. No other GLM-5.3 REAP GGUF
+exists (checked 2026-10-02), and the unpruned 320B still only fits at 1-bit. Re-check **per-file**
+dates before spending 82 GB again.
+
+<details><summary>Why it was reopened (still true, and still the path once a good GGUF exists)</summary>
 Ruled out twice (arch unsupported + only 1-bit fit). **Both of those facts have changed:**
 - **Arch support MERGED** — [#27773](https://github.com/ggml-org/llama.cpp/pull/27773) merged
   2026-09-30, and `glm5-next` / `glm5_next` are **confirmed present in `bin-b11330`**.
@@ -209,6 +237,8 @@ Ruled out twice (arch unsupported + only 1-bit fit). **Both of those facts have 
 - **Temper it on speed:** A18B active is ~6× ornith15's ~3B, and tg is bandwidth-bound on *active*
   params, so expect roughly 10–15 t/s against the 70.8 t/s now being served. REAP does not reduce
   active params, only total. **This is a "bigger brain, much slower" trade, not a free upgrade.**
+
+</details>
 
 ### (superseded) GLM-5.3-Flash — the original size verdict, kept for the contrast
 - **What:** Z.ai multimodal GLM-5 — **320 B-A18B**, sparse+linear hybrid, 1 M context.

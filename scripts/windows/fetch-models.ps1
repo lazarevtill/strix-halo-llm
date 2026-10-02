@@ -293,7 +293,29 @@ $REG = [ordered]@{
         # you can have HALF the experts at 4-bit (this) or ALL of them at 1-bit (glm53-flash IQ1_S):
         # two different degradation modes at one footprint. Do not rank them without evidence.
         # 82 GB cannot co-reside with anything -- router-down operation. Byte-verified 2026-10-02.
-        note  = 'GLM-5.3-Flash REAP50 IQ4_XS (82 GB, glm5-next, 144 experts, 1M ctx) + mmproj. Expert-pruned so 4-bit fits; expect ~10-15 t/s (A18B active).'
+        #
+        # !! DOES NOT LOAD -- DO NOT RE-DOWNLOAD (tested 2026-10-02 on b11330 AND b11324) !!
+        #   error loading model hyperparameters: key not found in model: glm5-next.attention.indexer.kpool
+        # The GGUF carries indexer.head_count / key_length / top_k but NOT indexer.kpool, which
+        # upstream requires. Arch IS supported (glm5-next present in b11330); the FILE is the problem.
+        #
+        # ROOT CAUSE + THE CHECK THAT CAUGHT IT: the repo's `lastModified` reads 2026-10-01, i.e.
+        # AFTER glm5-next merged (#27773, 2026-09-30) -- which is why it looked safe. That field is
+        # MISLEADING: it reflects ANY file change, and on 10-01 only README.md was touched. The
+        # actual .gguf files were uploaded 2026-08-30/31, a MONTH BEFORE upstream support existed,
+        # and the repo ships its own glm5-next-llama.cpp.patch + .bundle -- they were converted with
+        # the author's private fork, whose metadata does not match what upstream settled on.
+        # => ALWAYS check per-file `lastCommit.date` from the HF tree API, never repo lastModified.
+        # (Repo-level lastModified was also the check used for the Nemotron entry below; it happened
+        #  to be right there, but it is not a reliable signal.)
+        #
+        # Tried and rejected: b11324, the last build before #29805 ("clamp kpool re-pool bound",
+        # 2026-10-01T19:55) -- fails identically, so kpool was required from the original merge and
+        # no post-merge build will load this file.
+        # GATE: a re-conversion with current upstream convert_hf_to_gguf.py. No other GLM-5.3 REAP
+        # GGUF exists (checked 2026-10-02); the full 320B model only fits at 1-bit, which was
+        # already judged not worth it. Re-check per-FILE dates before spending 82 GB again.
+        note  = 'GLM-5.3-Flash REAP50 IQ4_XS (82 GB, glm5-next). !! WILL NOT LOAD -- converted 2026-08-30 with a pre-merge private fork, missing indexer.kpool. Needs upstream reconversion. Do not re-fetch. !!'
     }
     'ornith15-dflash' = @{
         repo  = 'na0x2c6/Ornith-1.5-35B-A3B-DFlash-GGUF'
