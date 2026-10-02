@@ -255,9 +255,30 @@ timing line instead of dividing by it. Current rules that came out of them:
   The ceiling is **1.22×, not DFlash's advertised ~1.8×** (that figure is SGLang/vLLM on datacenter
   GPUs and does not transfer to Vulkan on an APU). Draft is first-party
   `ornith-ai/Ornith-1.5-35B-A3B-DFlash` (MIT), GGUF arch `dflash`, registry key `ornith15-dflash`.
+- **MULTI-SLOT: speculation must be turned OFF, and `--ctx-size` is SPLIT across slots.**
+  MEASURED 2026-10-02 on ornith15 / b11330 / `-ub 1024`, aggregate t/s by concurrent clients:
+
+  | clients | `draft-dflash` ON | spec OFF |
+  |---|---|---|
+  | 1 | **51.0** | 44.3 |
+  | 2 | **61.8** | 58.1 |
+  | 4 | 49.3 | **84.9** |
+  | 8 | — | **92.1** |
+
+  **The crossover is between 2 and 4 concurrent**: spec-on is +15% at 1 client, spec-off is **+72%
+  at 4**. This reproduces the qwen38 "speculation and batching compete" finding on a different model
+  *and* a different speculator, so treat it as a property of the box. Scaling **plateaus after 8
+  slots** (4→8 clients is only +7%), so 8 is the knee. 8 × 65536 costs just **~35 GB of 109**.
+  `run-router.ps1` gained **`-Parallel`**, **`-PerSlotCtx`** (sets `Ctx = PerSlotCtx × Parallel`,
+  because llama.cpp divides `--ctx-size` among slots — ask for 65536 and 8 slots and you get 8192
+  each unless you do this) and **`-NoSpec`** (strips every `spec-*` line so the A/B is honest).
+  **⚠️ 4 slots × 262144 (1 M total KV) CRASHED the server under concurrent load** — it died rather
+  than slowed. Do not raise per-slot context to native without re-testing concurrency.
 - **The router auto-starts at logon** via a Startup-folder launcher
-  (`…\Startup\StrixHalo-Router.cmd` → `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Ctx 262144`
-  as of 2026-10-02; it is **outside the
+  (`…\Startup\StrixHalo-Router.cmd` →
+  `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 8 -PerSlotCtx 65536 -NoSpec`
+  as of 2026-10-02 — **multi-slot, speculation off**; see the slot entry above. For a single-client
+  box the faster config is `-Ctx 262144` with speculation on. It is **outside the
   repo**, so it drifts silently — it once still said `-Models gemma` after :8080 had moved to `coder`.
   Re-check it whenever the served set changes. `run-router` splits `-Models` on commas, so the
   `powershell.exe -File` "a,b arrives as one string" gotcha does **not** bite here; verified, don't

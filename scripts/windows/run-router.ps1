@@ -41,6 +41,16 @@ param(
                                    # menu numbers; any gguf in MODELS_DIR is offered, auto-tuned.
     [int]      $Port      = 8080,
     [int]      $Ctx       = 131072,
+    # Server slots per model. llama.cpp SPLITS --ctx-size across slots, so per-slot context is
+    # Ctx / Parallel -- raise Ctx with Parallel or every slot gets a fraction of the window.
+    # -PerSlotCtx does that arithmetic for you: it sets Ctx = PerSlotCtx * Parallel and is the
+    # safer way to ask for "N clients, each with a full window".
+    [int]      $Parallel   = 1,
+    [int]      $PerSlotCtx = 0,    # 0 = off (use -Ctx verbatim); else Ctx := PerSlotCtx * Parallel
+    # Strip every per-model spec-* line. SPECULATION AND BATCHING COMPETE for the same batch
+    # dimension (see CLAUDE.md), so the setting that wins single-stream can lose under concurrency.
+    # Use this to A/B a multi-slot config honestly instead of assuming.
+    [switch]   $NoSpec,
     [int]      $ModelsMax = 2,
     [string[]] $Preload   = @(),   # empty => pre-load exactly the selected set
     [string]   $Bin       = '',    # engine dir override (e.g. bin-b10677 for new arches qwen3next/qwen4exp);
@@ -74,8 +84,13 @@ $known = @(
     @{ match = 'gemma4-26B-A4B-abliterated-Q6_K';    label = 'gemma';             spec = @();                                              mmproj = 'mmproj-gemma-4-26B-A4B-f16.gguf' }                  # ABLITERATED Gemma-4-26B-A4B MoE (gemma4, GQA -> small KV -> large ctx cheap); uncensored prose + VISION (mmproj from base repo -- abliteration doesn't touch the vision tower). Q6_K won the fast-vs-good A/B (2026-09-12): clean Q8-grade prose @50 t/s vs Q4's 60 t/s-but-corrupted, Q8's 43 t/s-no-gain. Thinking model -> ample max-tokens; temp ~1.0 top-p 0.95
 )
 # shared tuned flags -- the measured optima for gfx1151 (see docs/BENCHMARKS.md, docs/OPTIMIZATION.md)
+if ($PerSlotCtx -gt 0) {
+    $Ctx = $PerSlotCtx * $Parallel
+    Write-Host ("  per-slot ctx {0} x {1} slots -> total ctx-size {2}" -f $PerSlotCtx, $Parallel, $Ctx) -ForegroundColor DarkGray
+}
 $common = @(
     "ctx-size = $Ctx",
+    "parallel = $Parallel",
     'load-mode = none',            # VRAM residency; NOT mmap (two host mirrors would blow ~32 GB sys RAM)
     'flash-attn = on',
     'cache-type-k = q8_0','cache-type-v = q8_0',
@@ -188,7 +203,10 @@ foreach ($name in $sel) {
         $overridden = @($c.spec | Where-Object { ($_ -split '=', 2)[0].Trim() -eq $key }).Count -gt 0
         if (-not $overridden) { $lines.Add($x) }
     }
-    foreach ($s in $c.spec) { $lines.Add($s) }
+    foreach ($s in $c.spec) {
+        if ($NoSpec -and (($s -split '=', 2)[0].Trim() -like 'spec-*')) { continue }
+        $lines.Add($s)
+    }
     if ($c.mmproj) {
         $mmPath = Join-Path $modelsDir $c.mmproj
         if (Test-Path $mmPath) { $lines.Add("mmproj = $mmPath") }

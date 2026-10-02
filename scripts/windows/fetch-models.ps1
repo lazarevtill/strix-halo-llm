@@ -270,6 +270,31 @@ $REG = [ordered]@{
         # below self-reported. Do NOT rank it against the coder on these. Byte counts verified 2026-09-19.
         note  = 'Ornith-1.5-35B-A3B Q6_K + mmproj (36B/A3B, qwen35moe, MIT, VISION, thinking). Successor to ornith-1.0; co-resides with coder.'
     }
+    'glm53-reap50' = @{
+        repo  = 'patrickbdevaney/GLM-5.3-Flash-REAP50-GGUF'
+        files = @(
+            @{ p='GLM-5.3-Flash-REAP50-IQ4_XS.gguf';      b=88048752032 }
+            @{ p='mmproj-GLM-5.3-Flash-REAP50-F16.gguf';  b=1128047424 }
+        )
+        # GLM-5.3-Flash, REAP50 (expert-pruned) -- the model this repo ruled out TWICE on size and once
+        # on arch. BOTH blockers are now gone:
+        #   * arch MERGED: PR #27773 merged 2026-09-30; 'glm5-next' confirmed present in bin-b11330.
+        #   * REAP50 halves the experts so an HONEST 4-bit fits: IQ4_XS 82.0 GB (Q4_K_M 92.5 GB also
+        #     fits). The UNPRUNED model only fit at 1-bit (UD-IQ1_S 93.1 GB) -- see 'glm53-flash'.
+        # Header verified by range-fetching the first 1 MiB BEFORE downloading 82 GB (do this always):
+        #   general.architecture = glm5-next, expert_count = 144 (halved by REAP), expert_used_count = 8,
+        #   block_count = 46, context_length = 1048576, embedding_length = 4096.
+        # NOTE 144 experts is BELOW 256, so llama.cpp #28501 (row-id hoisting above 256 experts) does
+        # NOT apply here -- that win is coder-only. Do not expect it.
+        # EXPECT IT TO BE SLOW: ~A18B active vs ornith15's ~3B, and REAP prunes TOTAL params, never
+        # ACTIVE ones. tg is bandwidth-bound on active params, so budget ~10-15 t/s against ornith15's
+        # 70.8. This is a bigger-brain/much-slower trade, not a free upgrade.
+        # QUALITY IS UNMEASURED AND NOT MEASURABLE HERE (repo quality scores are withdrawn). At ~92 GB
+        # you can have HALF the experts at 4-bit (this) or ALL of them at 1-bit (glm53-flash IQ1_S):
+        # two different degradation modes at one footprint. Do not rank them without evidence.
+        # 82 GB cannot co-reside with anything -- router-down operation. Byte-verified 2026-10-02.
+        note  = 'GLM-5.3-Flash REAP50 IQ4_XS (82 GB, glm5-next, 144 experts, 1M ctx) + mmproj. Expert-pruned so 4-bit fits; expect ~10-15 t/s (A18B active).'
+    }
     'ornith15-dflash' = @{
         repo  = 'na0x2c6/Ornith-1.5-35B-A3B-DFlash-GGUF'
         files = @(
