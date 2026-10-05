@@ -41,7 +41,9 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
   bench-parallel.ps1  aggregate t/s vs N concurrent clients (the spec-vs-batching table)
   metrics-exporter.ps1 Prometheus exporter on a FIXED :9114 (router children use RANDOM ports
                       and the parent serves no /metrics); relabels each child with model=<id>;
-                      llamacpp_child_restarts_total counts the crash+auto-reload failure mode
+                      llamacpp_child_restarts_total counts the crash+auto-reload failure mode,
+                      llamacpp_child_responsive catches the FROZEN-child one
+  router-watchdog.ps1 restarts the router when a loaded child stops answering /health (-NoAct to test)
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform
@@ -322,12 +324,25 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
   which points at a Vulkan allocation limit rather than capacity.
   **Correction:** an earlier revision of this file blamed context size alone and called it a whole-
   server crash. Both were wrong — 4 × 262144 is fine *without* speculation, and the parent survives.
+- **A SECOND failure mode: the child can FREEZE, and the router does not recover that.** Found
+  2026-10-05 after ~2 days up on the shipped 2-slot spec-ON config: the ornith15 child stopped
+  answering everything (`/health`, `/slots`, `/metrics`, completions) at **0% GPU and 0% CPU**, with
+  18 client connections stuck in CLOSE_WAIT — a deadlock, not load. The parent kept answering
+  `/models` (`loaded`), nothing crashed, so `child_restarts_total` stayed 0. **Cause unknown**: the
+  router's output was being discarded, so there was nothing to read. Since then: run-router logs to
+  `logs\router-<ts>.err/.out` (the child's lines carry a `[port]` prefix — read those first if it
+  recurs); the exporter exports `llamacpp_child_responsive` (alert `== 0 for 2m`); and
+  **`router-watchdog.ps1`** restarts the router after 4 consecutive `/health` timeouts (30 s apart;
+  10 min grace; max 3/hour). Measured: child `/health` answers in ~15 ms idle and **42–127 ms with
+  both slots generating**, so load does not look like a freeze. Test the watchdog with **`-NoAct`**
+  only — anything that reaches its restart path stops the real llama-server processes.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` →
   `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144`
   as of 2026-10-02 — **2 slots × full native window, speculation ON**, matched to this box's
   sequential app traffic; see the slot entry above. The launcher also starts
-  `metrics-exporter.ps1 -Port 9114 -Bind "+"`. For genuinely concurrent load switch to
+  `metrics-exporter.ps1 -Port 9114 -Bind "+"` and (since 2026-10-05) `router-watchdog.ps1` with the
+  **same** `-Models/-Bin/-Parallel/-PerSlotCtx` — two copies of the config, keep them in sync. For genuinely concurrent load switch to
   `-Parallel 4 -PerSlotCtx 262144 -NoSpec`. It is **outside the
   repo**, so it drifts silently — it once still said `-Models gemma` after :8080 had moved to `coder`.
   Re-check it whenever the served set changes. `run-router` splits `-Models` on commas, so the

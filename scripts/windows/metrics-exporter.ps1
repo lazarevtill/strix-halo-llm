@@ -134,6 +134,8 @@ function Build-Metrics {
     Add-Meta 'llamacpp_model_loaded'            'gauge'   '1 if the model child is loaded and serving.'
     Add-Meta 'llamacpp_child_restarts_total'    'counter' 'Child (re)starts seen by this exporter after its first scrape -- a crash the router auto-reloaded counts here.'
     Add-Meta 'llamacpp_child_start_time_seconds' 'gauge'  'Unix start time of the model child process.'
+    Add-Meta 'llamacpp_child_responsive'        'gauge'   '1 if the model child answered /health within 3 s (0 = frozen/deadlocked, not crashed).'
+    Add-Meta 'llamacpp_child_health_seconds'    'gauge'   'Latency of the /health probe to the model child.'
     Add-Meta 'llamacpp_slots_total'             'gauge'   'Configured server slots (--parallel).'
     Add-Meta 'llamacpp_slots_busy'              'gauge'   'Slots currently processing a request.'
     Add-Meta 'llamacpp_slot_ctx_used_tokens'    'gauge'   'Prompt tokens currently held in a slot.'
@@ -169,6 +171,30 @@ function Build-Metrics {
         }
         Add-Sample 'llamacpp_child_restarts_total' "llamacpp_child_restarts_total{$lbl} $($script:Restarts[$k.id])"
         if (-not $k.port) { continue }
+
+        # ---- responsiveness: a FROZEN child is not a crashed one ---------------------------------
+        # 2026-10-05: the child deadlocked -- 0% GPU, 0% CPU, 18 connections stuck in CLOSE_WAIT --
+        # while the router parent kept answering. Nothing crashed, so child_restarts_total stayed 0
+        # and nothing alerted. /health is answered by the HTTP layer in milliseconds (16 ms idle,
+        # measured; it does not queue behind generation), so a timeout here means the process
+        # stopped serving. Alert on: llamacpp_child_responsive == 0 for 2m.
+        # When it is unresponsive, SKIP /slots and /metrics: each would burn its own 5 s timeout and
+        # push the scrape past Prometheus' default 10 s, turning one clear signal into a scrape failure.
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $alive = 0
+        try {
+            $null = Invoke-WebRequest "http://127.0.0.1:$($k.port)/health" -TimeoutSec 3 -UseBasicParsing
+            $alive = 1
+        } catch {
+            # 503 = loading (the server answered, it is just not ready) -- responsive, not frozen.
+            $resp = $_.Exception.Response
+            if ($resp -and [int]$resp.StatusCode -eq 503) { $alive = 1 }
+        }
+        $sw.Stop()
+        Add-Sample 'llamacpp_child_responsive'    "llamacpp_child_responsive{$lbl} $alive"
+        # Concatenation, not -f: the label set's own braces ({model="..."}) are format items to -f.
+        Add-Sample 'llamacpp_child_health_seconds' ("llamacpp_child_health_seconds{$lbl} " + $sw.Elapsed.TotalSeconds.ToString('0.###', [Globalization.CultureInfo]::InvariantCulture))
+        if (-not $alive) { continue }
 
         # ---- slot state (always available; --slots defaults to enabled) -------------------------
         try {

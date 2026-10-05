@@ -111,7 +111,7 @@ contrast is the useful part.
 |---|---|
 | ⚡ **A tuned single-model launcher** | `run-solo.ps1` — one model (prompts you to pick it), the whole memory budget, full context, measured-optimal flags |
 | 🔀 **A router launcher** | `run-router.ps1` — llama.cpp router mode on `:8080` (route by the `model` field): one or more models, per-model tuned presets, multi-slot (`-Parallel`/`-PerSlotCtx`), and a parent that reloads a crashed child |
-| 📈 **A Prometheus exporter** | `metrics-exporter.ps1` — live t/s, slot occupancy, context fill and **child-crash count** on a fixed `:9114`, since router children listen on random ports |
+| 📈 **A Prometheus exporter** | `metrics-exporter.ps1` — live t/s, slot occupancy, context fill, **child crashes and child freezes** on a fixed `:9114`, since router children listen on random ports; `router-watchdog.ps1` restarts a frozen one |
 | 📏 **A real memory ceiling** | ~109 GB usable, not the 96 GB the BIOS carve-out implies |
 | 🧪 **Two private eval suites** | tool-calling + agentic coding, uncontaminated, with a self-test that gates every run |
 | 🪜 **A hard tier that actually bites** | 3 multi-turn tasks, 89 hidden tests. The first model through it scored **55%** — after scoring 100% on the easy tier |
@@ -324,6 +324,7 @@ strix-halo-llm/
 │   │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
 │   │   ├── run-router.ps1      router mode on :8080: per-model presets, -Parallel/-PerSlotCtx/-NoSpec
 │   │   ├── metrics-exporter.ps1  Prometheus exporter on a fixed :9114 (children use random ports)
+│   │   ├── router-watchdog.ps1   restarts the router when the model child freezes
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── stage-nextgen.ps1   isolated test-load + Vulkan determinism gate for a new arch/engine
 │   │   ├── bench-big.ps1       depth-aware benchmark (-Bin A/Bs engines, -UBatch sweeps)

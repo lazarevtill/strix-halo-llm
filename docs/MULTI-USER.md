@@ -373,6 +373,22 @@ mid-response, and nothing noticed for hours. It now isolates each request and re
 on any other failure, but it runs from the Startup folder with no supervisor, so the `up` alert is the
 backstop.
 
+**And alert on a FROZEN child, which is neither of the above.** On 2026-10-05 the model child
+deadlocked: 0% GPU, 0% CPU, every request hanging, while the router parent still reported it
+`loaded`. Nothing crashed, so the restart counter stayed at 0. The exporter now probes each child's
+`/health` (it answers in ~15 ms idle and under 130 ms with both slots generating — measured — so load
+does not trip it) and exports:
+
+```promql
+llamacpp_child_responsive == 0     # for: 2m
+```
+
+`scripts/windows/router-watchdog.ps1` acts on the same probe: 4 consecutive misses 30 s apart restart
+the router with the configured arguments, followed by a 10-minute grace period, at most 3 restarts an
+hour (then it only logs, so a persistent fault is not hidden behind churn). It logs to
+`logs\router-watchdog.log`; the router's own output — including the child's, prefixed with its port —
+now goes to `logs\router-<timestamp>.err/.out`, which is where the cause of the next freeze will be.
+
 > **One scraper only.** The `llamacpp:*_seconds` throughput gauges (`predicted_tokens_seconds`,
 > `prompt_tokens_seconds`) appear to be computed over the interval since the **previous** `/metrics`
 > read, not as a fixed-window rate. Observed here: reads drop to **0** between requests. If that

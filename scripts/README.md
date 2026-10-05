@@ -13,6 +13,7 @@ scripts/
 │   ├── run-router.ps1      ⭐ serve one or more models from ONE endpoint on :8080 (router mode;
 │   │                          -Parallel / -PerSlotCtx / -NoSpec) — what :8080 runs today
 │   ├── metrics-exporter.ps1  Prometheus exporter for the router, merged on ONE fixed port (:9114)
+│   ├── router-watchdog.ps1  restart the router when its model child FREEZES (stops answering /health)
 │   ├── stage-nextgen.ps1   test-load a pending model on an ISOLATED port with a separate engine
 │   │                          build + the Vulkan determinism check (docs/ROADMAP.md)
 │   ├── bench-parallel.ps1  what `--parallel N` buys: aggregate vs per-request throughput

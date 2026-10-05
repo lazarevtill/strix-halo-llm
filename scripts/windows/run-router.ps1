@@ -68,7 +68,13 @@ param(
     [string]   $Bin       = '',    # engine dir override (e.g. bin-b10677 for new arches qwen3next/qwen4exp);
                                     # empty => the pinned bin\. Relative paths resolve against the repo root.
     [switch]   $DryRun,
-    [switch]   $Force        # stop other servers even if one has a request in flight
+    [switch]   $Force,       # stop other servers even if one has a request in flight
+    # Where the router's stdout/stderr go (children's output is relayed through the parent).
+    # The router used to run in a hidden window with its output discarded, so when the model child
+    # deadlocked on 2026-10-04/05 there was nothing to read afterwards. One file pair per launch,
+    # router-<timestamp>.out/.err; the newest -KeepLogs launches are kept. '' = discard (old behaviour).
+    [string]   $LogDir   = '',
+    [int]      $KeepLogs = 10
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
@@ -315,7 +321,24 @@ Start-Sleep -Seconds 3
 # ---- launch router ------------------------------------------------------------------------------
 $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
 Write-Host "  launching router..." -ForegroundColor DarkGray
-$proc = Start-Process -FilePath $bin -ArgumentList $routerArgs -PassThru -WindowStyle Hidden
+if (-not $PSBoundParameters.ContainsKey('LogDir')) { $LogDir = Join-Path $repoRoot 'logs' }
+if ($LogDir) {
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $logOut = Join-Path $LogDir "router-$stamp.out"
+    $logErr = Join-Path $LogDir "router-$stamp.err"
+    $proc = Start-Process -FilePath $bin -ArgumentList $routerArgs -PassThru -WindowStyle Hidden `
+                          -RedirectStandardOutput $logOut -RedirectStandardError $logErr
+    Write-Host "  logs     : $logErr (+ .out)"
+    # prune: keep the newest $KeepLogs launches (a launch = one .out + one .err)
+    $old = @(Get-ChildItem $LogDir -Filter 'router-*.err' | Sort-Object LastWriteTime -Descending | Select-Object -Skip $KeepLogs)
+    foreach ($o in $old) {
+        Remove-Item $o.FullName -Force -EA SilentlyContinue
+        Remove-Item ([IO.Path]::ChangeExtension($o.FullName, '.out')) -Force -EA SilentlyContinue
+    }
+} else {
+    $proc = Start-Process -FilePath $bin -ArgumentList $routerArgs -PassThru -WindowStyle Hidden
+}
 Write-Host "  router PID $($proc.Id)"
 
 # wait for the router to answer
