@@ -5,12 +5,28 @@ This page is the "not yet fully cleared" list. The published, pinned-build numbe
 own measurements in the "Cleared" section below, not in RESULTS. The repo's rule is to publish the
 claim *and* the thing blocking it — so each model below records its exact gate, honestly.
 
-**Status refreshed 2026-10-02.** Current state:
+**Status refreshed 2026-10-05.** Current state:
 
-1. **`:8080` serves `ornith15` solo** — Ornith-1.5-35B-A3B Q6_K on **`bin-b11330`**, 2 slots × 262144,
-   `draft-dflash` (Q8_0 draft, n=3), `-ub 1024`, vision + tools + thinking, ~41 GB of ~109. Details
-   in the Ornith entry below.
-2. **The live engine is `bin-b11330`**, taken for correctness
+1. **`:8080` serves `ornith15` solo** — Ornith-1.5-35B-A3B Q6_K on **`bin-b11414`** (since 2026-10-05;
+   b11330 before), 2 slots × 262144, `draft-dflash` (Q8_0 draft, n=3), `-ub 1024`, vision + tools +
+   thinking, ~41 GB of ~109. b11414 was taken for correctness
+   ([#29942](https://github.com/ggml-org/llama.cpp/pull/29942), tool-call parser use-after-free); speed
+   is unchanged. Gates: determinism 12/12, 20/20 concurrent requests with 0 child restarts.
+2. **Gated 2026-10-05 on b11414 — runnable, selectable, not served** (numbers in CLAUDE.md):
+   - **Qwen3.8-Flash-Next** UD-IQ4_XS (`flashnext`): loads **only with `--lazy-mode on`** (the 28.8 GB
+     per-layer embedding table otherwise exhausts the ~32 GB system RAM). Determinism 12/12;
+     20.6 t/s plain, **26.9 t/s with the ggml-org MTP draft**; 380 t/s prefill @16K; one slot
+     (#28280); text-only on Vulkan (#29093); lazy reads grow host RAM during long runs.
+     [Strata](https://github.com/Niko1221/Strata), the dedicated engine for this model, was evaluated
+     and is not usable here: CUDA/HIP/SYCL only (no Vulkan), gfx1151 only in unmerged PRs, and its
+     core trick (expert caching across VRAM/RAM/SSD) does nothing on unified memory. Its other two
+     levers — the Q2_0 type and the model's MTP head — are already in stock llama.cpp.
+   - **Holo4-35B-A3B** Q6_K (`holo4`): same arch as ornith15; determinism 12/12, tool calls OK.
+   - **Ling-3.0-flash-VL** Q4_K_M (`ling3-vl`, 124B / 5.5B active, MIT): download incomplete (stopped
+     under memory pressure); not yet gated.
+   - **GLM-5.3-Flash**: post-merge GGUFs exist but the smallest is 133.8 GB; the `glm53-flash`
+     registry files declare `glm5next` (pre-merge name) and will not load.
+3. **The previous engine was `bin-b11330`**, taken for correctness
    ([#28956](https://github.com/ggml-org/llama.cpp/pull/28956), wrong `mul_mat` results on sliced
    caches). `glm5-next` is now **present** in it ([#27773](https://github.com/ggml-org/llama.cpp/pull/27773)
    merged 2026-09-30); GLM is gated on its *file*, not the engine — see below.

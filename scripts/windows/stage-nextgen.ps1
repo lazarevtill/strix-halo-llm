@@ -50,12 +50,15 @@ param(
     # autostart. This has drifted TWICE: hardcoded 'qwen38, ornith' after the box moved to gemma
     # (2026-09-12), then 'coder' on bin-b11003 after it moved to ornith15 -- an aborted test would
     # have silently restored the wrong model, engine and slot layout. Current (2026-10-02):
-    # ornith15 on bin-b11330, 2 slots x 262144, speculation ON.
+    # ornith15 on bin-b11414 (since 2026-10-05), 2 slots x 262144, speculation ON.
     [string[]] $RestoreModels     = @('ornith15'),
-    [string]   $RestoreBin        = '.\bin-b11330',
+    [string]   $RestoreBin        = '.\bin-b11414',
     [int]      $RestoreParallel   = 2,
     [int]      $RestorePerSlotCtx = 262144,
-    [switch]   $RestoreNoSpec
+    [switch]   $RestoreNoSpec,
+    # Extra llama-server args for the TEST server, e.g. -ExtraArgs '-lzm','on' for Qwen3.8-Flash-Next, whose
+    # 28.8 GB per-layer embedding table otherwise lands in the ~32 GB of system RAM and exhausts it.
+    [string[]] $ExtraArgs = @()
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
@@ -149,6 +152,7 @@ try {
            '--host', '127.0.0.1', '--port', $Port)
     if ($Draft -and (Test-Path $Draft)) { $a += @('--model-draft', $Draft) }
     if ($SpecType) { $a += @('--spec-type', $SpecType) }
+    if ($ExtraArgs.Count) { $a += $ExtraArgs }
     Write-Host "  launching test server on :$Port ..." -ForegroundColor DarkGray
     $proc = Start-Process -FilePath $srv -ArgumentList $a -PassThru -WindowStyle Hidden `
               -RedirectStandardOutput (Join-Path $repoRoot "logs\stage-nextgen-$Port.out") `

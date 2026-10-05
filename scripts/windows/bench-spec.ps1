@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Measure speculative-decoding (token-prediction) speedup: baseline vs --spec-type.
   Generation-time feature, so uses llama-cli (not llama-bench).
@@ -41,6 +41,9 @@ param(
     [string] $Bin = '',
     [string] $Csv = '',
     [string] $Temp = '',
+    # Extra args for the SPEC runs only (not the baseline), e.g. -SpecExtra '--spec-draft-sampling','probabilistic'
+    # (b11368+, #27694: rejection-sampled drafts for MTP / simple drafts; the PR says DFlash gains nothing).
+    [string[]] $SpecExtra = @(),
     [string] $Prompt = "Write a complete, well-documented Python implementation of an LRU cache class with get, put, and eviction. Then write 8 unit tests for it."
 )
 $repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
@@ -100,6 +103,7 @@ Write-Host ("baseline          : {0} t/s" -f $base.Tps) -ForegroundColor Gray
 foreach ($n in $NMax) {
     $extra = @('--spec-type',$Spec,'--spec-draft-n-max',$n)
     if ($DraftModel) { $extra += @('--spec-draft-model',$DraftModel) }
+    if ($SpecExtra.Count) { $extra += $SpecExtra }
     $s = RunOne $extra "spec_${Spec}_n$n"
     $mult = 0.0
     if ($base.Tps -gt 0) { $mult = [math]::Round($s.Tps / $base.Tps, 2) }
@@ -107,7 +111,7 @@ foreach ($n in $NMax) {
     if ($mult -lt 1.0) { $colour = 'Red' }   # slower than no speculation at all -- the n=5 trap
     Write-Host ("{0,-12} n={1,-3}: {2} t/s   => {3}x" -f $Spec,$n,$s.Tps,$mult) -ForegroundColor $colour
     if ($s.Accept) { Write-Host ("    draft/accept: {0}" -f $s.Accept) -ForegroundColor DarkGray }
-    $rows += [pscustomobject]@{ config=$Spec; n=$n; tps=$s.Tps; mult=$mult }
+    $rows += [pscustomobject]@{ config=($Spec + $(if ($SpecExtra.Count) { ' ' + ($SpecExtra -join ' ') } else { '' })); n=$n; tps=$s.Tps; mult=$mult }
 }
 
 $sampler = if ($Temp -ne '') { "temp $Temp" } else { 'llama-cli default sampler (NOT greedy)' }

@@ -127,7 +127,7 @@ moved on — each step measured, with the old result kept next to the new one:
 | | |
 |---|---|
 | model | **Ornith-1.5-35B-A3B** Q6_K (MoE, ~3B active, MIT) — vision, tool calls, thinking |
-| engine | llama.cpp **b11330** — taken for a *correctness* fix ([#28956](https://github.com/ggml-org/llama.cpp/pull/28956)), +12.8% `pp512` as a bonus |
+| engine | llama.cpp **b11414** — every engine step here was taken for *correctness* first: [#28956](https://github.com/ggml-org/llama.cpp/pull/28956) (wrong `mul_mat` results, b11330, +12.8% `pp512` as a bonus), then [#29942](https://github.com/ggml-org/llama.cpp/pull/29942) (tool-call parser use-after-free, b11414, speed unchanged) |
 | slots | **2 × 262144** context, speculation **on** — matched to sequential app traffic |
 | speculation | `draft-dflash` with the model's own 0.39 GB Q8_0 draft, depth 3 — **1.22×** single-stream (the 0.73 GB BF16 draft is *slower*) |
 | batch | `-ub 1024` — the MoE knee (+39% prefill at 32k depth); dense models want 256 |

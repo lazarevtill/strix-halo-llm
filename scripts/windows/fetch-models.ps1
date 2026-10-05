@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Download the July-2026 "biggest that fits" model set for this box, with resume + size verification.
 
@@ -215,7 +215,12 @@ $REG = [ordered]@{
         # NOT loadable on b10431 or any current release; needs llama.cpp PR #27742 merged + shipped.
         # UD-IQ4_XS (87.2 GB) is the recommended fit under the ~109 GB ceiling (best quality that
         # still leaves ~22 GB for KV/compute). Byte counts verified vs HF API 2026-08-26.
-        note  = 'Qwen3.8-Flash-Next UD-IQ4_XS (qwen4exp preview). PENDING llama.cpp PR #27742 -- cannot run yet.'
+        # UPDATE 2026-10-05: #27742 merged 2026-08-27; qwen4exp is in b11330+. Use b11408+ (k-pool re-reserve
+        # abort fix #29958, indexer buffer halved #29825, Vulkan sparse FA for quantized KV #29639 = b11414).
+        # Known on THIS box's setup: -np 2 can hang (#28280) -> serve with 1 slot; vision broken on Vulkan
+        # (#29093). The 28.8 GB per_layer_token_embd table may be CPU-pinned (#29932) vs ~32 GB system RAM.
+        # MTP draft: 'flashnext-mtp' (ggml-org, 2026-09-30; unsloth's 09-01 MTP files fail, #29174).
+        note  = 'Qwen3.8-Flash-Next UD-IQ4_XS (qwen4exp, 125B/~6B active). Loads on b11408+; 1 slot, text-only on Vulkan.'
     }
     'flashnext-iq1' = @{
         repo  = 'unsloth/Qwen3.8-Flash-Next-GGUF'
@@ -226,7 +231,7 @@ $REG = [ordered]@{
         )
         # The 1.58-bit floor (67.6 GB) -- smallest fit, lowest quality on a 180B model. Kept as the
         # cheap fallback; prefer 'flashnext' (IQ4_XS). Same PENDING gate (PR #27742). Verified 2026-08-26.
-        note  = 'Qwen3.8-Flash-Next UD-IQ1_S (1.58-bit fallback). PENDING llama.cpp PR #27742 -- cannot run yet.'
+        note  = 'Qwen3.8-Flash-Next UD-IQ1_S (1.58-bit fallback). Prefer flashnext (IQ4_XS); same caveats.'
     }
     'coder-next' = @{
         repo  = 'unsloth/Qwen3-Coder-Next-GGUF'
@@ -433,6 +438,38 @@ $REG = [ordered]@{
         # per token on the 4B active set), so it is the 'good' extreme vs Q4's 'fast'. Verified 2026-09-12.
         note  = 'Gemma-4-26B-A4B ABLITERATED Q8_0, 26.9 GB (max quality). Slow/good extreme of the A/B.'
     }
+    'flashnext-mtp' = @{
+        repo  = 'ggml-org/Qwen3.8-Flash-Next-GGUF'
+        files = @(
+            @{ p='mtp-Qwen3.8-Flash-Next-Q8_0.gguf'; b=4137429280 }
+        )
+        # MTP draft head for 'flashnext' (--spec-type draft-mtp --model-draft ...). ggml-org upload dated
+        # 2026-09-30 (per-file lastCommit). unsloth's 2026-09-01 MTP files fail with "tensor not found" (#29174).
+        note  = 'MTP draft for Qwen3.8-Flash-Next (Q8_0, 4.1 GB). Pair with flashnext.'
+    }
+    'holo4' = @{
+        repo  = 'bartowski/Hcompany_Holo4-35B-A3B-GGUF'
+        files = @(
+            @{ p='Hcompany_Holo4-35B-A3B-Q6_K.gguf';         b=30738578112 }
+            @{ p='mmproj-Hcompany_Holo4-35B-A3B-bf16.gguf';  b=902822432 }
+        )
+        # H Company Holo4-35B-A3B (2026-09-24, Apache-2.0): computer-use/agentic finetune on the qwen35moe
+        # arch -- the SAME arch as ornith15, so no new engine risk. Vendor claims OSWorld 2.0 30.9% (CLAIMED).
+        # Files dated 2026-09-29/30 (per-file lastCommit), byte counts from the HF tree API 2026-10-05.
+        note  = 'Holo4-35B-A3B Q6_K + vision (qwen35moe, 3B active, Apache-2.0). Agentic/computer-use.'
+    }
+    'ling3-vl' = @{
+        repo  = 'bartowski/Ling-3.0-flash-VL-GGUF'
+        files = @(
+            @{ p='Ling-3.0-flash-VL-Q4_K_M/Ling-3.0-flash-VL-Q4_K_M-00001-of-00002.gguf'; b=39487785120 }
+            @{ p='Ling-3.0-flash-VL-Q4_K_M/Ling-3.0-flash-VL-Q4_K_M-00002-of-00002.gguf'; b=39173735424 }
+            @{ p='mmproj-Ling-3.0-flash-VL-bf16.gguf';                                     b=878174272 }
+        )
+        # inclusionAI Ling-3.0-flash-VL: 124B / ~5.5B active, 512 experts (#28501 applies), MIT, image+video,
+        # tools. Arch bailingmoe3 (+ VL via #29151, merged 2026-09-24). KDA/linear-attention hybrid ->
+        # run the #27805-class determinism gate first. GGUF context_length 131072 (256K needs YaRN).
+        note  = 'Ling-3.0-flash-VL Q4_K_M 78.7 GB + vision (bailingmoe3, 124B/5.5B active, MIT).'
+    }
     'glm53-flash' = @{
         repo  = 'unsloth/GLM-5.3-Flash-GGUF'
         files = @(
@@ -445,7 +482,10 @@ $REG = [ordered]@{
         # 1-bit on a 320B MoE is a harsh cut -- quality UNMEASURED. llama.cpp PR #27752 is
         # ready-for-review but NOT merged (glm5_next absent from b10665). Do NOT download 93 GB until
         # it merges AND Vulkan (#27805) is trustworthy. Byte counts verified vs HF API 2026-08-28.
-        note  = 'GLM-5.3-Flash UD-IQ1_S (1-bit, 93.1 GB, glm5_next). PENDING llama.cpp PR #27752 -- cannot run yet.'
+        # 2026-10-05: these files declare general.architecture = 'glm5next' (NO hyphen) -- a pre-merge
+        # name. Upstream merged it as 'glm5-next' (2026-09-30, in b11330), so b11330+ rejects them as an
+        # unknown arch. The post-merge ggml-org/GLM-5.3-Flash-GGUF starts at Q2_K 133.8 GB -- over budget.
+        note  = 'GLM-5.3-Flash UD-IQ1_S (93.1 GB). !! WILL NOT LOAD -- arch string glm5next (pre-merge); upstream is glm5-next. Do not re-fetch. !!'
     }
     'dflash2-qwen38' = @{
         repo  = 'incoai/Qwen3.8-27B-DFlash2-GGUF'
@@ -519,6 +559,9 @@ if (-not $curl) { Write-Error "curl.exe not found (expected in C:\Windows\System
 # -All skips entries marked WILL NOT LOAD: 60-90 GB each of files this repo has already proven
 # cannot be served. Name one explicitly with -Only to fetch it anyway (e.g. to re-test after an
 # upstream reconversion).
+# `powershell.exe -File fetch-models.ps1 -Only a,b` delivers 'a,b' as ONE string (CLAUDE.md conventions),
+# so it failed as an unknown label. Split on commas here, as run-router.ps1 does for -Models.
+$Only = @($Only | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $sel = if ($All) { @($REG.Keys | Where-Object { $REG[$_].note -notmatch 'WILL NOT LOAD' }) } elseif ($Only) { $Only } else { Write-Error "Specify -Only <label,...> / -All / -List"; exit 1 }
 if ($All) {
     foreach ($k in @($REG.Keys | Where-Object { $REG[$_].note -match 'WILL NOT LOAD' })) {

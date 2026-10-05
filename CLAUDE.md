@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
 **Vulkan** backend (build **b10431** — the pin for the qwen38-era published numbers; the live `:8080`
-router runs **b11330**, which cannot be compared against b10431 rows and is labelled as such), serving
+router runs **b11414**, which cannot be compared against b10431 rows and is labelled as such), serving
 an OpenAI-compatible API on `:8080`. **This is a public repo** (MIT, GitHub Pages at
 strix.lazarev.cloud); read `docs/PUBLISHING.md` before adding files or relaxing `.gitignore`.
 
@@ -230,7 +230,23 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
   `scripts/windows/stage-nextgen.ps1`. **The gate is per-BINARY and per-config, not per-arch** —
   `qwen3next` passing on b10677 did not carry to b11003; it was re-run there at the serving ubatch
   (12/12 byte-identical, 2026-09-16). `stage-nextgen.ps1 -UBatch` exists for exactly that reason.
-- **`bin-b11330` is the live engine as of 2026-10-02** (b10431 stays pinned for published numbers).
+- **`bin-b11414` is the live engine as of 2026-10-05** — again for CORRECTNESS, not speed: #29942
+  fixes a use-after-free in the chat tool-call parser (ornith15 serves tool calls), plus httplib and
+  router-log fixes. Same-session bench, ornith15 ub 1024, solo: `tg128` 58.58 → 57.34 (−2%),
+  `pp512` 1008 → 1000, `pp4096 @ d32768` 561 → 563, `tg128 @ d32768` 50.10 → 50.14 — a wash.
+  Gates passed: determinism 12/12 (with the dflash draft), 2 × 262144 + spec stability 20/20
+  concurrent requests with 0 child restarts. Also measured the same day:
+  - **Spec A/B at the SERVING temp 0.6** (b11414, single runs, ~57.6 t/s baseline): `draft-dflash` n=3
+    **1.19×**; `draft-mtp` n=3 1.06×; `draft-mtp --spec-draft-sampling probabilistic` (#27694)
+    n=3 1.01× / **n=2 1.17×** / n=1 1.05×. dflash stays. Probabilistic sampling moved MTP's peak to
+    n=2 — the first time n=3 was not a speculator's peak here.
+  - **dflash costs ~10% prefill** through the server (16K prompt: 909 → 819 t/s), not the halving
+    #29982 reports. Worth it for +19% tg.
+  - **#27604 (server hang after a client abort during another request's prefill, reported on this
+    exact GPU) does NOT reproduce here**: 6/6 valid rounds on b11330, direct and through a router
+    (cache-busted prompts — an uncached prompt is required, or the abort never overlaps a prefill).
+    The 2026-10-05 freeze stays unexplained; the watchdog + router logs are the defence.
+- `bin-b11330` was the live engine 2026-10-02 → 10-05 (b10431 stays pinned for published numbers).
   **Upgraded for CORRECTNESS first:** [PR #28956](https://github.com/ggml-org/llama.cpp/pull/28956)
   fixes *wrong results* when a `mul_mat` reads a slice of a larger cache — b11046 could silently
   emit incorrect output on some shapes. Perf was a bonus: on ornith15 at ub 1024, `pp512`
@@ -254,8 +270,8 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
     prefill. **tg has not moved once**, across two builds and an 8× ubatch range — the tg lever
     remains the 7500→8533 RAM clock.
 - **`:8080` serves `ornith15` SOLO since 2026-09-19** — Ornith-1.5-35B-A3B Q6_K (arch `qwen35moe`,
-  36B/~3B active, MIT), **vision** via first-party mmproj. **Current config (2026-10-02):** engine
-  `bin-b11330`, **2 slots × 262144** (`--ctx-size 524288`), `draft-dflash` + Q8_0 draft n=3,
+  36B/~3B active, MIT), **vision** via first-party mmproj. **Current config (2026-10-05):** engine
+  `bin-b11414`, **2 slots × 262144** (`--ctx-size 524288`), `draft-dflash` + Q8_0 draft n=3,
   `-ub 1024`, ~41 GB of 109 — verify with `GET /models` → `status.args`. (Single-slot at
   2026-09-19 was ctx 262144 + `draft-mtp n=3`, ~34 GB; superseded by the A/B below.)
   Verified working: text+thinking, vision, **tool calling**, and needle retrieval at 9 k tokens.
@@ -336,10 +352,22 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
   10 min grace; max 3/hour). Measured: child `/health` answers in ~15 ms idle and **42–127 ms with
   both slots generating**, so load does not look like a freeze. Test the watchdog with **`-NoAct`**
   only — anything that reaches its restart path stops the real llama-server processes.
+- **Alternatives gated 2026-10-05, selectable but NOT served** (`run-router.ps1 -Models <label>`):
+  - **`flashnext`** — Qwen3.8-Flash-Next UD-IQ4_XS (qwen4exp, 125B / ~6B active), b11414. **Loads ONLY
+    with `lazy-mode = on`** (`-lzm on`): without it the 28.8 GB per-layer embedding table goes to
+    host RAM and free system RAM fell 26 GB → 1.1 GB in 24 s (killed by guard; `-lm mmap` too).
+    With it: 68.9 GB GPU, determinism 12/12, tg **20.6 t/s plain / 26.9 with draft-mtp n=3 (1.31×)**
+    using the ggml-org MTP draft, pp 380 t/s @16K. Costs: one slot (#28280), **text-only** on Vulkan
+    (#29093), a heavy thinker (exhausted 4000 tokens on a 600-word essay), and **lazy reads grow host
+    RAM during long generations** (free RAM 22 → 16.5 GB in one bench; the box then hit critical
+    memory pressure). Serve it only with that RAM watched. Not the default: ~2× slower than ornith15,
+    no vision, no multi-slot, and its quality advantage is unmeasured here.
+  - **`holo4`** — H Company Holo4-35B-A3B Q6_K (qwen35moe, agentic/computer-use, Apache-2.0):
+    determinism 12/12, correct tool call, 50.6 t/s while co-resident. Fits beside ornith15.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` →
-  `run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144`
-  as of 2026-10-02 — **2 slots × full native window, speculation ON**, matched to this box's
+  `run-router.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144`
+  as of 2026-10-05 (b11330 2026-10-02 → 10-05) — **2 slots × full native window, speculation ON**, matched to this box's
   sequential app traffic; see the slot entry above. The launcher also starts
   `metrics-exporter.ps1 -Port 9114 -Bind "+"` and (since 2026-10-05) `router-watchdog.ps1` with the
   **same** `-Models/-Bin/-Parallel/-PerSlotCtx` — two copies of the config, keep them in sync. For genuinely concurrent load switch to

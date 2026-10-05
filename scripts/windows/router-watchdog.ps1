@@ -24,15 +24,15 @@
   same Startup-folder launcher. Logs to logs\router-watchdog.log.
 
 .EXAMPLE
-  .\router-watchdog.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144
-  .\router-watchdog.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144 -Once   # one probe, report, exit
+  .\router-watchdog.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144
+  .\router-watchdog.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144 -Once   # one probe, report, exit
 #>
 [CmdletBinding()]
 param(
     # The config to RESTART with -- must match the Startup-folder launcher, like stage-nextgen's
     # restore defaults. Passed straight through to run-router.ps1.
     [string[]] $Models     = @('ornith15'),
-    [string]   $Bin        = '.\bin-b11330',
+    [string]   $Bin        = '.\bin-b11414',
     [int]      $Parallel   = 2,
     [int]      $PerSlotCtx = 262144,
     [switch]   $NoSpec,
