@@ -22,8 +22,7 @@ claim *and* the thing blocking it — so each model below records its exact gate
      core trick (expert caching across VRAM/RAM/SSD) does nothing on unified memory. Its other two
      levers — the Q2_0 type and the model's MTP head — are already in stock llama.cpp.
    - **Holo4-35B-A3B** Q6_K (`holo4`): same arch as ornith15; determinism 12/12, tool calls OK.
-   - **Ling-3.0-flash-VL** Q4_K_M (`ling3-vl`, 124B / 5.5B active, MIT): download incomplete (stopped
-     under memory pressure); not yet gated.
+   - **Ling-3.0-flash-VL** Q4_K_M (`ling3-vl`, inclusionAI, 124B / ~5.5B active, 512 experts, MIT, arch `bailingmoe3`, a KDA/linear-attention hybrid), b11414, 1 slot, ctx 65536: loads in 20 s, **76.5 GB** GPU, system RAM unaffected (22.6 GB free after). Determinism **12/12**. tg **32.4 t/s**; prefill only **172 t/s @16K** (ornith15: 909). Vision OK (mmproj), tool call OK, light thinker (~400-600 reasoning chars per answer), bat-and-ball trick question correct. Native context 131072.
    - **GLM-5.3-Flash**: post-merge GGUFs exist but the smallest is 133.8 GB; the `glm53-flash`
      registry files declare `glm5next` (pre-merge name) and will not load.
 3. **The previous engine was `bin-b11330`**, taken for correctness

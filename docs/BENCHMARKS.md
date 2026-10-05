@@ -332,6 +332,21 @@ a 600-word essay request exhausted a 4000-token budget in reasoning. Its quality
 **Holo4-35B-A3B** Q6_K (ornith15's arch, agentic finetune): determinism 12/12, correct tool call,
 50.6 t/s while sharing the GPU with the live router.
 
+**Ling-3.0-flash-VL** Q4_K_M (124B / ~5.5B active, 512 experts, `bailingmoe3` KDA hybrid, 73.3 GiB),
+b11414, solo, 1 slot, ctx 65536:
+
+| | result |
+|---|---|
+| load | 20 s, **76.5 GB** GPU committed, system RAM untouched (min 24.5 GB free) |
+| determinism (12 runs, temp 0, `-ub 1024`) | 12/12 identical |
+| tg, ~900-token answers | **32.4 t/s** |
+| pp @16K | **172 t/s** — 5.3x slower than ornith15 (909) |
+| vision / tool call / trick question | OK / OK / correct |
+
+Of the three big candidates it is the most usable: vision works (Flash-Next's does not on Vulkan), host
+RAM stays flat (Flash-Next's grows), and it thinks briefly. The slow prefill is the cost — a 32K-token
+prompt takes over three minutes before the first word.
+
 **Not reproduced: [#27604](https://github.com/ggml-org/llama.cpp/issues/27604)** — a server-wide hang
 after a client aborts a stream while another request is mid-prefill, reported on this exact GPU.
 Run with the issue's own script against Ornith, 2 slots + DFlash, b11330: **6/6 rounds OK**, both

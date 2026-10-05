@@ -247,7 +247,7 @@ $REG = [ordered]@{
         # here: 12/12 byte-identical on b11003 at the serving ubatch, 2026-09-16. UD-Q4_K_XL is a single
         # 49.6 GB file (fits solo w/ room; ~50 GB could co-reside). Byte count verified vs HF API 2026-09-12.
         # SERVED on :8080 at -ub 1024 (a per-model override worth +34.8% deep prefill; see OPTIMIZATION.md).
-        note  = 'Qwen3-Coder-Next UD-Q4_K_XL (80B/A3B coding MoE, qwen3next). SERVING on :8080; Vulkan-verified.'
+        note  = 'Qwen3-Coder-Next UD-Q4_K_XL (80B/A3B coding MoE, qwen3next). Served on :8080 2026-09-16 -> 09-19 (history); Vulkan-verified. Needs its ub 1024 override.'
     }
     'ornith15' = @{
         repo  = 'ornith-ai/Ornith-1.5-35B-A3B-GGUF'

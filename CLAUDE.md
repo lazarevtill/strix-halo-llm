@@ -362,6 +362,7 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
     RAM during long generations** (free RAM 22 → 16.5 GB in one bench; the box then hit critical
     memory pressure). Serve it only with that RAM watched. Not the default: ~2× slower than ornith15,
     no vision, no multi-slot, and its quality advantage is unmeasured here.
+  - **`ling3-vl`** — **Ling-3.0-flash-VL** Q4_K_M (`ling3-vl`, inclusionAI, 124B / ~5.5B active, 512 experts, MIT, arch `bailingmoe3`, a KDA/linear-attention hybrid), b11414, 1 slot, ctx 65536: loads in 20 s, **76.5 GB** GPU, system RAM unaffected (22.6 GB free after). Determinism **12/12**. tg **32.4 t/s**; prefill only **172 t/s @16K** (ornith15: 909). Vision OK (mmproj), tool call OK, light thinker (~400-600 reasoning chars per answer), bat-and-ball trick question correct. Native context 131072. Not the default: half ornith15's tg and ~5x slower prefill, no multi-slot headroom (does not fit beside anything big). The pick if you want a ~124B-class model WITH vision.
   - **`holo4`** — H Company Holo4-35B-A3B Q6_K (qwen35moe, agentic/computer-use, Apache-2.0):
     determinism 12/12, correct tool call, 50.6 t/s while co-resident. Fits beside ornith15.
 - **The router auto-starts at logon** via a Startup-folder launcher
