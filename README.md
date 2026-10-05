@@ -279,7 +279,7 @@ string as the API key (see [docs/OPTIMIZATION.md](docs/OPTIMIZATION.md)).
                        -Ctx 131072 -Spec draft-mtp
 
 # Router mode on :8080 -- route by the OpenAI `model` field. What this box runs (see "Serving today"):
-.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144
+.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144
 # ...or two models at once, both kept warm in VRAM:
 .\scripts\windows\run-router.ps1 -Models qwen38,ornith  # curl -d '{"model":"qwen38",...}' or "ornith"
 

@@ -57,7 +57,7 @@ three upstream things to line up:
 3. that support **working on the Vulkan backend** — new arches land CUDA/Metal-first and Vulkan
    correctness has historically lagged (that was #27805, now fixed).
 
-The current engine for new arches is **`bin-b11330`** (the live `:8080` engine since 2026-10-02;
+The current engine for new arches is **`bin-b11414`** (the live `:8080` engine since 2026-10-05; b11330 from 2026-10-02;
 carries everything b11003 had — `qwen4exp`, `qwen3next`, `nemotron_h_moe`, `deepseek4`, `hy_v4`,
 `laguna`, `muse-glimmer`, `dflash`, the #27805 fix — plus `glm5-next` and `mimo2`).
 *(history: this was `bin-b11003` as of 2026-09-16, then `bin-b11046`.)*
@@ -96,10 +96,10 @@ nothing.
   — Q4_K_M 20.22 / Q5_K_M 23.61 / **Q6_K 27.20** / Q8_0 35.21 / BF16 66.19 GiB, plus
   `mmproj-Ornith-1.5-35B-BF16.gguf` (0.84 GiB). Q6_K chosen; the gemma A/B is the prior that Q8_0
   buys nothing but latency, and that remains **unmeasured on this model**.
-- **Current serving config (2026-10-02, verified from `GET /models` `status.args`):** `bin-b11330`,
+- **Current serving config (2026-10-05, verified from `GET /models` `status.args`):** `bin-b11414` (b11330 2026-10-02 → 10-05),
   `--parallel 2 --ctx-size 524288` (2 slots × 262144), `-ub 1024`, `draft-dflash` with the first-party
   **Q8_0** DFlash draft at n=3, vision mmproj, tools, thinking — **~41 GB of ~109**. Launched at logon
-  by the Startup-folder router (`run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2
+  by the Startup-folder router (`run-router.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2
   -PerSlotCtx 262144`); see [MULTI-USER.md](MULTI-USER.md) §8/§10 for why 2 slots *with* speculation
   and the `-Parallel 4 -PerSlotCtx 262144 -NoSpec` alternative for concurrent load.
 - **Verified working on b11046, re-checked after tuning:** text + thinking, **vision**, **tool
@@ -368,6 +368,6 @@ REAP50 builds fit at 4-bit and the arch is in b11330 — now file-gated, see abo
   `GGML_VK_MAX_NODES_PER_SUBMIT`, `GGML_VK_ALLOW_SYSMEM_FALLBACK`, `GGML_VK_PREFER_HOST_MEMORY`.
 
 The moment a gate clears, the model is fetched (if needed) and test-loaded on an **isolated port with
-`bin-b11330`** (was `bin-b11003` as of 2026-09-16); Vulkan correctness is confirmed with the fixed-seed/temp-0 N≥10 diff (a full CPU
+`bin-b11414`** (b11330 2026-10-02 → 10-05; `bin-b11003` as of 2026-09-16); Vulkan correctness is confirmed with the fixed-seed/temp-0 N≥10 diff (a full CPU
 reference is impossible for 50–93 GB GGUFs vs ~32 GB system RAM). A test that needs the model resident
 **stops the router first and restarts it after**. See `scripts/windows/stage-nextgen.ps1`.

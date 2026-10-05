@@ -277,6 +277,68 @@ reloads it, so clients see intermittent `HTTP 500 "proxy error"` while `llama-se
 running. `metrics-exporter.ps1` now exports `llamacpp_child_restarts_total` for exactly this — alert on
 `increase(llamacpp_child_restarts_total[1h]) > 0`.
 
+### b11414, speculation at the serving temperature, and new models (2026-10-05)
+
+**Engine b11330 → b11414** (ornith15, `-ub 1024`, solo, same session, 2 reps). Taken for correctness:
+[#29942](https://github.com/ggml-org/llama.cpp/pull/29942) fixes a use-after-free in the chat tool-call
+parser, and ornith15 serves tool calls. Speed is a wash:
+
+| test | b11330 | b11414 | Δ |
+|---|---|---|---|
+| pp512 | 1008.15 ± 45.62 | 999.77 ± 14.55 | −0.8% *(noise)* |
+| pp4096 | 1008.74 ± 2.16 | 1001.92 ± 5.23 | −0.7% |
+| tg128 | 58.58 ± 0.36 | 57.34 ± 0.16 | −2.1% |
+| pp4096 @ d32768 | 560.97 ± 4.60 | 563.23 ± 4.53 | +0.4% |
+| tg128 @ d32768 | 50.10 ± 0.25 | 50.14 ± 0.09 | +0.1% |
+
+Gates on b11414: determinism 12/12 with the dflash draft at `-ub 1024`; the shipped 2 × 262144 +
+speculation config served **20/20 concurrent requests with 0 child restarts**.
+
+**Speculation re-measured at temp 0.6** — the temperature the server actually samples at. Every
+earlier A/B ran llama-cli's default sampler (see the label correction above). b11414, seed 42,
+n_predict 256, single runs, baseline 57.4–57.9 t/s:
+
+| config | t/s | ratio |
+|---|---|---|
+| `draft-dflash` + Q8_0 draft, n=3 | **68.3** | **1.19×** ← serving |
+| `draft-mtp` n=3 | 61.3 | 1.06× |
+| `draft-mtp --spec-draft-sampling probabilistic` n=3 / **n=2** / n=1 | 57.9 / **67.4** / 60.5 | 1.01× / **1.17×** / 1.05× |
+
+Probabilistic draft sampling ([#27694](https://github.com/ggml-org/llama.cpp/pull/27694)) lifts MTP a
+lot at its best depth but does not overtake DFlash. It also moved MTP's peak from n=3 to **n=2** —
+the first speculator on this box whose peak was not n=3, so "sweep downward" still applies.
+
+**What DFlash costs on prefill**, through the server (16,030-token prompt, cache-busted, 3 reps after a
+discarded warm-up): **909 t/s without speculation → 819 t/s with DFlash (−10%)**. That is far from the
+halving reported in [#29982](https://github.com/ggml-org/llama.cpp/issues/29982), and +19% tg is worth it.
+
+**Qwen3.8-Flash-Next UD-IQ4_XS** (qwen4exp, 125B / ~6B active, 87 GB), b11414, 1 slot, ctx 65536:
+
+| | result |
+|---|---|
+| `-lm none` | **fails** — free system RAM 26 GB → 1.1 GB in 24 s (guard kill): the 28.8 GB per-layer embedding table goes to host RAM |
+| `-lm mmap` | fails the same way |
+| **`-lm none --lazy-mode on`** | **loads**: 68.9 GB GPU committed, ~23.6 GB system RAM still free |
+| determinism (12 runs, MTP draft) | 12/12 identical |
+| tg, 4000-token generations | **20.6 t/s** plain; **26.9 t/s** with the ggml-org MTP draft n=3 (1.31×, 64% of drafts accepted) |
+| pp @16K | 380 t/s plain, 352 t/s with MTP |
+
+Two costs that rule it out as the default today: lazy reads **grow host RAM during long generations**
+(free RAM fell 22 → 16.5 GB across one bench, and the box then hit critical memory pressure), and on
+this setup it is one slot only ([#28280](https://github.com/ggml-org/llama.cpp/issues/28280)) and
+text-only ([#29093](https://github.com/ggml-org/llama.cpp/issues/29093)). It is also a heavy thinker —
+a 600-word essay request exhausted a 4000-token budget in reasoning. Its quality is unmeasured here.
+
+**Holo4-35B-A3B** Q6_K (ornith15's arch, agentic finetune): determinism 12/12, correct tool call,
+50.6 t/s while sharing the GPU with the live router.
+
+**Not reproduced: [#27604](https://github.com/ggml-org/llama.cpp/issues/27604)** — a server-wide hang
+after a client aborts a stream while another request is mid-prefill, reported on this exact GPU.
+Run with the issue's own script against Ornith, 2 slots + DFlash, b11330: **6/6 rounds OK**, both
+directly and through a router. The prompt must be cache-busted per round; with a reused prompt the
+"heavy" request is served from cache in seconds, the abort never overlaps a prefill, and the test
+passes without testing anything.
+
 `-b` genuinely does not matter: at matched `-ub` it moves nothing (129.5 vs 129.8 at 1024;
 107.8 vs 112.4 at 2048; 167.4 / 168.9 / 169.0 across three configs at 256 or below).
 

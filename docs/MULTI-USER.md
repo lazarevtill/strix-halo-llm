@@ -2,7 +2,7 @@
 
 Written 2026-08-05, after this box picked up actual users. *(history, 2026-08-05: "Nothing here is
 installed yet — this is the decision material.")* **As of 2026-10-02, installed:** the router
-autostart (§8 — Startup-folder launcher, `ornith15` on `bin-b11330`, 2 slots × 262144, `draft-dflash`)
+autostart (§8 — Startup-folder launcher, `ornith15` on `bin-b11414`, 2 slots × 262144, `draft-dflash`)
 and the Prometheus exporter (§9, `:9114`). The chat front-end (§2) and its backup (§3) are **not
 covered by this revision** — treat those sections as decision material.
 
@@ -179,9 +179,9 @@ b11330, **3 × 262144 with speculation is UNSTABLE** (4/10 requests OK, 6 child 
 
 ```powershell
 # shipped: sequential traffic, 2 slots x full native window, speculation ON (~41 GB)
-.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 2 -PerSlotCtx 262144
+.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144
 # genuinely concurrent traffic: 4 slots x full window, speculation OFF (stable, 84.9 t/s @4)
-.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11330 -Parallel 4 -PerSlotCtx 262144 -NoSpec
+.\scripts\windows\run-router.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 4 -PerSlotCtx 262144 -NoSpec
 ```
 
 `-PerSlotCtx` sets `--ctx-size` = per-slot × slots, so every user keeps the full 262144.
@@ -279,11 +279,11 @@ job object around its detached child. Create
 ```bat
 @echo off
 cd /d D:\llamacpp-vulkan
-start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models ornith15 -Bin ".\bin-b11330" -Parallel 2 -PerSlotCtx 262144
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\run-router.ps1" -Models ornith15 -Bin ".\bin-b11414" -Parallel 2 -PerSlotCtx 262144
 start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\metrics-exporter.ps1" -Port 9114 -Bind "+"
 ```
 
-As of 2026-10-02 this box serves **`ornith15`** (Ornith-1.5-35B-A3B Q6_K) on **`bin-b11330`**, 2 slots
+As of 2026-10-05 this box serves **`ornith15`** (Ornith-1.5-35B-A3B Q6_K) on **`bin-b11414`** (b11330 from 2026-10-02; moved for the #29942 tool-call parser fix, speed unchanged, 20/20 concurrent requests stable), 2 slots
 × 262144 with `draft-dflash` — see §10 for why. Substitute whatever you actually serve.
 *(history: `-Models qwen38,ornith` was the original example; 2026-09-16 → 09-19 it launched `-Models
 coder -Bin ".\bin-b11003" -Ctx 262144` — Qwen3-Coder-Next, which **requires** a b11003+ engine because
