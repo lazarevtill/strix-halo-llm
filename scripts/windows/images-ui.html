@@ -56,8 +56,10 @@ main { display: grid; grid-template-columns: minmax(330px, 410px) 1fr; gap: 20px
 .label small { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 .mode { display: grid; grid-template-columns: 1fr 1fr; background: var(--check); border-radius: 11px; padding: 4px; }
-.mode div { text-align: center; padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 14px; color: var(--muted); }
-.mode div.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.mode button { text-align: center; padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 14px; color: var(--muted); border: 0; background: transparent; cursor: pointer; }
+.mode button:hover { color: var(--ink); }
+.mode button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.src[hidden] { display: none; }
 
 .drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 14px; text-align: center; color: var(--muted); font-size: 13.5px; cursor: pointer; transition: border-color .15s, background .15s; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
@@ -128,10 +130,10 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
 
 <main>
   <section class="panel controls">
-    <div class="mode" aria-label="Mode"><div id="m-gen" class="on">Generate</div><div id="m-edit">Edit</div></div>
+    <div class="mode" role="tablist" aria-label="Mode"><button type="button" role="tab" id="m-gen" class="on" aria-selected="true">Generate</button><button type="button" role="tab" id="m-edit" aria-selected="false">Edit</button></div>
 
-    <div>
-      <div class="label">Source image <small id="src-note">optional — add one to edit it</small></div>
+    <div class="src" id="src" hidden>
+      <div class="label">Source image <small id="src-note">add the image to edit</small></div>
       <div class="drop" id="drop" tabindex="0">Drop, paste <kbd>Ctrl</kbd>+<kbd>V</kbd>, or click to choose an image</div>
       <input type="file" id="file" accept="image/*" multiple hidden>
       <div class="refs" id="refs"></div>
@@ -196,7 +198,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const S = { refs: [], size: 'auto', job: null, polling: null, started: 0, current: null, history: [], lastSeed: null, defaults: {} };
+  const S = { mode: 'gen', refs: [], size: 'auto', job: null, polling: null, started: 0, current: null, history: [], lastSeed: null, defaults: {} };
   const SIZES = [
     { k: 'auto', label: 'Match source', w: 0, h: 0, editOnly: true },
     { k: 'sq', label: 'Square 1024', w: 1024, h: 1024 },
@@ -235,7 +237,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   // ---------- sizes ----------
   function renderSizes() {
     const box = $('sizes'); box.innerHTML = '';
-    const edit = S.refs.length > 0;
+    const edit = S.mode === 'edit' && S.refs.length > 0;
     if (!edit && S.size === 'auto') S.size = 'sq';
     if (edit && !renderSizes.touched) S.size = 'auto';
     for (const s of SIZES) {
@@ -260,12 +262,17 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   }
 
   // ---------- references (source images) ----------
-  function setMode() {
-    const edit = S.refs.length > 0;
+  // Mode is EXPLICIT (the tabs set it). It used to be implied by "is an image attached", and the tabs
+  // were plain labels -- clicking "Edit" on a fresh page did nothing, which read as a broken UI.
+  function setMode(m) {
+    if (m) S.mode = m;
+    const edit = S.mode === 'edit';
+    $('m-gen').setAttribute('aria-selected', String(!edit)); $('m-edit').setAttribute('aria-selected', String(edit));
+    $('src').hidden = !edit;
     $('m-gen').classList.toggle('on', !edit); $('m-edit').classList.toggle('on', edit);
     $('go').textContent = edit ? 'Apply edit' : 'Generate';
     $('prompt').placeholder = edit ? 'Describe the change — e.g. "make it night, keep everything else the same"' : 'Describe the image you want…';
-    $('src-note').textContent = edit ? (S.refs.length > 1 ? `${S.refs.length} references — mention them as image 1, image 2…` : 'editing this image') : 'optional — add one to edit it';
+    $('src-note').textContent = !S.refs.length ? 'add the image to edit' : (S.refs.length > 1 ? `${S.refs.length} references — mention them as image 1, image 2…` : 'editing this image');
     renderRefs(); renderSizes();
   }
   function renderRefs() {
@@ -281,7 +288,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   function addRefFromDataUrl(url) {
     if (S.refs.length >= 3) { toast('Up to 3 reference images'); return; }
     const im = new Image();
-    im.onload = () => { S.refs.push({ url, w: im.naturalWidth, h: im.naturalHeight }); setMode(); };
+    im.onload = () => { S.refs.push({ url, w: im.naturalWidth, h: im.naturalHeight }); setMode('edit'); };
     im.onerror = () => toast('That file is not an image I can read');
     im.src = url;
   }
@@ -305,7 +312,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     if (S.job) return;
     let prompt = $('prompt').value.trim();
     if (!prompt) { $('prompt').focus(); toast('Write a prompt first'); return; }
-    const edit = S.refs.length > 0;
+    const edit = S.mode === 'edit';
+    if (edit && !S.refs.length) { toast('Add the image to edit first'); $('file').click(); return; }
     if ($('alpha').checked) prompt = `This is an RGBA image with transparency. ${prompt}. The image has alpha channel and the background is transparent.`;
     const [w, h] = dims();
     let seed;
@@ -396,6 +404,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     a.download = `${slug}-${S.current.seed}.${S.current.fmt === 'jpeg' ? 'jpg' : S.current.fmt}`; a.click();
   };
   $('go').onclick = run;
+  $('m-gen').onclick = () => setMode('gen');
+  $('m-edit').onclick = () => { setMode('edit'); if (!S.refs.length) $('file').click(); };
   $('prompt').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
 
   // ---------- history (IndexedDB: per-browser, survives reloads; never required) ----------
@@ -439,7 +449,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     } catch (e) {}
   });
 
-  setMode();
+  setMode('gen');
 })();
 </script>
 </body>
