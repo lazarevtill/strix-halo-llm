@@ -99,8 +99,18 @@ on this driver, not the model, is the limit.
 .\scripts\windows\fetch-models.ps1 -Only qwen-image-21-turbo-q8,qwen-image-21-te,qwen-image-21
 ```
 
-Logs: `logs\images-<timestamp>.err/.out` (newest 10 kept). The launcher restarts sd-server on exit and
-gives up after 5 exits in an hour so a persistent fault stays visible.
+Logs: `logs\images-<timestamp>.err/.out` (newest 10 kept). The launcher restarts sd-server on exit
+(~13 s back, measured by killing it). After more than 5 exits in an hour it **backs off 15 minutes and
+tries again** rather than giving up: a client can crash the server on demand (the edits bug above), and
+a hard stop would leave `:8080` dead until the next logon with nothing watching.
+
+- **Client timeouts must be 3+ minutes.** A 1024² generation takes ~108 s and an edit ~123 s; many
+  OpenAI clients default to 60 s and will report a failure for a request that is still running.
+- **Concurrent requests queue** (measured: two simultaneous 512² requests returned after 14 s and 28 s,
+  same server process). There is one sampler; throughput does not scale with clients.
+- **Freezes are not detected.** The restart loop only catches the process *exiting*. The LLM side
+  needed a watchdog for a deadlocked child; sd-server has none yet — if requests hang with the GPU
+  idle, kill `sd-server.exe` and the loop will restart it.
 
 **Rollback to the LLM:** the Startup launcher keeps the three LLM lines (router, metrics exporter,
 watchdog) commented out with a `rem ROLLBACK-LLM:` prefix. Uncomment them and comment out the

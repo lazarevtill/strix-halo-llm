@@ -23,9 +23,10 @@
       sd.cpp #1718 (Windows, Strix Halo) died allocating a 2.49 GB F32 token table from an FP8 file.
     * --vae-tiling: a 1024^2 VAE decode otherwise wants one >2 GiB buffer (sd.cpp #1290).
 
-  -Model base   = 40 steps, CFG 6     -- best quality (default; this box prefers quality over latency)
-  -Model turbo  = 8 steps, CFG 1      -- the distilled Turbo weights, ~5x faster
-  -Model base-q8 = base weights as Q8_0 GGUF (fallback if bf16 misbehaves)
+  -Model turbo-q8 = Turbo, Q8_0 GGUF, 8 steps, CFG 1 -- THE DEFAULT and the served config:
+                    ~108 s per 1024^2 image. Q8_0 measured 2.4x faster than bf16 on this driver.
+  -Model base-q8  = base weights Q8_0, 40 steps, CFG 6 -- best quality, ~12 min per 1024^2 image
+  -Model turbo / base = the bf16 safetensors -- same images as Q8_0 here, ~2.4x slower
 
   No authentication. Binding 0.0.0.0 exposes it to the LAN; firewall the port to the LAN only.
 
@@ -34,15 +35,15 @@
   /v1/images/generations. Edits without it work. The restart loop below brings the server back (~15 s).
 
 .EXAMPLE
-  .\run-images.ps1 -Model turbo-q8         # THE SERVED CONFIG: Turbo Q8_0 on :8080, supervised
-  .\run-images.ps1 -Model turbo            # fast variant
+  .\run-images.ps1                         # Turbo Q8_0 on :8080, supervised (the served config)
+  .\run-images.ps1 -Model base-q8          # best quality, ~12 min per 1024^2 image
   .\run-images.ps1 -DryRun                 # print the sd-server command line only
   .\run-images.ps1 -Once                   # run without the restart loop (testing)
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('base', 'turbo', 'base-q8', 'turbo-q8')]
-    [string] $Model     = 'base',
+    [string] $Model     = 'turbo-q8',
     [int]    $Port      = 8080,   # replaces the LLM on the same port (LAN firewall rule already exists)
     [string] $Bind      = '0.0.0.0',
     [string] $Bin       = '.\bin-sd-master-967-e47426c',
@@ -116,8 +117,13 @@ while ($true) {
     $null = $restarts.Add((Get-Date))
     $recent = @($restarts | Where-Object { $_ -gt (Get-Date).AddHours(-1) }).Count
     if ($recent -gt $MaxRestartsPerHour) {
-        Write-Error "sd-server exited $recent times in the last hour -- giving up so a persistent fault is visible. See $err"
-        exit 1
+        # BACK OFF, never give up. A client can crash sd-server on demand (the edits + extra_args abort
+        # above), so a hard exit here would let six bad requests take :8080 down until the next logon --
+        # and with no exporter or watchdog running, nobody would see it. Wait, then try again.
+        Write-Warning ("{0:s}  sd-server exited {1} times in the last hour -- backing off 15 min. See {2}" -f (Get-Date), $recent, $err)
+        Start-Sleep -Seconds 900
+        $restarts.Clear()
+        continue
     }
     Start-Sleep -Seconds 10
 }

@@ -39,7 +39,7 @@ network. **Tier the workload instead.**
    (Open WebUI,     │   health checks, fallback, retries)
     astrolabe,      │
     your apps)      ├──Ethernet──►  Strix Halo :8080   llama.cpp Vulkan router
-                    │                 • ornith15 (35B-A3B MoE) — what :8080 serves today
+                    │                 • ornith15 (35B-A3B MoE) — :8080's LLM until 10-15
                     │                 • (example extra ids: qwen38-uncensored, cyberstrike)
                     │                 • vision · big context · the HEAVY tier   [~109 GB]
                     │
@@ -82,7 +82,7 @@ A minimal config (secrets come from the environment — **never commit a real ke
 model_list:
   # heavy tier — the Strix Halo llama.cpp router (route by the model's own name).
   # <strix-host> / <gpu-a> / <gpu-b> are the LAN or overlay IPs of your three boxes.
-  # ornith15 is what :8080 serves as of 2026-10-02. The other two ids are EXAMPLES from the
+  # ornith15 is what :8080 served 2026-10-02 -> 10-15 (images since; docs/IMAGES.md). The other two ids are EXAMPLES from the
   # 2026-08 design — list only what your router actually has loaded (GET /models).
   - model_name: ornith15
     litellm_params: { model: openai/ornith15,          api_base: http://<strix-host>:8080/v1, api_key: os.environ/LLAMA_KEY }

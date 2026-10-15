@@ -1,5 +1,9 @@
 # Serving real users: saved chats, capacity, and what breaks
 
+> **Since 2026-10-15 `:8080` serves IMAGES, not an LLM** — Qwen-Image-2.1 via stable-diffusion.cpp,
+> see [IMAGES.md](IMAGES.md). This page describes the LLM setup, which is dormant (its Startup lines are
+> commented out, not deleted) and comes back with a one-line launcher swap.
+
 Written 2026-08-05, after this box picked up actual users. *(history, 2026-08-05: "Nothing here is
 installed yet — this is the decision material.")* **As of 2026-10-02, installed:** the router
 autostart (§8 — Startup-folder launcher, `ornith15` on `bin-b11414`, 2 slots × 262144, `draft-dflash`)
@@ -283,7 +287,7 @@ start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
 start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "D:\llamacpp-vulkan\scripts\windows\metrics-exporter.ps1" -Port 9114 -Bind "+"
 ```
 
-As of 2026-10-05 this box serves **`ornith15`** (Ornith-1.5-35B-A3B Q6_K) on **`bin-b11414`** (b11330 from 2026-10-02; moved for the #29942 tool-call parser fix, speed unchanged, 20/20 concurrent requests stable), 2 slots
+From 2026-10-05 until 2026-10-15 (when images replaced the LLM — [IMAGES.md](IMAGES.md)) this box served **`ornith15`** (Ornith-1.5-35B-A3B Q6_K) on **`bin-b11414`** (b11330 from 2026-10-02; moved for the #29942 tool-call parser fix, speed unchanged, 20/20 concurrent requests stable), 2 slots
 × 262144 with `draft-dflash` — see §10 for why. Substitute whatever you actually serve.
 *(history: `-Models qwen38,ornith` was the original example; 2026-09-16 → 09-19 it launched `-Models
 coder -Bin ".\bin-b11003" -Ctx 262144` — Qwen3-Coder-Next, which **requires** a b11003+ engine because

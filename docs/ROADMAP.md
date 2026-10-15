@@ -5,7 +5,11 @@ This page is the "not yet fully cleared" list. The published, pinned-build numbe
 own measurements in the "Cleared" section below, not in RESULTS. The repo's rule is to publish the
 claim *and* the thing blocking it — so each model below records its exact gate, honestly.
 
-**Status refreshed 2026-10-05.** Current state:
+> **Since 2026-10-15 `:8080` serves IMAGES, not an LLM** — Qwen-Image-2.1 via stable-diffusion.cpp,
+> see [IMAGES.md](IMAGES.md). This page describes the LLM setup, which is dormant (its Startup lines are
+> commented out, not deleted) and comes back with a one-line launcher swap.
+
+**Status refreshed 2026-10-05** (LLM state at the time the LLM was replaced):
 
 1. **`:8080` serves `ornith15` solo** — Ornith-1.5-35B-A3B Q6_K on **`bin-b11414`** (since 2026-10-05;
    b11330 before), 2 slots × 262144, `draft-dflash` (Q8_0 draft, n=3), `-ub 1024`, vision + tools +
