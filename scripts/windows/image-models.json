@@ -140,6 +140,37 @@
         "height": 1024,
         "note": "Rating tags steer content: safe, sensitive, nsfw, explicit. Turbo: 8-12 steps at CFG 1."
       }
+    },
+    {
+      "id": "z-image-turbo",
+      "label": "Z-Image Turbo (fast)",
+      "description": "Tongyi-MAI's 6B distilled model: the fast general option. 8 steps at CFG 1, strong photorealism and English/Chinese text rendering. Generation only (no edit).",
+      "licence": "Apache-2.0 (commercial use OK)",
+      "nsfw": false,
+      "vram_gb": 10.5,
+      "files": {
+        "diffusion-model": "z_image_turbo-Q8_0.gguf",
+        "llm": "Qwen3-4B-Q8_0.gguf",
+        "vae": "ae.safetensors"
+      },
+      "args": [
+        "--steps",
+        "8",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler"
+      ],
+      "ui": {
+        "edit": false,
+        "alpha": false,
+        "steps": 8,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 1024,
+        "height": 1024,
+        "note": "Turbo: 8 steps at CFG 1. The negative prompt needs CFG > 1 (about 2x the time)."
+      }
     }
   ]
 }

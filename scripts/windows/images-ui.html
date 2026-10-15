@@ -121,6 +121,24 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
 .paintbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; font-size: 13px; }
 .paintbar label { display: flex; gap: 6px; align-items: center; }
 .paintbar input[type=range] { width: 120px; }
+.paintbar .zoomctl { display: inline-flex; gap: 4px; align-items: center; margin-left: auto; }
+.paintbar .zoomctl span { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+.paint { transform-origin: center; }
+.paint.hand canvas { cursor: grab; } .paint.panning canvas { cursor: grabbing; }
+.brush-cur { position: fixed; pointer-events: none; border-radius: 50%; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.65); transform: translate(-50%, -50%); z-index: 4; }
+#view { cursor: zoom-in; } #view.preview { cursor: default; }
+.zoombtn { position: absolute; top: 10px; right: 10px; z-index: 2; background: var(--panel); }
+/* full-screen viewer: dark in both themes, like any photo viewer */
+.lb { position: fixed; inset: 0; z-index: 20; background: rgba(12,11,10,.95); color: #f1eee8; display: flex; flex-direction: column; }
+.lb-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; display: grid; place-items: center; touch-action: none; cursor: grab; user-select: none; }
+.lb-stage.drag { cursor: grabbing; }
+.lb-stage img { max-width: calc(100% - 24px); max-height: calc(100% - 24px); transform-origin: center; display: block; }
+.lb-stage img.px { image-rendering: pixelated; }
+.lb-bar { min-height: 58px; display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-top: 1px solid rgba(255,255,255,.12); flex-wrap: wrap; font-size: 13px; }
+.lb-bar button { border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.07); color: inherit; border-radius: 9px; padding: 5px 10px; cursor: pointer; font-weight: 600; min-width: 34px; }
+.lb-bar button:disabled { opacity: .35; cursor: default; }
+.lb-bar .info { color: #b8b2a8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 160px; min-width: 0; }
+.lb-bar .z { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
 .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 16px; font-size: 13.5px; }
 .statusbar .stat { color: var(--muted); } .statusbar .stat b { color: var(--ink); font-weight: 600; }
 .statusbar .actions { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
@@ -182,7 +200,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
       <textarea id="neg" placeholder="What to avoid (needs CFG above 1)"></textarea>
     </div>
 
-    <div>
+    <div id="size-box">
       <div class="label">Size <small id="size-note"></small></div>
       <div class="chips" id="sizes"></div>
       <div class="row" id="custom" hidden style="margin-top:8px">
@@ -194,7 +212,30 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     <div id="strength-box" hidden>
       <div class="label">Strength <small id="strength-val"></small></div>
       <input type="range" id="strength" min="0.05" max="1" step="0.05" value="0.75">
-      <p class="note">How much to change: low keeps the original, 1.0 repaints completely.</p>
+      <p class="note" id="strength-note">How much to change: low keeps the original, 1.0 repaints completely.</p>
+    </div>
+
+    <div id="inpaint-box" hidden>
+      <div class="label">Masked area starts as <small>what the model is given there</small></div>
+      <div class="chips" id="fillmode">
+        <button type="button" class="chip" data-v="original">Original</button>
+        <button type="button" class="chip" data-v="fill">Surroundings</button>
+        <button type="button" class="chip" data-v="noise">Noise</button>
+        <button type="button" class="chip" data-v="blank">Blank</button>
+      </div>
+      <p class="note" id="fill-note" style="margin-top:6px"></p>
+      <div class="label" style="margin-top:12px">Inpaint area</div>
+      <div class="chips" id="areamode">
+        <button type="button" class="chip" data-v="whole">Whole image</button>
+        <button type="button" class="chip" data-v="masked">Only masked — more detail</button>
+      </div>
+      <p class="note" id="area-note" style="margin-top:6px"></p>
+      <div class="row" style="margin-top:10px">
+        <div><div class="label">Mask blur <small id="mblur-v"></small></div><input type="range" id="mblur" min="0" max="64" step="1" value="8"></div>
+        <div id="mpad-box"><div class="label">Padding <small id="mpad-v"></small></div><input type="range" id="mpad" min="0" max="256" step="8" value="48"></div>
+      </div>
+      <label class="check" style="margin-top:8px"><input type="checkbox" id="keep" checked><span>Keep the rest pixel-exact<small id="keep-note">Blends the result back into the original, so nothing outside the mask changes (re-encoded in the browser, so embedded settings are dropped).</small></span></label>
+      <button class="mini" id="show-sent" type="button" style="margin-top:10px">Show what the model gets</button>
     </div>
 
     <div class="row">
@@ -273,15 +314,23 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   <section class="stage">
     <div class="panel canvas" id="canvas">
       <div class="empty" id="empty"><b>Nothing here yet</b>Pick a model, write a prompt and press Generate — or switch to Edit / Inpaint and bring an image.</div>
-      <img id="view" alt="" hidden>
+      <img id="view" alt="" hidden title="Click to zoom">
+      <button class="icon-btn zoombtn" id="zoom-btn" type="button" title="Zoom (or click the image)" hidden>⤢ Zoom</button>
       <div class="paint" id="paint" hidden><img id="paint-img" alt=""><canvas id="mask"></canvas></div>
       <div class="progress"><i id="bar"></i></div>
     </div>
+    <div class="brush-cur" id="brush-cur" hidden></div>
     <div class="panel paintbar" id="paintbar" hidden>
       <b>Mask</b><span class="note">paint the area to change</span>
-      <label>Brush <input type="range" id="brush" min="8" max="200" value="48"></label>
+      <label>Brush <input type="range" id="brush" min="4" max="200" value="48" title="[ and ] change the size"></label>
       <button class="mini on" id="m-paint" type="button">Paint</button><button class="mini" id="m-erase" type="button">Erase</button>
+      <button class="mini" id="m-undo" type="button" title="Ctrl+Z">Undo</button>
       <button class="mini" id="m-invert" type="button">Invert</button><button class="mini" id="m-clear" type="button">Clear</button>
+      <span class="zoomctl">
+        <button class="mini" id="pz-out" type="button" title="Zoom out">−</button><span id="pz-val">fit</span><button class="mini" id="pz-in" type="button" title="Zoom in — or mouse wheel / pinch">+</button>
+        <button class="mini" id="pz-fit" type="button">Fit</button>
+        <button class="mini" id="m-hand" type="button" title="Drag to move around — or hold Space / use the middle mouse button">Hand</button>
+      </span>
     </div>
     <div class="panel">
       <div class="statusbar">
@@ -307,6 +356,16 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Image viewer">
+  <div class="lb-stage" id="lb-stage"><img id="lb-img" alt="" draggable="false"></div>
+  <div class="lb-bar">
+    <button type="button" id="lb-prev" title="Previous (←)">‹</button><button type="button" id="lb-next" title="Next (→)">›</button>
+    <span class="info" id="lb-info"></span>
+    <button type="button" id="lb-out" title="Zoom out (−)">−</button><span class="z" id="lb-zoom">100%</span><button type="button" id="lb-in" title="Zoom in (+)">+</button>
+    <button type="button" id="lb-fit" title="Fit (0)">Fit</button><button type="button" id="lb-1x" title="Actual pixels (1)">1:1</button>
+    <button type="button" id="lb-close" title="Close (Esc)">✕</button>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -315,7 +374,9 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   const S = {
     models: [], model: null, caps: {}, mode: 'gen', refs: [], init: null, size: 'sq', job: null, started: 0,
     current: null, batch: [], history: [], lastSeed: null, maskDirty: false, budget: null,
+    inp: { fill: 'fill', area: 'whole' },   // measured best default (2026-10-15): fill 0.9 blends cleanly
   };
+  const MAXPX = 2048 * 2048;   // sources above this are scaled down on load: the models render at ~1 MP anyway
   const SIZES = [
     { k: 'auto', label: 'Match source', src: true },
     { k: 'sq', label: '1024²', w: 1024, h: 1024 }, { k: 'land', label: '1344×768', w: 1344, h: 768 },
@@ -435,8 +496,10 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     $('src-label').textContent = MODE[m].label; $('tabnote').textContent = MODE[m].note; $('tabnote').hidden = !MODE[m].note;
     $('go').textContent = MODE[m].go;
     $('strength-box').hidden = !(m === 'img2img' || m === 'inpaint');
-    if (m === 'inpaint') $('strength').value = 1; else if (m === 'img2img' && Number($('strength').value) === 1) $('strength').value = 0.65;
+    $('inpaint-box').hidden = m !== 'inpaint';
+    if (m === 'inpaint') $('strength').value = FILL[S.inp.fill].s; else if (m === 'img2img' && Number($('strength').value) === 1) $('strength').value = 0.65;
     $('strength-val').textContent = Number($('strength').value).toFixed(2);
+    renderInpaintOpts();
     $('prompt').placeholder = ({ gen: 'Describe the image you want…', edit: 'Describe the change — e.g. "make it night, keep everything else"', inpaint: 'Describe what should appear in the painted area', img2img: 'Describe the target look' })[m];
     if (m !== 'gen' && sources().length) S.size = 'auto';
     if (m === 'gen' && S.size === 'auto') S.size = 'sq';
@@ -464,7 +527,13 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   function addImage(url, forMode) {
     const im = new Image();
     im.onload = () => {
-      const r = { url, w: im.naturalWidth, h: im.naturalHeight };
+      const r = { url, w: im.naturalWidth, h: im.naturalHeight, img: im };
+      if (r.w * r.h > MAXPX) {
+        const k = Math.sqrt(MAXPX / (r.w * r.h)), c = document.createElement('canvas');
+        c.width = Math.round(r.w * k); c.height = Math.round(r.h * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        Object.assign(r, { url: c.toDataURL('image/png'), w: c.width, h: c.height, img: c });
+        toast(`Large image scaled to ${r.w}×${r.h} for editing`);
+      }
       if (forMode) setMode(forMode); else if (S.mode === 'gen') setMode(U().edit ? 'edit' : 'img2img');
       if (S.mode === 'edit') { if (S.refs.length >= 3) { toast('Up to 3 reference images'); return; } S.refs.push(r); }
       else { S.init = r; S.maskDirty = false; }
@@ -505,48 +574,250 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     const w = Math.sqrt(area * ar); return [snap(w), snap(w / ar)];
   }
 
+  // ---------- zoom: shared by the result viewer and the mask painter ----------
+  // transform = translate(x, y) scale(s) about the element's centre; s = 1 is the fitted layout size.
+  function Zoom(el, onChange) {
+    const z = { s: 1, x: 0, y: 0, max: 32 };
+    z.apply = () => {
+      if (z.s <= 1) { z.s = 1; z.x = z.y = 0; }
+      el.style.transform = z.s === 1 ? '' : `translate(${z.x}px, ${z.y}px) scale(${z.s})`; if (onChange) onChange(z);
+    };
+    z.reset = () => { z.s = 1; z.apply(); };
+    z.at = (cx, cy, s2) => {   // zoom to s2 keeping the screen point (cx, cy) fixed
+      s2 = Math.min(z.max, Math.max(1, s2)); const r = el.getBoundingClientRect(), k = 1 - s2 / z.s;
+      z.x += (cx - (r.left + r.width / 2)) * k; z.y += (cy - (r.top + r.height / 2)) * k; z.s = s2; z.apply();
+    };
+    z.center = s2 => { const r = el.parentElement.getBoundingClientRect(); z.at(r.left + r.width / 2, r.top + r.height / 2, s2); };
+    z.pan = (dx, dy) => { if (z.s > 1) { z.x += dx; z.y += dy; z.apply(); } };
+    z.ratio = img => z.s * (img.offsetWidth || 1) / (img.naturalWidth || img.width || img.offsetWidth || 1);   // screen px per image px
+    return z;
+  }
+  function Pinch(z) {   // two-pointer pinch-zoom + pan
+    const pts = new Map(); let prev = null;
+    const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
+    return {
+      down(e) { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); prev = pts.size === 2 ? mid() : null; return pts.size; },
+      move(e) {
+        if (!pts.has(e.pointerId)) return false; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size !== 2) return false;
+        const m = mid(); if (prev && prev.d > 0) { z.pan(m.x - prev.x, m.y - prev.y); z.at(m.x, m.y, z.s * m.d / prev.d); } prev = m; return true;
+      },
+      up(e) { pts.delete(e.pointerId); prev = pts.size === 2 ? mid() : null; return pts.size; },
+      get count() { return pts.size; },
+    };
+  }
+  const wheelFactor = e => Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.002));
+
   // ---------- inpaint mask painter ----------
   const mc = $('mask'), mctx = mc.getContext('2d', { willReadFrequently: true }); let erasing = false, drawing = false, last = null;
+  let hand = false, spaceDown = false, panning = null; const undo = [];
+  const pz = Zoom($('paint'), z => { $('pz-val').textContent = z.s === 1 ? 'fit' : `${Math.round(z.ratio($('paint-img')) * 100)}%`; });
+  const pinch = Pinch(pz);
   function renderPaint() {
     const on = S.mode === 'inpaint' && !!S.init && !S.job;
-    $('paint').hidden = !on; $('paintbar').hidden = !on;
+    $('paint').hidden = !on; $('paintbar').hidden = !on; $('zoom-btn').hidden = on || !S.current || !!S.job;
     if (on) {
       $('view').hidden = true; $('empty').hidden = true;
       const pi = $('paint-img');
       if (pi.dataset.src !== S.init.url) {
         pi.dataset.src = S.init.url; pi.src = S.init.url;
         mc.width = S.init.w; mc.height = S.init.h; mctx.clearRect(0, 0, mc.width, mc.height); S.maskDirty = false;
+        undo.length = 0; pz.reset();
       }
     } else if (S.current) { $('view').hidden = false; $('empty').hidden = true; }
     else if (!S.job) { $('view').hidden = true; $('empty').hidden = false; }
   }
   const pos = e => { const r = mc.getBoundingClientRect(); return [(e.clientX - r.left) * mc.width / r.width, (e.clientY - r.top) * mc.height / r.height]; };
-  function stroke(a, b) {
+  function stroke(a, b) {   // brush size is in SCREEN pixels, so zooming in paints finer
     const scale = mc.width / Math.max(1, mc.getBoundingClientRect().width);
     mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
     mctx.strokeStyle = 'rgba(249,115,22,.55)'; mctx.lineCap = mctx.lineJoin = 'round'; mctx.lineWidth = Number($('brush').value) * scale;
     mctx.beginPath(); mctx.moveTo(a[0], a[1]); mctx.lineTo(b[0] + 0.01, b[1]); mctx.stroke(); S.maskDirty = true;
   }
-  mc.addEventListener('pointerdown', e => { drawing = true; mc.setPointerCapture(e.pointerId); last = pos(e); stroke(last, last); });
-  mc.addEventListener('pointermove', e => { if (!drawing) return; const p = pos(e); stroke(last, p); last = p; });
-  ['pointerup', 'pointercancel'].forEach(ev => mc.addEventListener(ev, () => { drawing = false; }));
-  const setTool = er => { erasing = er; $('m-paint').classList.toggle('on', !er); $('m-erase').classList.toggle('on', er); };
+  const snapshot = () => { undo.push(mctx.getImageData(0, 0, mc.width, mc.height)); if (undo.length > 30) undo.shift(); };
+  const maskHasPixels = () => { const d = mctx.getImageData(0, 0, mc.width, mc.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 10) return true; return false; };
+  function undoMask() { const u = undo.pop(); if (!u) { toast('Nothing to undo'); return; } mctx.putImageData(u, 0, 0); S.maskDirty = maskHasPixels(); }
+  function brushCursor(e) {
+    const c = $('brush-cur');
+    if (e.pointerType !== 'mouse' || hand || spaceDown || panning) { c.hidden = true; return; }
+    const d = Number($('brush').value); c.hidden = false; c.style.width = c.style.height = `${d}px`; c.style.left = `${e.clientX}px`; c.style.top = `${e.clientY}px`;
+  }
+  mc.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });   // no autoscroll on middle-drag
+  mc.addEventListener('pointerdown', e => {
+    try { mc.setPointerCapture(e.pointerId); } catch (er) {}
+    if (pinch.down(e) === 2) {   // second finger: this is a pinch, not a stroke -- take back the dot the first finger made
+      if (drawing) { drawing = false; const u = undo.pop(); if (u) { mctx.putImageData(u, 0, 0); S.maskDirty = maskHasPixels(); } }
+      panning = null; return;
+    }
+    if (hand || spaceDown || e.button === 1) { panning = { x: e.clientX, y: e.clientY }; $('paint').classList.add('panning'); $('brush-cur').hidden = true; return; }
+    if (e.button !== 0) return;
+    snapshot(); drawing = true; last = pos(e); stroke(last, last);
+  });
+  mc.addEventListener('pointermove', e => {
+    brushCursor(e);
+    if (pinch.move(e)) return;
+    if (panning) { pz.pan(e.clientX - panning.x, e.clientY - panning.y); panning = { x: e.clientX, y: e.clientY }; return; }
+    if (!drawing) return; const p = pos(e); stroke(last, p); last = p;
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => mc.addEventListener(ev, e => { pinch.up(e); drawing = false; panning = null; $('paint').classList.remove('panning'); }));
+  mc.addEventListener('pointerleave', () => { $('brush-cur').hidden = true; });
+  $('canvas').addEventListener('wheel', e => {
+    if ($('paint').hidden || !e.target.closest('#paint')) return;
+    e.preventDefault(); pz.at(e.clientX, e.clientY, pz.s * wheelFactor(e));
+  }, { passive: false });
+  $('pz-in').onclick = () => pz.center(pz.s * 1.5);
+  $('pz-out').onclick = () => pz.center(pz.s / 1.5);
+  $('pz-fit').onclick = () => pz.reset();
+  const setHand = on => { hand = on; $('m-hand').classList.toggle('on', on); $('paint').classList.toggle('hand', on); };
+  $('m-hand').onclick = () => setHand(!hand);
+  const setTool = er => { erasing = er; setHand(false); $('m-paint').classList.toggle('on', !er); $('m-erase').classList.toggle('on', er); };
   $('m-paint').onclick = () => setTool(false);
   $('m-erase').onclick = () => setTool(true);
-  $('m-clear').onclick = () => { mctx.clearRect(0, 0, mc.width, mc.height); S.maskDirty = false; };
+  $('m-undo').onclick = undoMask;
+  $('m-clear').onclick = () => { snapshot(); mctx.clearRect(0, 0, mc.width, mc.height); S.maskDirty = false; };
   $('m-invert').onclick = () => {
-    const d = mctx.getImageData(0, 0, mc.width, mc.height);
+    snapshot(); const d = mctx.getImageData(0, 0, mc.width, mc.height);
     for (let i = 3; i < d.data.length; i += 4) { const on = d.data[i] > 10; d.data[i - 3] = 249; d.data[i - 2] = 115; d.data[i - 1] = 22; d.data[i] = on ? 0 : 140; }
     mctx.putImageData(d, 0, 0); S.maskDirty = true;
   };
-  // sd.cpp mask semantics: white = repaint, black = keep (measured 2026-10-15)
-  function exportMask() {
-    const out = document.createElement('canvas'); out.width = mc.width; out.height = mc.height;
-    const o = out.getContext('2d'); o.fillStyle = '#000'; o.fillRect(0, 0, out.width, out.height);
-    const src = mctx.getImageData(0, 0, mc.width, mc.height), dst = o.getImageData(0, 0, out.width, out.height);
-    for (let i = 3; i < src.data.length; i += 4) if (src.data[i] > 10) { dst.data[i - 3] = dst.data[i - 2] = dst.data[i - 1] = 255; }
-    o.putImageData(dst, 0, 0); return out.toDataURL('image/png');
+
+  // ---------- inpaint: what the model is sent ----------
+  // sd.cpp mask semantics: white = repaint, black = keep (measured 2026-10-15). Everything below runs in the
+  // browser at the source's resolution; the server only ever sees one starting image + one mask.
+  const FILL = {
+    original: { s: 0.85, note: 'The model starts from what is there now. For changing something while keeping its place, shape and light — strength 0.6–0.9.' },
+    fill: { s: 0.9, note: 'The area is first filled in from the surrounding colours, so the old content is gone. For removing something — strength 0.8–1.' },
+    noise: { s: 1, note: 'Random noise: the model invents the area freely. Can leave a visible edge on big masks — Surroundings blends better.' },
+    blank: { s: 0.95, note: 'Flat grey: a neutral start with nothing of the old content.' },
+  };
+  function renderInpaintOpts() {
+    const I = S.inp, masked = I.area === 'masked';
+    document.querySelectorAll('#fillmode .chip').forEach(b => b.classList.toggle('on', b.dataset.v === I.fill));
+    document.querySelectorAll('#areamode .chip').forEach(b => b.classList.toggle('on', b.dataset.v === I.area));
+    $('fill-note').textContent = FILL[I.fill].note + (Number($('strength').value) >= 1 && I.fill !== 'noise' ? ' At strength 1.0 the starting content is ignored — lower it for this choice to matter.' : '');
+    $('area-note').textContent = masked
+      ? 'Only the region around the mask (plus padding) is rendered, at ~1 MP, and pasted back — small areas get far more detail. The output keeps the source size.'
+      : 'The whole image is re-rendered at the size above; the mask decides what may change.';
+    $('mpad-box').style.visibility = masked ? '' : 'hidden';
+    $('mblur-v').textContent = `${$('mblur').value} px`; $('mpad-v').textContent = `${$('mpad').value} px`;
+    $('keep').disabled = masked; if (masked) $('keep').checked = true;
+    $('size-box').hidden = S.mode === 'inpaint' && masked;
   }
+  document.querySelectorAll('#fillmode .chip').forEach(b => b.onclick = () => {
+    S.inp.fill = b.dataset.v; $('strength').value = FILL[S.inp.fill].s; $('strength-val').textContent = Number($('strength').value).toFixed(2); renderInpaintOpts();
+  });
+  document.querySelectorAll('#areamode .chip').forEach(b => b.onclick = () => { S.inp.area = b.dataset.v; renderInpaintOpts(); });
+  ['mblur', 'mpad', 'strength'].forEach(id => $(id).addEventListener('input', renderInpaintOpts));
+
+  function boxBlur(a, w, h, r) {   // in place, one horizontal + one vertical running-sum pass
+    if (r < 1) return a;
+    const t = new Float32Array(a.length), n = 2 * r + 1, cx = x => x < 0 ? 0 : x >= w ? w - 1 : x, cy = y => y < 0 ? 0 : y >= h ? h - 1 : y;
+    for (let y = 0; y < h; y++) {
+      const o = y * w; let s = 0; for (let x = -r; x <= r; x++) s += a[o + cx(x)];
+      for (let x = 0; x < w; x++) { t[o + x] = s / n; s += a[o + cx(x + r + 1)] - a[o + cx(x - r)]; }
+    }
+    for (let x = 0; x < w; x++) {
+      let s = 0; for (let y = -r; y <= r; y++) s += t[cy(y) * w + x];
+      for (let y = 0; y < h; y++) { a[y * w + x] = s / n; s += t[cy(y + r + 1) * w + x] - t[cy(y - r) * w + x]; }
+    }
+    return a;
+  }
+  function maskAlpha() { const d = mctx.getImageData(0, 0, mc.width, mc.height).data, a = new Float32Array(mc.width * mc.height); for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3] > 10 ? 1 : 0; return a; }
+  function dilate(a, w, h, r) { if (r < 1) return a; const b = boxBlur(Float32Array.from(a), w, h, r); for (let i = 0; i < b.length; i++) b[i] = b[i] > 1e-4 ? 1 : 0; return b; }
+  function feather(a, w, h, r) { if (r < 1) return a; const b = Float32Array.from(a), q = Math.max(1, Math.round(r / 2)); boxBlur(b, w, h, q); return boxBlur(b, w, h, q); }
+  function pushPull(d, hole, w, h) {
+    // Fill holes from the surrounding colours: average known pixels down a pyramid, then fill each level's
+    // holes from the coarser one; finish with a blur so the fill is smooth rather than blocky.
+    const lv = []; let W = w, H = h, c = new Float32Array(w * h * 3), k = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) { const m = hole[i] ? 0 : 1; k[i] = m; for (let j = 0; j < 3; j++) c[i * 3 + j] = d[i * 4 + j] * m; }
+    lv.push({ W, H, c, k });
+    while (W > 1 || H > 1) {
+      const W2 = (W + 1) >> 1, H2 = (H + 1) >> 1, c2 = new Float32Array(W2 * H2 * 3), k2 = new Float32Array(W2 * H2);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, q = (y >> 1) * W2 + (x >> 1); k2[q] += k[i]; for (let j = 0; j < 3; j++) c2[q * 3 + j] += c[i * 3 + j]; }
+      for (let q = 0; q < W2 * H2; q++) if (k2[q] > 1) { for (let j = 0; j < 3; j++) c2[q * 3 + j] /= k2[q]; k2[q] = 1; }
+      W = W2; H = H2; c = c2; k = k2; lv.push({ W, H, c, k });
+    }
+    const top = lv[lv.length - 1];
+    for (let j = 0; j < 3; j++) top.c[j] = top.k[0] > 0 ? top.c[j] / top.k[0] : 128; top.k[0] = 1;
+    for (let l = lv.length - 2; l >= 0; l--) {   // bilinear from the coarser level, or the fill shows 2^n blocks
+      const f = lv[l], g = lv[l + 1];
+      for (let y = 0; y < f.H; y++) {
+        const gy = Math.min(g.H - 1, Math.max(0, (y + 0.5) / 2 - 0.5)), y0 = Math.floor(gy), y1 = Math.min(g.H - 1, y0 + 1), fy = gy - y0;
+        for (let x = 0; x < f.W; x++) {
+          const i = y * f.W + x, r = 1 - f.k[i]; if (r <= 0) continue;
+          const gx = Math.min(g.W - 1, Math.max(0, (x + 0.5) / 2 - 0.5)), x0 = Math.floor(gx), x1 = Math.min(g.W - 1, x0 + 1), fx = gx - x0;
+          const a = (y0 * g.W + x0) * 3, b = (y0 * g.W + x1) * 3, c2 = (y1 * g.W + x0) * 3, e = (y1 * g.W + x1) * 3;
+          for (let j = 0; j < 3; j++) f.c[i * 3 + j] += r * ((g.c[a + j] * (1 - fx) + g.c[b + j] * fx) * (1 - fy) + (g.c[c2 + j] * (1 - fx) + g.c[e + j] * fx) * fy);
+          f.k[i] = 1;
+        }
+      }
+    }
+    const base = lv[0].c;
+    for (let j = 0; j < 3; j++) {
+      const ch = new Float32Array(w * h); for (let i = 0; i < w * h; i++) ch[i] = base[i * 3 + j];
+      boxBlur(ch, w, h, 3); boxBlur(ch, w, h, 3);
+      for (let i = 0; i < w * h; i++) if (hole[i]) d[i * 4 + j] = ch[i];
+    }
+    for (let i = 0; i < w * h; i++) if (hole[i]) d[i * 4 + 3] = 255;
+  }
+  function prepSource(src, hole, w, h, mode) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.drawImage(src, 0, 0, w, h);
+    if (mode === 'original') return c;
+    const id = g.getImageData(0, 0, w, h), d = id.data;
+    if (mode === 'fill') pushPull(d, hole, w, h);
+    else for (let i = 0; i < hole.length; i++) if (hole[i]) {
+      const o = i * 4; if (mode === 'noise') { d[o] = Math.random() * 256; d[o + 1] = Math.random() * 256; d[o + 2] = Math.random() * 256; } else d[o] = d[o + 1] = d[o + 2] = 128; d[o + 3] = 255;
+    }
+    g.putImageData(id, 0, 0); return c;
+  }
+  function alphaCanvas(a, w, h, asMask) {   // asMask: opaque white-on-black (sent to sd.cpp); else white with alpha = a (for blending)
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'), id = g.createImageData(w, h), d = id.data;
+    for (let i = 0; i < a.length; i++) { const o = i * 4; if (asMask) { d[o] = d[o + 1] = d[o + 2] = a[i] > 0.5 ? 255 : 0; d[o + 3] = 255; } else { d[o] = d[o + 1] = d[o + 2] = 255; d[o + 3] = Math.round(a[i] * 255); } }
+    g.putImageData(id, 0, 0); return c;
+  }
+  function prepInpaint() {
+    const src = S.init, w = src.w, h = src.h, blur = Number($('mblur').value), I = S.inp;
+    // the model repaints the mask grown by the blur radius; the blend back fades over that band
+    const D = dilate(maskAlpha(), w, h, blur), prepared = prepSource(src.img, D, w, h, I.fill);
+    let crop = { x: 0, y: 0, w, h }, W, H;
+    if (I.area === 'masked') {
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (D[y * w + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 < 0) return null;
+      const pad = Number($('mpad').value); x0 -= pad; y0 -= pad; x1 += pad + 1; y1 += pad + 1;
+      const grow = (a, b, lim, min) => { const need = min - (b - a); if (need > 0) { a -= need / 2; b += need / 2; } if (a < 0) { b -= a; a = 0; } if (b > lim) { a -= b - lim; b = lim; } return [Math.max(0, Math.floor(a)), Math.min(lim, Math.ceil(b))]; };
+      [x0, x1] = grow(x0, x1, w, 128); [y0, y1] = grow(y0, y1, h, 128);
+      crop = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      const ar = crop.w / crop.h; W = snap(Math.sqrt(1024 * 1024 * ar)); H = snap(W / ar);
+    } else [W, H] = dims();
+    const init = document.createElement('canvas'); init.width = W; init.height = H;
+    init.getContext('2d').drawImage(prepared, crop.x, crop.y, crop.w, crop.h, 0, 0, W, H);
+    const mask = document.createElement('canvas'); mask.width = W; mask.height = H; const mg = mask.getContext('2d');
+    mg.imageSmoothingEnabled = false; mg.drawImage(alphaCanvas(D, w, h, true), crop.x, crop.y, crop.w, crop.h, 0, 0, W, H);
+    // blend back unless the output shape differs from the source (whole-image mode with another aspect chosen)
+    const sameShape = Math.abs((W / H) / (w / h) - 1) < 0.02;
+    const blend = I.area === 'masked' || ($('keep').checked && sameShape);
+    return { init, mask, W, H, crop, w, h, src: src.img, blend, alpha: blend ? alphaCanvas(feather(D, w, h, blur), w, h, false) : null,
+             skipped: $('keep').checked && !blend };
+  }
+  async function blendBack(url, P, mime, q) {
+    const res = await new Promise((ok, no) => { const im = new Image(); im.onload = () => ok(im); im.onerror = no; im.src = url; });
+    const out = document.createElement('canvas'); out.width = P.w; out.height = P.h; const g = out.getContext('2d');
+    const lay = document.createElement('canvas'); lay.width = P.w; lay.height = P.h; const lg = lay.getContext('2d');
+    lg.drawImage(res, P.crop.x, P.crop.y, P.crop.w, P.crop.h);
+    lg.globalCompositeOperation = 'destination-in'; lg.drawImage(P.alpha, 0, 0);
+    g.drawImage(P.src, 0, 0, P.w, P.h); g.drawImage(lay, 0, 0);
+    return out.toDataURL(mime, q);
+  }
+  $('show-sent').onclick = () => {
+    if (!S.init) { toast('Add an image first'); return; }
+    if (!maskHasPixels()) { toast('Paint the area to change first'); return; }
+    const P = prepInpaint(); const gap = Math.round(P.W / 40), c = document.createElement('canvas'); c.width = P.W * 2 + gap; c.height = P.H;
+    const g = c.getContext('2d'); g.fillStyle = '#3a3733'; g.fillRect(0, 0, c.width, c.height); g.drawImage(P.init, 0, 0); g.drawImage(P.mask, P.W + gap, 0);
+    openViewer([{ url: c.toDataURL('image/png'), w: c.width, h: c.height }], 0,
+      `Sent to the model: starting image (left) + mask (right, white = repaint) at ${P.W}×${P.H}, strength ${Number($('strength').value).toFixed(2)}` +
+      (S.inp.area === 'masked' ? ` — a ${P.crop.w}×${P.crop.h} region of the ${P.w}×${P.h} source, pasted back after` : '') +
+      (P.blend ? '; blended back over the original' : ''));
+  };
 
   // ---------- LoRA ----------
   $('lora-add').onclick = () => {
@@ -572,8 +843,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   $('seed-rnd').onclick = e => { e.preventDefault(); $('seed').value = ''; $('lock').checked = false; toast('Seed will be random'); };
 
   // ---------- run ----------
-  function collect() {
-    const u = U(); const [w, h] = dims();
+  function collect(P) {
+    const u = U(); const [w, h] = P ? [P.W, P.H] : dims();
     let prompt = $('prompt').value.trim();
     if ($('alpha').checked) prompt = `This is an RGBA image with transparency. ${prompt}. The image has alpha channel and the background is transparent.`;
     let seed;
@@ -596,8 +867,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     const loras = loraList(); if (loras.length) body.lora = loras;
     if ($('hires').checked) body.hires = { enabled: true, upscaler: $('hires-up').value || 'Latent', scale: num('hires-scale', 1.5), steps: num('hires-steps', 0), denoising_strength: num('hires-den', 0.5) };
     if (S.mode === 'edit') body.ref_images = S.refs.map(r => r.url);
-    if (S.mode === 'img2img' || S.mode === 'inpaint') { body.init_image = S.init.url; body.strength = Number($('strength').value); }
-    if (S.mode === 'inpaint') body.mask_image = exportMask();
+    if (S.mode === 'img2img') { body.init_image = S.init.url; body.strength = Number($('strength').value); }
+    if (S.mode === 'inpaint') { body.init_image = P.init.toDataURL('image/png'); body.mask_image = P.mask.toDataURL('image/png'); body.strength = Number($('strength').value); }
     return body;
   }
   async function run() {
@@ -606,13 +877,16 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     if (!m || m.state !== 'ready') { toast(m && m.state === 'loading' ? 'Model is still loading…' : 'Select a model first'); return; }
     if (!$('prompt').value.trim()) { $('prompt').focus(); toast('Write a prompt first'); return; }
     if (S.mode !== 'gen' && !sources().length) { toast('Add an image first'); $('file').click(); return; }
-    if (S.mode === 'inpaint' && !S.maskDirty) { toast('Paint the area to change first'); return; }
-    const body = collect();
+    if (S.mode === 'inpaint' && !(S.maskDirty && maskHasPixels())) { toast('Paint the area to change first'); return; }
+    const P = S.mode === 'inpaint' ? prepInpaint() : null;
+    if (P && P.skipped) toast('Not blended back: the size you chose has a different shape from the source');
+    const body = collect(P);
     let j;
     try { j = await api('/sdcpp/v1/img_gen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
     catch (e) { failed(`Could not start: ${e.message}`); return; }
     const settings = Object.assign({}, body); delete settings.init_image; delete settings.ref_images; delete settings.mask_image;
-    S.job = { id: j.id, mode: S.mode, model: S.model, settings, uiPrompt: $('prompt').value.trim(), seed: body.seed, w: body.width, h: body.height };
+    if (P) settings.inpaint = { fill: S.inp.fill, area: S.inp.area, blur: Number($('mblur').value), pad: Number($('mpad').value), keep: $('keep').checked };
+    S.job = { id: j.id, mode: S.mode, model: S.model, settings, uiPrompt: $('prompt').value.trim(), seed: body.seed, w: body.width, h: body.height, P: P && P.blend ? P : null };
     S.started = Date.now(); S.lastSeed = body.seed;
     busy(true); $('st-status').textContent = 'Queued…'; $('st-seed').innerHTML = `seed <b>${body.seed}</b>`;
     renderPaint();
@@ -637,9 +911,15 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     } else if (s.status === 'completed' && s.result && s.result.images && s.result.images.length) {
       const mime = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' }[s.result.output_format] || 'image/png';
       const job = S.job;
-      const items = s.result.images.map((im, i) => ({
-        id: `${job.id}-${i}`, url: `data:${mime};base64,${im.b64_json}`, prompt: job.uiPrompt, mode: job.mode, model: job.model,
-        settings: job.settings, seed: job.seed + i, w: job.w, h: job.h, fmt: s.result.output_format, secs: el, at: Date.now() + i,
+      let urls = s.result.images.map(im => `data:${mime};base64,${im.b64_json}`), w = job.w, h = job.h;
+      if (job.P) {   // inpaint: paste the result back over the untouched original
+        $('st-status').textContent = 'Blending into the original…';
+        try { urls = await Promise.all(urls.map(u => blendBack(u, job.P, mime, num('quality', 95) / 100))); w = job.P.w; h = job.P.h; }
+        catch (e) { toast('Could not blend into the original — showing the raw result'); }
+      }
+      const items = urls.map((url, i) => ({
+        id: `${job.id}-${i}`, url, prompt: job.uiPrompt, mode: job.mode, model: job.model,
+        settings: job.settings, seed: job.seed + i, w, h, fmt: s.result.output_format, secs: el, at: Date.now() + i,
       }));
       S.job = null; $('bar').style.width = '100%'; setTimeout(() => $('bar').style.width = '0', 600);
       S.batch = items; renderBatch(); select(items[0]); busy(false);
@@ -664,6 +944,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   // ---------- view / results ----------
   function show(url, preview) {
     const v = $('view'); v.src = url; v.hidden = false; v.classList.toggle('preview', !!preview); $('empty').hidden = true; $('paint').hidden = true; $('paintbar').hidden = true;
+    $('zoom-btn').hidden = !!preview || !S.current;
     if (preview && S.job) { v.style.width = `min(${S.job.w}px, 100%, calc((100vh - 300px) * ${S.job.w / S.job.h}))`; v.style.aspectRatio = `${S.job.w} / ${S.job.h}`; }
     else { v.style.width = ''; v.style.aspectRatio = ''; }
   }
@@ -701,6 +982,12 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     $('shift').value = sp.flow_shift != null ? sp.flow_shift : ''; $('eta').value = sp.eta != null ? sp.eta : '';
     if (st.cache_mode) $('cache').value = st.cache_mode;
     $('hires').checked = !!(st.hires && st.hires.enabled);
+    if (st.inpaint) {
+      S.inp.fill = st.inpaint.fill || S.inp.fill; S.inp.area = st.inpaint.area || S.inp.area;
+      $('mblur').value = st.inpaint.blur != null ? st.inpaint.blur : 8; $('mpad').value = st.inpaint.pad != null ? st.inpaint.pad : 48; $('keep').checked = st.inpaint.keep !== false;
+      if (st.strength != null) { $('strength').value = st.strength; $('strength-val').textContent = Number(st.strength).toFixed(2); }
+      renderInpaintOpts();
+    }
     if (!keepSeed) $('seed').value = it.seed;
     S.size = 'custom'; $('cw').value = it.w; $('ch').value = it.h; renderSizes(); updateNotes();
   }
@@ -712,6 +999,72 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   $('go').onclick = run;
   $('prompt').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
 
+  // ---------- viewer: click a result to zoom ----------
+  const lbImg = $('lb-img'), lbStage = $('lb-stage');
+  const lbz = Zoom(lbImg, z => { const r = z.ratio(lbImg); $('lb-zoom').textContent = `${Math.round(r * 100)}%`; lbImg.classList.toggle('px', r >= 2); });
+  const lbPinch = Pinch(lbz), LB = { list: [], i: 0, info: '' }; let lbDrag = null;
+  function openViewer(list, i, info) {
+    if (!list.length) return; LB.list = list; LB.i = Math.max(0, i); LB.info = info || '';
+    $('lb').hidden = false; document.body.style.overflow = 'hidden'; showViewer(); $('lb-close').focus();
+  }
+  function showViewer() {
+    const it = LB.list[LB.i]; if (!it) return;
+    lbImg.onload = () => lbz.reset(); lbImg.src = it.url;
+    const mm = it.model && S.models.find(x => x.id === it.model);
+    $('lb-info').textContent = LB.info || [`${it.w}×${it.h}`, it.mode, mm ? mm.label : it.model, it.seed != null ? `seed ${it.seed}` : '', it.prompt].filter(Boolean).join(' · ');
+    $('lb-info').title = $('lb-info').textContent;
+    $('lb-prev').hidden = $('lb-next').hidden = LB.list.length < 2;
+    $('lb-prev').disabled = LB.i <= 0; $('lb-next').disabled = LB.i >= LB.list.length - 1;
+  }
+  function closeViewer() { $('lb').hidden = true; document.body.style.overflow = ''; lbImg.removeAttribute('src'); }
+  function lbNav(d) {
+    const j = LB.i + d; if (j < 0 || j >= LB.list.length) return; LB.i = j; showViewer();
+    if (!LB.info && LB.list[j].id) select(LB.list[j]);   // closing leaves you on the image you were looking at
+  }
+  const oneToOne = () => (lbImg.naturalWidth || 1) / (lbImg.offsetWidth || 1);
+  function openCurrent() {
+    if (!S.current || $('view').classList.contains('preview')) return;
+    const list = S.batch.some(b => b.id === S.current.id) && S.batch.length > 1 ? S.batch : S.history.some(b => b.id === S.current.id) ? S.history : [S.current];
+    openViewer(list, list.findIndex(b => b.id === S.current.id));
+  }
+  $('view').onclick = openCurrent; $('zoom-btn').onclick = openCurrent;
+  $('lb-close').onclick = closeViewer;
+  $('lb-prev').onclick = () => lbNav(-1); $('lb-next').onclick = () => lbNav(1);
+  $('lb-in').onclick = () => lbz.center(lbz.s * 1.5); $('lb-out').onclick = () => lbz.center(lbz.s / 1.5);
+  $('lb-fit').onclick = () => lbz.reset(); $('lb-1x').onclick = () => lbz.center(Math.max(1, oneToOne()));
+  lbStage.addEventListener('wheel', e => { e.preventDefault(); lbz.at(e.clientX, e.clientY, lbz.s * wheelFactor(e)); }, { passive: false });
+  lbStage.addEventListener('dblclick', e => { if (lbz.s > 1.01) lbz.reset(); else lbz.at(e.clientX, e.clientY, Math.max(2, oneToOne())); });
+  lbStage.addEventListener('pointerdown', e => {
+    try { lbStage.setPointerCapture(e.pointerId); } catch (er) {}
+    if (lbPinch.down(e) === 1) lbDrag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, onImg: e.target === lbImg };
+    else lbDrag = null;
+    lbStage.classList.add('drag');
+  });
+  lbStage.addEventListener('pointermove', e => {
+    if (lbPinch.move(e) || !lbDrag) return;
+    lbz.pan(e.clientX - lbDrag.x, e.clientY - lbDrag.y); lbDrag.x = e.clientX; lbDrag.y = e.clientY;
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => lbStage.addEventListener(ev, e => {
+    const left = lbPinch.up(e); lbStage.classList.remove('drag');
+    // a click on the dark backdrop (not a drag, not on the picture) closes, like any photo viewer
+    if (ev === 'pointerup' && lbDrag && !lbDrag.onImg && left === 0 && Math.hypot(e.clientX - lbDrag.x0, e.clientY - lbDrag.y0) < 5) closeViewer();
+    lbDrag = null;
+  }));
+
+  // ---------- keys ----------
+  document.addEventListener('keydown', e => {
+    if (!$('lb').hidden) {
+      const k = e.key, act = { Escape: closeViewer, ArrowLeft: () => lbNav(-1), ArrowRight: () => lbNav(1), '+': () => $('lb-in').onclick(), '=': () => $('lb-in').onclick(),
+        '-': () => $('lb-out').onclick(), '0': () => lbz.reset(), '1': () => $('lb-1x').onclick() }[k];
+      if (act) { e.preventDefault(); act(); } return;
+    }
+    if ($('paint').hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.code === 'Space') { e.preventDefault(); if (!spaceDown) { spaceDown = true; $('paint').classList.add('hand'); $('brush-cur').hidden = true; } }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undoMask(); }
+    else if (e.key === '[' || e.key === ']') { const b = $('brush'); b.value = Number(b.value) + (e.key === ']' ? 8 : -8); }
+  });
+  document.addEventListener('keyup', e => { if (e.code === 'Space' && spaceDown) { spaceDown = false; $('paint').classList.toggle('hand', hand); } });
+
   // ---------- history (IndexedDB, per browser) ----------
   function renderHistory() {
     const box = $('strip'); box.innerHTML = '';
@@ -719,7 +1072,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
       const d = document.createElement('div'); d.className = 'thumb' + (S.current && S.current.id === it.id ? ' on' : ''); d.dataset.id = it.id;
       const mm = S.models.find(x => x.id === it.model); d.title = `${it.prompt || ''}\n${mm ? mm.label : it.model || ''}`;
       d.innerHTML = `<img alt="" loading="lazy"><span>${esc(it.mode || 'gen')}</span>`;
-      d.querySelector('img').src = it.url; d.onclick = () => { S.batch = []; renderBatch(); select(it); }; box.appendChild(d);
+      d.querySelector('img').src = it.url; d.onclick = () => { S.batch = []; renderBatch(); select(it); };
+      d.ondblclick = () => openViewer(S.history, S.history.indexOf(it)); box.appendChild(d);
     }
   }
   let db = null;

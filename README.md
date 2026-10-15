@@ -124,9 +124,10 @@ contrast is the useful part.
 **Since 2026-10-15 the box serves images, not text.** `:8080` runs a small router in front of
 stable-diffusion.cpp (Vulkan) with a web UI, **Image Studio**, for generating, editing, inpainting and
 image-to-image, and a model picker: **Qwen-Image-2.1 Turbo** (the top open model for generation and
-editing on Artificial Analysis), its full-quality base, **Kroma** (uncensored photoreal) and **Anima**
-(uncensored anime). Several stay loaded at once; apps pick one with the OpenAI `model` field. About
-**1.5–2.5 minutes per 1024x1024 image** (Anima: 44 s). Q8_0 weights ran 2.4x faster than bf16 on this
+editing on Artificial Analysis), its full-quality base, **Z-Image Turbo** (the fast option, Apache-2.0),
+**Kroma** (uncensored photoreal) and **Anima** (uncensored anime). Several stay loaded at once; apps pick
+one with the OpenAI `model` field. About **1.5–2.5 minutes per 1024x1024 image** on the big models,
+**~53 s on Z-Image Turbo** (Anima: 44 s). Q8_0 weights ran 2.4x faster than bf16 on this
 driver at no visible quality cost. Licences differ per model — Qwen-Image and Anima are
 non-commercial. Details and every measurement: **[docs/IMAGES.md](docs/IMAGES.md)**.
 The LLM configuration below is what served `:8080` until then, and comes back with a one-line

@@ -124,9 +124,24 @@ class Router:
         self.default = reg["default"]
         self.compute_gb = float(reg.get("compute_gb", 8))
         old = getattr(self, "backends", {})
+        ids = {m["id"] for m in reg["models"]}
+        for b in old.values():
+            if b.id not in ids and b.proc and b.proc.poll() is None:
+                log("%s left the registry; stopping its backend" % b.id)
+                self._stop(b)
+        # A kept backend keeps its port (it may be running on it); a NEW model gets the lowest port no kept
+        # backend holds. Numbering by list position instead handed a model inserted mid-list the port of a
+        # live backend further down, so its health check and requests would have reached THAT model.
+        taken = {old[m["id"]].port for m in reg["models"] if m["id"] in old}
         self.backends = {}
-        for i, m in enumerate(reg["models"]):
-            b = old.get(m["id"]) or Backend(m, self.a.backend_port + i)
+        for m in reg["models"]:
+            b = old.get(m["id"])
+            if b is None:
+                port = self.a.backend_port
+                while port in taken:
+                    port += 1
+                taken.add(port)
+                b = Backend(m, port)
             b.spec = m
             self.backends[m["id"]] = b
 
@@ -281,6 +296,16 @@ def sweep_orphans(base, n):
 # ---- HTTP ----------------------------------------------------------------------------------------
 class BackendGone(Exception):
     """The backend process died before/while we talked to it; safe to restart and retry once."""
+
+
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # A browser that reloads or closes mid-request resets its socket: routine, not worth a traceback.
+        if isinstance(sys.exc_info()[1], (ConnectionError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -519,8 +544,7 @@ def main():
         mid = ROUTER.default if a.preload == "default" else a.preload
         ROUTER.current = mid
         ROUTER.ensure(mid, wait=False)
-    srv = http.server.ThreadingHTTPServer((a.bind, a.port), Handler)
-    srv.daemon_threads = True
+    srv = Server((a.bind, a.port), Handler)
     log("images-router on http://%s:%d  (%d models in registry, budget %.0f GB, sd-server %s)" %
         (a.bind, a.port, len(ROUTER.backends), a.budget_gb, a.sd_server))
     try:

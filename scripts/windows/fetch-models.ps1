@@ -549,6 +549,34 @@ $REG = [ordered]@{
         )
         note  = 'Anima text encoder (Qwen3 0.6B base) + Qwen-Image VAE.'
     }
+    # ---- Z-Image Turbo: the fast general model (added 2026-10-15) ------------------------------------------
+    # Tongyi-MAI's 6B distilled DiT, 8 steps at CFG 1, Apache-2.0 (the only commercially usable model in
+    # the image registry). Still the current Turbo release (HF lastModified 2026-01-30). leejet's GGUF is
+    # the one sd.cpp docs/z_image.md links, from the sd.cpp author.
+    'z-image-turbo' = @{
+        repo  = 'leejet/Z-Image-Turbo-GGUF'
+        files = @(
+            @{ p='z_image_turbo-Q8_0.gguf'; b=6577440704 }
+        )
+        note  = 'Z-Image-Turbo Q8_0 (6B, 8 steps, Apache-2.0). Needs z-image-te.'
+    }
+    'z-image-te' = @{
+        # Text encoder: Z-Image ships the ORIGINAL Qwen3-4B (its text_encoder shards 1-2 have the same LFS
+        # sha256 as Qwen/Qwen3-4B's, checked 2026-10-15), not the 2507 Instruct the sd.cpp doc example uses.
+        # So the official Qwen Q8_0 GGUF. VAE: the FLUX.1 autoencoder, from Comfy-Org's ungated repackage.
+        repo  = 'Qwen/Qwen3-4B-GGUF'
+        files = @(
+            @{ p='Qwen3-4B-Q8_0.gguf'; b=4280404704 }
+        )
+        note  = 'Qwen3-4B text encoder (Q8_0) for Z-Image. Also needs flux-ae.'
+    }
+    'flux-ae' = @{
+        repo  = 'Comfy-Org/z_image_turbo'
+        files = @(
+            @{ p='split_files/vae/ae.safetensors'; b=335304388 }
+        )
+        note  = 'FLUX.1 VAE (ae.safetensors) -- the VAE Z-Image uses.'
+    }
     'qwen-image-21-q8' = @{
         repo  = 'leejet/Qwen-Image-2.1-GGUF'
         files = @(

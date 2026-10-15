@@ -1,7 +1,7 @@
 # Image generation — what this box serves since 2026-10-15
 
 On 2026-10-15 the box switched from serving an LLM to serving **images**: text-to-image, editing,
-inpainting and image-to-image across four switchable models, behind one router on the same `:8080`. Everything below was measured on this box
+inpainting and image-to-image across five switchable models, behind one router on the same `:8080`. Everything below was measured on this box
 (Radeon 8060S / gfx1151, Windows 11, AMD driver 26.9.2) unless marked otherwise.
 
 ## What runs
@@ -18,6 +18,7 @@ inpainting and image-to-image across four switchable models, behind one router o
 |---|---|---|---|---|
 | **Qwen-Image 2.1 Turbo** (`qwen-image-2.1-turbo`, default) | #1 open model for generation **and** editing (Artificial Analysis, Oct 2026); 8 fixed steps | 23.5 GB | ~1.5–1.8 min; edit ~2 min | Qwen Research — **non-commercial** |
 | Qwen-Image 2.1 full (`qwen-image-2.1`) | the non-distilled base, 40 steps, real CFG | 23.5 GB | ~12 min (extrapolated) | non-commercial |
+| **Z-Image Turbo** (`z-image-turbo`) | **the fast option**: Tongyi-MAI's 6B distilled model, 8 steps at CFG 1; strong photorealism and exact English text (a chalkboard sign came out letter-perfect) | 10.5 GB | **~53 s**; 512² in 12 s | **Apache-2.0** — the only commercially usable one |
 | **Kroma** (`kroma`) | uncensored photoreal: Krea 2 fine-tune on the Chroma dataset by the Chroma author; 12.9B, turbo, 10 steps | 17.3 GB | ~2–2.5 min (12.6 s/step) | MIT + Krea 2 Community License (commercial cap; bans non-consensual intimate imagery) |
 | **Anima Turbo** (`anima`) | uncensored anime / illustration; 2B; rating tags `safe / sensitive / nsfw / explicit` steer content | 3.5 GB | **44 s**; 512² in 9 s | CircleStone non-commercial + NVIDIA Open Model License |
 
@@ -68,10 +69,36 @@ dependencies; light/dark; usable at phone width. Everything below was exercised 
 - **Results:** live preview + step counter, cancel, batch strip, and one-click **Edit / Inpaint /
   Img→Img** on any result, **Variation**, **Reuse** (restores the prompt, model and settings),
   **Download**. History of the last 80 results in this browser's IndexedDB.
+- **Zoom.** Click any result (or double-click a history thumbnail) for a full-screen viewer: wheel or
+  pinch to zoom around the pointer, drag to pan, Fit / 1:1 (pixels go crisp from 200%), ← → through the
+  history, Esc or a click on the backdrop closes. The **mask painter zooms too** (wheel / pinch / − + Fit),
+  with Space-drag, middle-drag or a Hand tool to move around, a brush-size cursor (the brush is in screen
+  pixels, so zooming in paints finer), **Undo** (Ctrl+Z), and `[` `]` for the brush size.
+- **Inpaint modes — what the model is sent.** sd.cpp takes one starting image + one mask (white =
+  repaint); the page builds both in the browser, and **Show what the model gets** displays them:
+  - *Masked area starts as* — **Original** (what is there; for changing something while keeping its
+    place and light, strength ~0.85), **Surroundings** (the hole is filled from the colours around it
+    first; for removing, and the default at 0.9), **Noise**, **Blank** (grey). At strength 1.0 the
+    starting content is ignored, so the choice only matters below 1.
+  - *Inpaint area* — **Whole image**, or **Only masked**: the mask's bounding box plus padding is cut
+    out, rendered at ~1 MP and pasted back, so a small area gets far more detail; the output keeps the
+    source size.
+  - **Mask blur** (default 8 px, one latent cell): the model repaints the mask grown by that much, and
+    the result is faded back over that band. **Keep the rest pixel-exact** (default on) pastes the
+    result over the untouched original.
 
 Verified in the browser on the router: model switch, Edit disabled for Anima, generate → **Inpaint** →
 paint → "a slice of strawberry cake on the plate" produced exactly that inside the mask (mean pixel
 change 105.8 inside vs 2.5 outside, 11 s at 512² on Anima).
+
+Inpaint modes, measured 2026-10-15 on Z-Image Turbo (512² source, a box mask over an apple, "a ripe
+orange", seed 5): with the blend-back on, **0 of 202,274 pixels** outside the mask's blend band changed
+(without it, the VAE round trip moves every pixel slightly — the 2.5 above). Quality by mode, same seed:
+**Only masked + Original 0.85** was the most natural (a smaller orange with its own shadow, no seam);
+**Whole image + Surroundings 0.9** was clean; **Noise 1.0** left a visible box-shaped seam in the wood
+grain in both areas, because the whole masked rectangle is invented with no colour to anchor it. Hence
+the default (Surroundings 0.9). Only-masked costs the time of a ~1 MP render (51–74 s on Z-Image vs
+12–14 s for the whole 512² image).
 
 ## API (router, `:8080`)
 
@@ -122,8 +149,9 @@ encoding (~7-15 s on a new prompt, cached on repeats) and the VAE decode.
 | Base (non-Turbo) Q8_0, CFG 6 | 17.4 s/step | **~12 min** for its 40 steps (extrapolated from 4) |
 | Kroma Q8_0, 10 steps, CFG 1 (first call) | 125.8 s (12.6 s/step) | 152 s; 1344×768 120 s; 512² ~27 s |
 | Anima Turbo Q8_0, 10 steps, CFG 1 | — | **44 s**; 1344×768 37 s; 512² 9 s |
+| Z-Image Turbo Q8_0, 8 steps, CFG 1 | 44.7 s (5.5 s/step) | **52–54 s**; 1344×768 53 s; 512² 12 s (1.15 s/step) |
 
-Same seed → byte-identical PNG on all four models (512², two runs each). Feature checks on Turbo at
+Same seed → byte-identical PNG on all five models (512², two runs each). Feature checks on Turbo at
 512² (native API): CFG 3 + negative prompt works (2x passes); batch of 2 returns 2 distinct images;
 inpaint with a white-means-repaint mask replaces only the masked area; hires fix 1.5x returns 768²;
 image→image runs but the Turbo model barely restyles at strength 0.6; `--sigmas` presets make the
@@ -154,7 +182,7 @@ on this driver, not the model, is the limit.
 .\scripts\windows\run-images.ps1 -Preload kroma         # start with a different model loaded
 .\scripts\windows\run-images.ps1 -DryRun                # print the router command line
 .\scripts\windows\run-images.ps1 -Single -Model turbo-q8   # old mode: one sd-server, one model (rollback)
-.\scripts\windows\fetch-models.ps1 -Only qwen-image-21-turbo-q8,qwen-image-21-te,kroma,kroma-te,wan21-vae,anima,anima-te
+.\scripts\windows\fetch-models.ps1 -Only qwen-image-21-turbo-q8,qwen-image-21-te,z-image-turbo,z-image-te,flux-ae,kroma,kroma-te,wan21-vae,anima,anima-te
 ```
 
 Logs: `logs\images-router-<ts>.out` (the router: loads, evictions, restarts) and
@@ -167,6 +195,12 @@ a hard stop would leave `:8080` dead until the next logon with nothing watching.
   and the OpenAI routes answer only when the image is done; many clients default to 60 s.
 - **Concurrent requests to one model queue** (measured: two simultaneous 512² requests returned after
   14 s and 28 s). Requests to *different* resident models run at the same time and share the GPU.
+- **Registry reloads keep live ports (fixed 2026-10-15).** Backend ports used to be numbered by list
+  position, so a model inserted mid-list on `POST /studio/reload-registry` was handed the port of a
+  *running* backend further down — its health check and requests would have reached the other model.
+  A new entry now gets the lowest port no existing backend holds, and an entry removed from the file has
+  its running backend stopped. (Takes effect at the next router start; until then append new models
+  at the END of `image-models.json`.)
 - **Freezes are not detected.** Exits are (backend: on the next request; router: by the supervisor);
   a backend that hangs with the GPU idle is not. Kill its `sd-server.exe` and the router restarts it.
 - **System RAM:** the backends use none, but Windows only sees ~32 GB. On 2026-10-15 WSL / Docker
