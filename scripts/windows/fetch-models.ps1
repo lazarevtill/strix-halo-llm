@@ -470,6 +470,47 @@ $REG = [ordered]@{
         # run the #27805-class determinism gate first. GGUF context_length 131072 (256K needs YaRN).
         note  = 'Ling-3.0-flash-VL Q4_K_M 78.7 GB + vision (bailingmoe3, 124B/5.5B active, MIT).'
     }
+    # ---- IMAGE GENERATION (stable-diffusion.cpp sd-server, not llama.cpp) --------------------------------
+    # Qwen-Image-2.1 (Qwen, 2026-09): #1 open-weights model on Artificial Analysis for BOTH text-to-image
+    # (1041) and editing (1074) as of 2026-10-15. 7.1B MMDiT + Qwen3-VL-8B text encoder + its own VAE.
+    # LICENCE: Qwen Research licence -- NON-COMMERCIAL (HF card). Byte counts + per-file dates from the HF
+    # tree API 2026-10-15. Files must be used together: diffusion + vae (this entry) + 'qwen-image-21-te'.
+    'qwen-image-21' = @{
+        repo  = 'Comfy-Org/Qwen-Image-2.1'
+        files = @(
+            @{ p='diffusion_models/qwen_image_2.1_bf16.safetensors';       b=14230280616 }   # base, 40 steps, CFG ~6
+            @{ p='diffusion_models/qwen_image_2.1_turbo_bf16.safetensors'; b=14230280616 }   # Turbo, 8 steps, CFG 1 (2026-10-09)
+            @{ p='vae/qwen_image_2.1_vae_bf16.safetensors';                b=675509688 }     # NOT interchangeable with Qwen-Image/Wan VAEs
+        )
+        note  = 'Qwen-Image-2.1 base + Turbo (bf16) + VAE. Image gen+edit via sd-server. NON-COMMERCIAL licence.'
+    }
+    'qwen-image-21-te' = @{
+        repo  = 'Qwen/Qwen3-VL-8B-Instruct-GGUF'
+        files = @(
+            @{ p='Qwen3VL-8B-Instruct-F16.gguf';        b=16388044896 }
+            @{ p='mmproj-Qwen3VL-8B-Instruct-F16.gguf'; b=1159029824 }    # vision tower: needed for EDITS (--llm_vision)
+        )
+        # F16 GGUF on purpose: this driver's largest single Vulkan allocation is 2 GiB, and sd.cpp #1718
+        # (Windows, Strix Halo) crashed allocating a 2.49 GB F32 token table from an FP8 encoder file.
+        # F16 keeps that table at ~1.24 GB.
+        note  = 'Qwen3-VL-8B text encoder (F16 GGUF) + vision mmproj, for Qwen-Image-2.1.'
+    }
+    'qwen-image-21-turbo-q8' = @{
+        repo  = 'unsloth/Qwen-Image-2.1-Turbo-GGUF'
+        files = @(
+            @{ p='qwen-image-2.1-turbo-Q8_0.gguf'; b=7640860480 }
+        )
+        # Q8_0 sampled ~25% faster than the bf16 safetensors on this Vulkan driver (512^2, 8 steps:
+        # 33.8 s vs 46.0 s, 2026-10-15). File dated 2026-10-10 (per-file lastCommit).
+        note  = 'Qwen-Image-2.1 Turbo, Q8_0 GGUF (8 steps). Faster than bf16 on Vulkan here.'
+    }
+    'qwen-image-21-q8' = @{
+        repo  = 'leejet/Qwen-Image-2.1-GGUF'
+        files = @(
+            @{ p='qwen_image_2.1-Q8_0.gguf'; b=7687155744 }
+        )
+        note  = 'Qwen-Image-2.1 base, Q8_0 GGUF (fallback if bf16 is slow/broken on Vulkan).'
+    }
     'glm53-flash' = @{
         repo  = 'unsloth/GLM-5.3-Flash-GGUF'
         files = @(

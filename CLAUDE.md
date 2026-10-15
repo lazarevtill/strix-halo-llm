@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **SINCE 2026-10-15 THE BOX SERVES IMAGES, NOT AN LLM.** `:8080` runs stable-diffusion.cpp's
+> `sd-server` (Vulkan) with **Qwen-Image-2.1 Turbo Q8_0** — OpenAI `/v1/images/generations` + `/edits`,
+> launched by `scripts/windows/run-images.ps1 -Model turbo-q8` (supervised). The LLM router, its
+> watchdog and the `:9114` exporter are commented out in the Startup launcher (`rem ROLLBACK-LLM:`).
+> Everything below about llama.cpp still holds for when the LLM comes back. See **docs/IMAGES.md**:
+> ~1.8 min per 1024² image, ~2 min per edit; Q8_0 is 2.4x faster than bf16 on this driver; an
+> `<sd_cpp_extra_args>` block in an EDIT request crashes sd-server (restart loop recovers);
+> Qwen-Image-2.1 is **non-commercial**.
+
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
 **Vulkan** backend (build **b10431** — the pin for the qwen38-era published numbers; the live `:8080`
@@ -44,6 +53,8 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
                       llamacpp_child_restarts_total counts the crash+auto-reload failure mode,
                       llamacpp_child_responsive catches the FROZEN-child one
   router-watchdog.ps1 restarts the router when a loaded child stops answering /health (-NoAct to test)
+  run-images.ps1      ⭐ what :8080 runs since 2026-10-15: sd-server (stable-diffusion.cpp, Vulkan),
+                      Qwen-Image-2.1 base|turbo|base-q8|turbo-q8, weights pinned to the GPU, restart loop
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform

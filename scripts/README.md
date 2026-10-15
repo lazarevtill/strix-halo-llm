@@ -14,6 +14,7 @@ scripts/
 │   │                          -Parallel / -PerSlotCtx / -NoSpec) — what :8080 runs today
 │   ├── metrics-exporter.ps1  Prometheus exporter for the router, merged on ONE fixed port (:9114)
 │   ├── router-watchdog.ps1  restart the router when its model child FREEZES (stops answering /health)
+│   ├── run-images.ps1      serve Qwen-Image-2.1 (text-to-image + edits) via stable-diffusion.cpp sd-server, supervised
 │   ├── stage-nextgen.ps1   test-load a pending model on an ISOLATED port with a separate engine
 │   │                          build + the Vulkan determinism check (docs/ROADMAP.md)
 │   ├── bench-parallel.ps1  what `--parallel N` buys: aggregate vs per-request throughput

@@ -121,8 +121,16 @@ contrast is the useful part.
 
 ## Serving today
 
-The tables above are the 2026-08 study of a dense 27B. What the box actually serves on `:8080` has
-moved on — each step measured, with the old result kept next to the new one:
+**Since 2026-10-15 the box serves images, not text.** `:8080` runs **Qwen-Image-2.1 Turbo** (Q8_0) —
+the top open-weight model for both text-to-image and editing on Artificial Analysis — through
+stable-diffusion.cpp's `sd-server` on Vulkan, with OpenAI-compatible `/v1/images/generations` and
+`/v1/images/edits`. About **1.8 minutes per 1024x1024 image** and ~2 minutes per edit; Q8_0 weights ran
+2.4x faster than bf16 on this driver at no visible quality cost. Non-commercial licence. Details and
+every measurement: **[docs/IMAGES.md](docs/IMAGES.md)**.
+
+The LLM configuration below is what served `:8080` until then, and comes back with a one-line
+launcher swap. The tables above are the 2026-08 study of a dense 27B; each later step was measured,
+with the old result kept next to the new one:
 
 | | |
 |---|---|
@@ -313,6 +321,7 @@ strix-halo-llm/
 │   ├── OPTIMIZATION.md     the full tuning playbook (long -- a reference)
 │   ├── BENCHMARKS.md       ⭐ what to measure, how, and how not to fool yourself
 │   ├── MULTI-USER.md       serving real people: slots, capacity, restart cost, metrics
+│   ├── IMAGES.md           ⭐ what :8080 serves now: Qwen-Image-2.1 text-to-image + editing
 │   ├── MULTI-BOX.md        design: splitting work across several boxes over Ethernet
 │   ├── ROADMAP.md          pending models and engines, and what each is waiting on
 │   ├── PUBLISHING.md       what is safe to publish, and what must never be
@@ -325,6 +334,7 @@ strix-halo-llm/
 │   │   ├── run-router.ps1      router mode on :8080: per-model presets, -Parallel/-PerSlotCtx/-NoSpec
 │   │   ├── metrics-exporter.ps1  Prometheus exporter on a fixed :9114 (children use random ports)
 │   │   ├── router-watchdog.ps1   restarts the router when the model child freezes
+│   │   ├── run-images.ps1        ⭐ serves images (sd-server, Qwen-Image-2.1) on :8080, supervised
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── stage-nextgen.ps1   isolated test-load + Vulkan determinism gate for a new arch/engine
 │   │   ├── bench-big.ps1       depth-aware benchmark (-Bin A/Bs engines, -UBatch sweeps)
