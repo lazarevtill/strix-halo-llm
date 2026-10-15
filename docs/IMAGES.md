@@ -275,7 +275,9 @@ the 2.4x speedup is free. With the LLM stopped, a 512x512 Turbo-Q8 image took **
 53.9 s while the LLM was resident (cause not isolated — treat "the idle LLM cost ~40%" as a hypothesis).
 
 **Correctness caveat:** `--flash-attn auto` re-probes at every start and has flipped between on and off
-across restarts, so the *same seed can give a different image after a restart*. Video models pin it on.
+across restarts, so the *same seed can give a different image after a restart*. Video models pass
+`--flash-attn on` after the router's `auto` (later flags win): their logs carry no auto-probe line, which every
+`auto` model prints -- the evidence the pin took effect.
 
 **Why Vulkan is slow here:** at ~9 s/step for a 7B transformer at 1024² the sampler sustains a few
 TFLOPS — in line with llama.cpp's own prefill on this box (~7 TFLOPS), and far below the ~2.4 s/step a
