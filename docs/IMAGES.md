@@ -1,26 +1,39 @@
 # Image generation — what this box serves since 2026-10-15
 
-On 2026-10-15 the box switched from serving an LLM to serving **images**: text-to-image and image
-editing, over an OpenAI-compatible API on the same `:8080`. Everything below was measured on this box
+On 2026-10-15 the box switched from serving an LLM to serving **images**: text-to-image, editing,
+inpainting and image-to-image across four switchable models, behind one router on the same `:8080`. Everything below was measured on this box
 (Radeon 8060S / gfx1151, Windows 11, AMD driver 26.9.2) unless marked otherwise.
 
 ## What runs
 
-| | |
-|---|---|
-| model | **Qwen-Image-2.1 Turbo**, Q8_0 GGUF (`unsloth/Qwen-Image-2.1-Turbo-GGUF`, 7.64 GB) — 8 steps, CFG 1 |
-| text encoder | Qwen3-VL-8B-Instruct, F16 GGUF (16.4 GB) + its vision mmproj (1.16 GB, needed for edits) |
-| VAE | `qwen_image_2.1_vae_bf16.safetensors` (0.68 GB) — not interchangeable with Qwen-Image / Wan VAEs |
-| engine | [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) `master-967-e47426c`, prebuilt Windows **Vulkan** `sd-server.exe` |
-| memory | 23.5 GB of weights, **all on the GPU, 0 MB in system RAM** |
-| launcher | `scripts/windows/run-images.ps1 -Model turbo-q8` — supervised (restarts sd-server if it exits) |
-| licence | **Qwen Research licence — non-commercial.** For commercial use, Z-Image Turbo (Apache-2.0) is the alternative |
+```
+:8080  images-router.py  (Python stdlib; supervised by run-images.ps1, started at logon)
+         ├─ serves Image Studio at /  (scripts/windows/images-ui.html)
+         ├─ /studio/models            model list + live state; load / unload
+         └─ one sd-server backend per model, 127.0.0.1:18200+, several resident within a GPU budget
+              (stable-diffusion.cpp master-967-e47426c, prebuilt Windows Vulkan, weights pinned to the GPU)
+```
 
-Why this model: as of 2026-10-15 Qwen-Image-2.1 is **#1 among open-weight models on the
-[Artificial Analysis](https://artificialanalysis.ai/image/leaderboard/text-to-image/open-weights)
-boards for both text-to-image (ELO 1041) and editing (1074)** — one model does both. It is also small
-(7.1B diffusion transformer + 8B encoder), so the freed memory buys precision, not size. FLUX.2 dev
-(32B) fits too but ranks lower and is slower; HunyuanImage 3.0 has no stable-diffusion.cpp support.
+| model (registry id) | what it is | memory (measured) | speed at 1024² (measured) | licence |
+|---|---|---|---|---|
+| **Qwen-Image 2.1 Turbo** (`qwen-image-2.1-turbo`, default) | #1 open model for generation **and** editing (Artificial Analysis, Oct 2026); 8 fixed steps | 23.5 GB | ~1.5–1.8 min; edit ~2 min | Qwen Research — **non-commercial** |
+| Qwen-Image 2.1 full (`qwen-image-2.1`) | the non-distilled base, 40 steps, real CFG | 23.5 GB | ~12 min (extrapolated) | non-commercial |
+| **Kroma** (`kroma`) | uncensored photoreal: Krea 2 fine-tune on the Chroma dataset by the Chroma author; 12.9B, turbo, 10 steps | 17.3 GB | ~2–2.5 min (12.6 s/step) | MIT + Krea 2 Community License (commercial cap; bans non-consensual intimate imagery) |
+| **Anima Turbo** (`anima`) | uncensored anime / illustration; 2B; rating tags `safe / sensitive / nsfw / explicit` steer content | 3.5 GB | **44 s**; 512² in 9 s | CircleStone non-commercial + NVIDIA Open Model License |
+
+Every weight sits **on the GPU, 0 MB in system RAM** (each backend runs `--backend vulkan0
+--params-backend vulkan0 --eager-load`). The router reserves each loaded model's measured size plus 8 GB
+of compute headroom against an 88 GB budget and evicts the least-recently-used *idle* model when a new
+one needs room. Three resident at once (Turbo + Kroma + Anima) measured **44.4 GB committed** (69.5 GB
+reserved). Adding a model = adding an entry to `scripts/windows/image-models.json` (data only) and its
+files to `fetch-models.ps1`.
+
+Why these: Qwen-Image-2.1 tops both open leaderboards and does editing in the same model. For uncensored
+content (added at the owner's request), CivitAI's monthly downloads show photoreal NSFW has moved to
+Krea 2 fine-tunes and anime to Anima; Kroma and Anima are the strongest of those that load in
+stable-diffusion.cpp straight from Hugging Face without a login (the popular SDXL "Lustify" needs a
+CivitAI API key, so it was skipped). Both were gated here on neutral prompts only: load, same-seed
+byte-identical output, and renders that were looked at.
 
 Why stable-diffusion.cpp and not ComfyUI: one binary with OpenAI `generations` + `edits` built in, the
 Vulkan driver this repo already trusts, and weights loaded tensor-by-tensor **straight to the GPU**.
@@ -30,52 +43,59 @@ OpenAI API and stages weights through system RAM — and only ~32 GB is visible 
 
 ## Web UI — Image Studio (`http://<box>:8080/`)
 
-One page for both jobs: `scripts/windows/images-ui.html`, served by sd-server itself
-(`--serve-html-path`, so it is same-origin with the API — no CORS, no second server). The mode is implicit:
+`scripts/windows/images-ui.html`, served by the router (re-read per request). No external
+dependencies; light/dark; usable at phone width. Everything below was exercised in a browser.
 
-- **No source image → Generate.** Prompt, size presets (1024², 1344×768, 768×1344, 1152×864, a 512
-  draft), optional fixed seed.
-- **Source image attached → Edit.** Drop, paste (Ctrl+V) or pick a file, or press **Edit this** on any
-  result to chain edits. Up to 3 reference images ("image 1, image 2…" in the prompt). "Match source"
-  keeps the source's aspect and pixel count, clamped to 512²…1.25 MP.
-- **Transparent background** wraps the prompt in Qwen-Image-2.1's RGBA phrasing; verified to return a
-  real alpha channel (65% fully transparent pixels on a sticker prompt).
-- Live preview and step counter while it works, Cancel, Variation (same prompt, new seed), Download,
-  and a history of the last 60 results kept in the browser's IndexedDB (per browser, survives reloads).
-- No external dependencies — works on a LAN without internet. Light/dark, usable at phone width.
+- **Model picker** in the header — switching loads the model on demand (status shown: loaded /
+  loading… / failed), applies its defaults (steps, CFG, sampler), and gates the controls it does not
+  support. Uncensored models carry an NSFW badge; the licence is shown under the header.
+- **Four modes (real tabs):** **Generate**; **Edit** — instruction edits with up to 3 reference
+  images (Qwen-Image family only; disabled with an explanation for the others); **Inpaint** — paint a
+  mask over the image with a brush (paint / erase / invert / clear), describe what goes there;
+  **Image→Image** — the image is the starting point, *strength* sets how far it moves.
+- **Prompt and negative prompt.** The negative prompt only acts at **CFG > 1**, and the turbo models run
+  at CFG 1 — the UI says so and warns when a negative prompt would be ignored. CFG 2–3 works on Turbo
+  (measured: a "fog" negative cleared the fog) at roughly 2x the time.
+- **Size** presets (1024², 1344×768, 768×1344, 1152×864, 864×1152, 512²), custom W×H, and "Match
+  source" (source aspect and pixel count, clamped to 512²…1.25 MP). **Batch** 1–4, **seed** (random /
+  fixed / keep between runs), **transparent background** (Qwen RGBA).
+- **Sampling:** steps (shown as fixed where a model's schedule overrides them — Turbo ignores a steps
+  override, measured), CFG, image CFG, sampler and scheduler (lists come from the live model), flow
+  shift, eta. **LoRA** (appears when `models\loras` has any). **Hires fix** (upscaler, scale, steps,
+  denoise — measured 512→768). **Speed cache** (easycache, dbcache, …: approximate, faster), **live
+  preview** (fast blurry projection, full-quality VAE, or off), VAE tiling, output format / quality /
+  embedded metadata.
+- **Results:** live preview + step counter, cancel, batch strip, and one-click **Edit / Inpaint /
+  Img→Img** on any result, **Variation**, **Reuse** (restores the prompt, model and settings),
+  **Download**. History of the last 80 results in this browser's IndexedDB.
 
-It uses the **native async API** (`POST /sdcpp/v1/img_gen` + `GET /sdcpp/v1/jobs/{id}`), not the
-OpenAI routes: that is what gives progress, preview and cancel, and it sidesteps the edits crash
-below — the same `<sd_cpp_extra_args>` text that aborts `/v1/images/edits` is inert in a native
-request (measured). The live preview is a cheap latent projection (1/16 of the output size,
-upscaled for display), so it is blurry by design.
+Verified in the browser on the router: model switch, Edit disabled for Anima, generate → **Inpaint** →
+paint → "a slice of strawberry cake on the plate" produced exactly that inside the mask (mean pixel
+change 105.8 inside vs 2.5 outside, 11 s at 512² on Anima).
 
-Verified end to end in a browser on 2026-10-15: generate → **Edit this** → "give the cat round glasses
-and put an open book next to it" produced exactly that with the scene unchanged (19 s at 512²); a
-1024² generation took 1 min 31 s with the preview tracking all 8 steps.
-
-The stock sd-server developer console (every sampler knob, video mode) is still the fallback:
-`run-images.ps1 -Ui ''`.
-
-## API
+## API (router, `:8080`)
 
 ```
-POST /v1/images/generations   {"prompt": "...", "n": 1, "size": "1024x1024", "output_format": "png"}
-                              -> {"data": [{"b64_json": "..."}]}
-POST /v1/images/edits         multipart: prompt, image[] (1+ reference images), optional mask, size
-GET  /v1/models               one id, "sd-cpp-local" (the request's "model" field is ignored)
-GET  /                        built-in web UI
+GET  /v1/models                     the registry's models (OpenAI list)
+POST /v1/images/generations         {"model": "kroma", "prompt": "...", "size": "1024x1024"} -> data[].b64_json
+POST /v1/images/edits               multipart: model, prompt, image[], optional mask, size
+POST /sdcpp/v1/img_gen              native async job; {"model": ..., + any native field} -> {"id": ...}
+GET  /sdcpp/v1/jobs/{id}            status, live preview, result     (POST .../cancel to cancel)
+GET  /sdcpp/v1/capabilities?model=  samplers, schedulers, LoRAs, upscalers, limits for that model
+GET  /studio/models                 every model's state; POST /studio/models/load | /unload {"model": id}
 ```
 
-Native controls ride inside the prompt:
-`... <sd_cpp_extra_args>{"seed": 42, "sample_params": {"sample_steps": 8}}</sd_cpp_extra_args>`.
+The `model` field picks the backend (default: the last one loaded). Apps can now choose a model per
+request. **No authentication**; `:8080` is reachable from the LAN through the existing firewall rule.
 
-> **Known crash (measured): never put `<sd_cpp_extra_args>` in an EDIT request.** On master-967 it
-> aborts the whole server (`0xc0000409`) — the same block is fine on `/generations`. Bisected
-> 2026-10-15: plain edits, the legacy `image` field and `output_format` all work; only the extra-args
-> block crashes it. The launcher's restart loop brings the server back in ~13 s. Not yet reported upstream.
+> **Known sd-server crash, now blocked by the router:** an `<sd_cpp_extra_args>` block inside an
+> `/v1/images/edits` prompt aborts sd-server master-967 (`0xc0000409`; generations and the native API
+> are unaffected). The router answers such requests with **400** instead of forwarding them. Not yet
+> reported upstream.
 
-No authentication. `:8080` is reachable from the LAN through the existing firewall rule.
+**Recovery (measured):** a dead backend is detected on the next request, restarted, and that request
+retried (33 s including the restart); killing the router reaps every backend (Windows job object) and
+the supervisor brings router + default model back in ~19 s.
 
 ## Measured speed
 
@@ -100,6 +120,14 @@ encoding (~7-15 s on a new prompt, cached on repeats) and the VAE decode.
 | Turbo Q8_0, served, called over the LAN | — | **107.5 s** |
 | edit, Turbo Q8_0, 1024² (server) | — | **123 s** |
 | Base (non-Turbo) Q8_0, CFG 6 | 17.4 s/step | **~12 min** for its 40 steps (extrapolated from 4) |
+| Kroma Q8_0, 10 steps, CFG 1 (first call) | 125.8 s (12.6 s/step) | 152 s; 1344×768 120 s; 512² ~27 s |
+| Anima Turbo Q8_0, 10 steps, CFG 1 | — | **44 s**; 1344×768 37 s; 512² 9 s |
+
+Same seed → byte-identical PNG on all four models (512², two runs each). Feature checks on Turbo at
+512² (native API): CFG 3 + negative prompt works (2x passes); batch of 2 returns 2 distinct images;
+inpaint with a white-means-repaint mask replaces only the masked area; hires fix 1.5x returns 768²;
+image→image runs but the Turbo model barely restyles at strength 0.6; `--sigmas` presets make the
+steps field a no-op for Turbo (8 steps whatever is requested).
 
 Q8_0 and bf16 produce visually indistinguishable images at the same seed (compared side by side), so
 the 2.4x speedup is free. The base model's 40 steps with real CFG (two passes per step) make it too
@@ -122,24 +150,28 @@ on this driver, not the model, is the limit.
 ## Operating it
 
 ```powershell
-.\scripts\windows\run-images.ps1 -Model turbo-q8        # what the Startup launcher runs (port 8080)
-.\scripts\windows\run-images.ps1 -Model base-q8         # best quality, ~12 min per 1024^2 image
-.\scripts\windows\run-images.ps1 -DryRun                # print the sd-server command line
-.\scripts\windows\fetch-models.ps1 -Only qwen-image-21-turbo-q8,qwen-image-21-te,qwen-image-21
+.\scripts\windows\run-images.ps1                        # what the Startup launcher runs: router on :8080
+.\scripts\windows\run-images.ps1 -Preload kroma         # start with a different model loaded
+.\scripts\windows\run-images.ps1 -DryRun                # print the router command line
+.\scripts\windows\run-images.ps1 -Single -Model turbo-q8   # old mode: one sd-server, one model (rollback)
+.\scripts\windows\fetch-models.ps1 -Only qwen-image-21-turbo-q8,qwen-image-21-te,kroma,kroma-te,wan21-vae,anima,anima-te
 ```
 
-Logs: `logs\images-<timestamp>.err/.out` (newest 10 kept). The launcher restarts sd-server on exit
-(~13 s back, measured by killing it). After more than 5 exits in an hour it **backs off 15 minutes and
-tries again** rather than giving up: a client can crash the server on demand (the edits bug above), and
-a hard stop would leave `:8080` dead until the next logon with nothing watching.
+Logs: `logs\images-router-<ts>.out` (the router: loads, evictions, restarts) and
+`logs\images-<model>-<ts>.err/.out` per backend. The supervisor restarts the router if it exits and,
+after more than 5 exits in an hour, **backs off 15 minutes and tries again** rather than giving up —
+a hard stop would leave `:8080` dead until the next logon with nothing watching. Edit
+`image-models.json` and `POST /studio/reload-registry` to pick up registry changes without a restart.
 
-- **Client timeouts must be 3+ minutes.** A 1024² generation takes ~108 s and an edit ~123 s; many
-  OpenAI clients default to 60 s and will report a failure for a request that is still running.
-- **Concurrent requests queue** (measured: two simultaneous 512² requests returned after 14 s and 28 s,
-  same server process). There is one sampler; throughput does not scale with clients.
-- **Freezes are not detected.** The restart loop only catches the process *exiting*. The LLM side
-  needed a watchdog for a deadlocked child; sd-server has none yet — if requests hang with the GPU
-  idle, kill `sd-server.exe` and the loop will restart it.
+- **Client timeouts must be 3+ minutes.** A 1024² generation takes 1.5–2.5 min depending on the model,
+  and the OpenAI routes answer only when the image is done; many clients default to 60 s.
+- **Concurrent requests to one model queue** (measured: two simultaneous 512² requests returned after
+  14 s and 28 s). Requests to *different* resident models run at the same time and share the GPU.
+- **Freezes are not detected.** Exits are (backend: on the next request; router: by the supervisor);
+  a backend that hangs with the GPU idle is not. Kill its `sd-server.exe` and the router restarts it.
+- **System RAM:** the backends use none, but Windows only sees ~32 GB. On 2026-10-15 WSL / Docker
+  Desktop (`vmmemWSL`) grew to 14 GB of it while a model loaded, and free RAM briefly hit ~0. Keep
+  WSL's memory capped (`.wslconfig`) or stopped when the box is busy.
 
 **Rollback to the LLM:** the Startup launcher keeps the three LLM lines (router, metrics exporter,
 watchdog) commented out with a `rem ROLLBACK-LLM:` prefix. Uncomment them and comment out the

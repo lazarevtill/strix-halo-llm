@@ -1,0 +1,145 @@
+{
+  "_comment": [
+    "Model registry for images-router.py. Data only: adding a model = adding an entry here.",
+    "files: CLI flag (without --) -> file name under MODELS_DIR. args: extra sd-server flags (sampling defaults).",
+    "vram_gb: MEASURED 'total params memory size' from the backend's load log (not the file size);",
+    "the router reserves vram_gb + compute_gb per resident backend against its budget.",
+    "ui: what the web UI should offer for this model (edit = takes ref_images instructions;",
+    "fixed_steps = a --sigmas preset governs the step count, so a steps override is ignored)."
+  ],
+  "default": "qwen-image-2.1-turbo",
+  "compute_gb": 8,
+  "models": [
+    {
+      "id": "qwen-image-2.1-turbo",
+      "label": "Qwen-Image 2.1 Turbo",
+      "description": "Best open model for generation AND editing (Artificial Analysis #1, Oct 2026). 8 fixed steps: ~1.5 min at 1024x1024, ~2 min per edit.",
+      "licence": "Qwen Research licence (non-commercial)",
+      "nsfw": false,
+      "vram_gb": 23.5,
+      "files": {
+        "diffusion-model": "qwen-image-2.1-turbo-Q8_0.gguf",
+        "vae": "qwen_image_2.1_vae_bf16.safetensors",
+        "llm": "Qwen3VL-8B-Instruct-F16.gguf",
+        "llm_vision": "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+      },
+      "args": [
+        "--sigmas",
+        "qwen-image-2.1-turbo",
+        "--steps",
+        "8",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler"
+      ],
+      "ui": {
+        "edit": true,
+        "alpha": true,
+        "fixed_steps": 8,
+        "steps": 8,
+        "cfg": 1.0,
+        "img_cfg": 1.0,
+        "sampler": "euler",
+        "width": 1024,
+        "height": 1024,
+        "note": "Turbo runs at CFG 1: the negative prompt only takes effect with CFG > 1 (about 2x the time)."
+      }
+    },
+    {
+      "id": "qwen-image-2.1",
+      "label": "Qwen-Image 2.1 (full quality)",
+      "description": "The non-distilled base model: 40 steps with real CFG. Best quality, ~12 min at 1024x1024.",
+      "licence": "Qwen Research licence (non-commercial)",
+      "nsfw": false,
+      "vram_gb": 23.5,
+      "files": {
+        "diffusion-model": "qwen_image_2.1-Q8_0.gguf",
+        "vae": "qwen_image_2.1_vae_bf16.safetensors",
+        "llm": "Qwen3VL-8B-Instruct-F16.gguf",
+        "llm_vision": "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+      },
+      "args": [
+        "--steps",
+        "40",
+        "--cfg-scale",
+        "6.0",
+        "--sampling-method",
+        "euler"
+      ],
+      "ui": {
+        "edit": true,
+        "alpha": true,
+        "steps": 40,
+        "cfg": 6.0,
+        "img_cfg": 6.0,
+        "sampler": "euler",
+        "width": 1024,
+        "height": 1024,
+        "note": "Slow: two passes per step (CFG). Use 512 drafts to iterate, then render at full size."
+      }
+    },
+    {
+      "id": "kroma",
+      "label": "Kroma (uncensored, photoreal)",
+      "description": "Krea 2 fine-tune on the Chroma dataset by the Chroma author: the strongest open uncensored photoreal model loadable here (Oct 2026). 12.9B, turbo, ~10 steps.",
+      "licence": "MIT + Krea 2 Community License (commercial cap; bans non-consensual intimate imagery)",
+      "nsfw": true,
+      "vram_gb": 17.3,
+      "files": {
+        "diffusion-model": "kroma-v0.3-turbo.q8_0.gguf",
+        "llm": "Qwen3VL-4B-Instruct-Q8_0.gguf",
+        "vae": "wan_2.1_vae.safetensors"
+      },
+      "args": [
+        "--steps",
+        "10",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler"
+      ],
+      "ui": {
+        "edit": false,
+        "alpha": false,
+        "steps": 10,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 1024,
+        "height": 1024,
+        "note": "Turbo: 8-12 steps at CFG 1. The negative prompt needs CFG > 1 (about 2x the time). Adult content: keep it legal and consensual."
+      }
+    },
+    {
+      "id": "anima",
+      "label": "Anima Turbo (uncensored, anime)",
+      "description": "Anime / illustration model (2B, Cosmos-Predict2 base), the top anime family on CivitAI this month. Fast. Danbooru tags and plain language both work.",
+      "licence": "CircleStone non-commercial + NVIDIA Open Model License (outputs usable)",
+      "nsfw": true,
+      "vram_gb": 3.5,
+      "files": {
+        "diffusion-model": "anima-turbo-v1.1-Q8_0.gguf",
+        "llm": "qwen_3_06b_base.safetensors",
+        "vae": "qwen_image_vae.safetensors"
+      },
+      "args": [
+        "--steps",
+        "10",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler"
+      ],
+      "ui": {
+        "edit": false,
+        "alpha": false,
+        "steps": 10,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 1024,
+        "height": 1024,
+        "note": "Rating tags steer content: safe, sensitive, nsfw, explicit. Turbo: 8-12 steps at CFG 1."
+      }
+    }
+  ]
+}

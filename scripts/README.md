@@ -15,7 +15,9 @@ scripts/
 │   ├── metrics-exporter.ps1  Prometheus exporter for the router, merged on ONE fixed port (:9114)
 │   ├── router-watchdog.ps1  restart the router when its model child FREEZES (stops answering /health)
 │   ├── run-images.ps1      serve Qwen-Image-2.1 (text-to-image + edits) via stable-diffusion.cpp sd-server, supervised
-│   ├── images-ui.html      Image Studio: the web UI sd-server serves at / (generate + edit in one page)
+│   ├── images-router.py    the image router on :8080: one sd-server per model, LRU budget, OpenAI + native API
+│   ├── image-models.json   image-model registry (data only)
+│   ├── images-ui.html      Image Studio: Generate / Edit / Inpaint / Image→Image with a model picker
 │   ├── stage-nextgen.ps1   test-load a pending model on an ISOLATED port with a separate engine
 │   │                          build + the Vulkan determinism check (docs/ROADMAP.md)
 │   ├── bench-parallel.ps1  what `--parallel N` buys: aggregate vs per-request throughput

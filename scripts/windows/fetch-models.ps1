@@ -504,6 +504,51 @@ $REG = [ordered]@{
         # 33.8 s vs 46.0 s, 2026-10-15). File dated 2026-10-10 (per-file lastCommit).
         note  = 'Qwen-Image-2.1 Turbo, Q8_0 GGUF (8 steps). Faster than bf16 on Vulkan here.'
     }
+    # ---- Uncensored image models (adult content; added at the box owner's request 2026-10-15) --------------
+    # Picked from CivitAI's monthly top checkpoints + HF (2026-10-15): photoreal NSFW has moved to Krea 2
+    # fine-tunes; Kroma is the Chroma author's Krea 2 fine-tune on the Chroma dataset. Anime: Anima.
+    # All HF, ungated. Byte counts + per-file dates from the HF tree API 2026-10-15.
+    'kroma' = @{
+        repo  = 'voldemir/Kroma-GGUF'
+        files = @(
+            @{ p='kroma-v0.3-turbo.q8_0.gguf'; b=13621775872 }   # Q8_0: 2.4x faster than bf16 on this Vulkan driver
+        )
+        # LICENCE: MIT for Kroma's weights, but the Krea 2 Community License still applies (commercial cap,
+        # deployer content-filter clause, bans non-consensual intimate imagery). 12.9B DiT, turbo: ~8-12
+        # steps, CFG 1. Text encoder + VAE are in 'kroma-te'.
+        note  = 'Kroma v0.3 Turbo Q8_0 (Krea 2 fine-tune, uncensored, 12.9B). Licence: MIT + Krea 2 Community License.'
+    }
+    'kroma-te' = @{
+        repo  = 'Qwen/Qwen3-VL-4B-Instruct-GGUF'
+        files = @(
+            @{ p='Qwen3VL-4B-Instruct-Q8_0.gguf'; b=4280406144 }
+        )
+        note  = 'Qwen3-VL-4B text encoder (Q8_0) for Kroma / Krea 2. NOT the fp8 encoder (sd.cpp #1708).'
+    }
+    'wan21-vae' = @{
+        repo  = 'Comfy-Org/Wan_2.1_ComfyUI_repackaged'
+        files = @(
+            @{ p='split_files/vae/wan_2.1_vae.safetensors'; b=253815318 }
+        )
+        note  = 'Wan 2.1 VAE -- the VAE sd.cpp docs/krea2.md specifies for Krea 2 / Kroma.'
+    }
+    'anima' = @{
+        repo  = 'vanes430/Anima-Turbo-V1.1-GGUF'
+        files = @(
+            @{ p='anima-turbo-v1.1-Q8_0.gguf'; b=2239471744 }
+        )
+        # Only the official 2B Anima works in sd.cpp; layer-expanded "2.9B" CivitAI variants render broken
+        # (sd.cpp #1877). LICENCE: CircleStone non-commercial + NVIDIA Open Model License (outputs usable).
+        note  = 'Anima Turbo v1.1 Q8_0 (anime/illustration, uncensored, 2B). Non-commercial licence. Needs anima-te.'
+    }
+    'anima-te' = @{
+        repo  = 'circlestone-labs/Anima'
+        files = @(
+            @{ p='split_files/text_encoders/qwen_3_06b_base.safetensors'; b=1192135096 }
+            @{ p='split_files/vae/qwen_image_vae.safetensors';            b=253806246 }
+        )
+        note  = 'Anima text encoder (Qwen3 0.6B base) + Qwen-Image VAE.'
+    }
     'qwen-image-21-q8' = @{
         repo  = 'leejet/Qwen-Image-2.1-GGUF'
         files = @(

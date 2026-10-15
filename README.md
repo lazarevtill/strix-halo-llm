@@ -121,13 +121,14 @@ contrast is the useful part.
 
 ## Serving today
 
-**Since 2026-10-15 the box serves images, not text.** `:8080` runs **Qwen-Image-2.1 Turbo** (Q8_0) —
-the top open-weight model for both text-to-image and editing on Artificial Analysis — through
-stable-diffusion.cpp's `sd-server` on Vulkan, with OpenAI-compatible `/v1/images/generations` and
-`/v1/images/edits`, plus a one-page web UI (Image Studio) for generating and editing at `/`. About **1.8 minutes per 1024x1024 image** and ~2 minutes per edit; Q8_0 weights ran
-2.4x faster than bf16 on this driver at no visible quality cost. Non-commercial licence. Details and
-every measurement: **[docs/IMAGES.md](docs/IMAGES.md)**.
-
+**Since 2026-10-15 the box serves images, not text.** `:8080` runs a small router in front of
+stable-diffusion.cpp (Vulkan) with a web UI, **Image Studio**, for generating, editing, inpainting and
+image-to-image, and a model picker: **Qwen-Image-2.1 Turbo** (the top open model for generation and
+editing on Artificial Analysis), its full-quality base, **Kroma** (uncensored photoreal) and **Anima**
+(uncensored anime). Several stay loaded at once; apps pick one with the OpenAI `model` field. About
+**1.5–2.5 minutes per 1024x1024 image** (Anima: 44 s). Q8_0 weights ran 2.4x faster than bf16 on this
+driver at no visible quality cost. Licences differ per model — Qwen-Image and Anima are
+non-commercial. Details and every measurement: **[docs/IMAGES.md](docs/IMAGES.md)**.
 The LLM configuration below is what served `:8080` until then, and comes back with a one-line
 launcher swap. The tables above are the 2026-08 study of a dense 27B; each later step was measured,
 with the old result kept next to the new one:
@@ -334,7 +335,8 @@ strix-halo-llm/
 │   │   ├── run-router.ps1      router mode on :8080: per-model presets, -Parallel/-PerSlotCtx/-NoSpec
 │   │   ├── metrics-exporter.ps1  Prometheus exporter on a fixed :9114 (children use random ports)
 │   │   ├── router-watchdog.ps1   restarts the router when the model child freezes
-│   │   ├── run-images.ps1        ⭐ serves images (sd-server, Qwen-Image-2.1) on :8080, supervised
+│   │   ├── run-images.ps1        ⭐ serves images on :8080: supervises the image router
+│   │   ├── images-router.py      model router + Image Studio UI (images-ui.html, image-models.json)
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── stage-nextgen.ps1   isolated test-load + Vulkan determinism gate for a new arch/engine
 │   │   ├── bench-big.ps1       depth-aware benchmark (-Bin A/Bs engines, -UBatch sweeps)

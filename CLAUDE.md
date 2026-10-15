@@ -2,16 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **SINCE 2026-10-15 THE BOX SERVES IMAGES, NOT AN LLM.** `:8080` runs stable-diffusion.cpp's
-> `sd-server` (Vulkan) with **Qwen-Image-2.1 Turbo Q8_0** — OpenAI `/v1/images/generations` + `/edits`,
-> launched by `scripts/windows/run-images.ps1 -Model turbo-q8` (supervised). The page at `/` is **Image Studio**
-> (`scripts/windows/images-ui.html`, generation + editing in one view, native async API — edit the file and
-> reload, sd-server re-reads it per request). The LLM router, its
-> watchdog and the `:9114` exporter are commented out in the Startup launcher (`rem ROLLBACK-LLM:`).
-> Everything below about llama.cpp still holds for when the LLM comes back. See **docs/IMAGES.md**:
-> ~1.8 min per 1024² image, ~2 min per edit; Q8_0 is 2.4x faster than bf16 on this driver; an
-> `<sd_cpp_extra_args>` block in an EDIT request crashes sd-server (restart loop recovers);
-> Qwen-Image-2.1 is **non-commercial**.
+> **SINCE 2026-10-15 THE BOX SERVES IMAGES, NOT AN LLM.** `:8080` runs `scripts/windows/images-router.py`
+> (supervised by `run-images.ps1`, started at logon): it serves **Image Studio** at `/` (`images-ui.html`:
+> Generate / Edit / Inpaint / Image->Image, model picker, full sampler controls) and starts one
+> stable-diffusion.cpp `sd-server` (Vulkan) backend per model from the data-only registry
+> `image-models.json` -- Qwen-Image 2.1 Turbo (default) / full, **Kroma** (uncensored photoreal) and
+> **Anima** (uncensored anime) -- several resident within an 88 GB budget, routed by the `model` field
+> (OpenAI `/v1/images/*` and native `/sdcpp/v1/*`). See **docs/IMAGES.md** for every measurement.
+> Traps: an `<sd_cpp_extra_args>` block in an EDIT request crashes sd-server (the router rejects it with
+> 400); `$PSScriptRoot` is EMPTY in PS 5.1 `param()` defaults under `-File`; the browser tool writes into
+> the repo (`.playwright-mcp/`, gitignored); Qwen-Image / Anima licences are non-commercial. The LLM
+> router, its watchdog and the `:9114` exporter are commented out in the Startup launcher
+> (`rem ROLLBACK-LLM:`); everything below about llama.cpp holds for when the LLM comes back.
 
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
@@ -55,8 +57,9 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
                       llamacpp_child_restarts_total counts the crash+auto-reload failure mode,
                       llamacpp_child_responsive catches the FROZEN-child one
   router-watchdog.ps1 restarts the router when a loaded child stops answering /health (-NoAct to test)
-  run-images.ps1      ⭐ what :8080 runs since 2026-10-15: sd-server (stable-diffusion.cpp, Vulkan),
-                      Qwen-Image-2.1 base|turbo|base-q8|turbo-q8, weights pinned to the GPU, restart loop
+  run-images.ps1      ⭐ what :8080 runs since 2026-10-15: supervises images-router.py (-Single = one sd-server)
+  images-router.py    model router: Image Studio at /, one sd-server per model (image-models.json), LRU budget
+  images-ui.html      Image Studio web UI;  image-models.json  the image-model registry (data only)
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform

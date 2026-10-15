@@ -4,22 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Image Studio</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23c2410c%27/%3E%3Ccircle cx=%2211%27 cy=%2712%27 r=%274%27 fill=%27%23fff%27/%3E%3Cpath d=%27M4 26l8-9 6 6 4-4 6 7z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23c2410c%27/%3E%3Ccircle cx=%2711%27 cy=%2712%27 r=%274%27 fill=%27%23fff%27/%3E%3Cpath d=%27M4 26l8-9 6 6 4-4 6 7z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
 <!--
-  Image Studio: one page for text-to-image AND image editing on the local stable-diffusion.cpp
-  sd-server (Qwen-Image-2.1). Served by sd-server itself (--serve-html-path, see run-images.ps1), so it
-  talks to the API on the same origin. Uses the NATIVE async API (/sdcpp/v1/img_gen + job polling):
-  live preview, progress, cancel -- and it avoids the OpenAI /v1/images/edits + sd_cpp_extra_args
-  crash measured on master-967. No external dependencies: works on a LAN with no internet.
-  Mode is implicit: no source image = GENERATE; source image(s) attached = EDIT.
+  Image Studio -- the web UI that images-router.py serves at /. One page for every mode the local
+  stable-diffusion.cpp models support: Generate, Edit (instruction edits with reference images),
+  Inpaint (paint a mask), Image->Image. A model picker switches models through the router
+  (/studio/models); each model's registry entry (image-models.json) decides which controls apply.
+  Talks to the router's native async API (/sdcpp/v1/img_gen + job polling): live preview, cancel.
+  No external dependencies. History lives in this browser's IndexedDB.
 -->
 <style>
 :root {
   --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1b18; --muted: #6f6a62; --line: #e3dfd8;
   --accent: #c2410c; --accent-ink: #ffffff; --accent-soft: #fbeee6; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
   --check: #ebe8e2; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
-  --radius: 14px; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  color-scheme: light;
+  --radius: 14px; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace; color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -37,103 +36,138 @@
 html, body { margin: 0; background: var(--bg); color: var(--ink); }
 body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
 button, input, select, textarea { font: inherit; color: inherit; }
-header { display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
-header h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
-header .model { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
-header .spacer { flex: 1; }
-.pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; }
+[hidden] { display: none !important; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; white-space: nowrap; }
+.model-pick { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 340px; max-width: 560px; }
+.model-pick select { flex: 1; min-width: 0; font-weight: 600; }
+.badge { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.badge.nsfw { color: #fff; background: #9f1239; border-color: #9f1239; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.busy { background: var(--warn); }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.busy { background: var(--warn); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
 .icon-btn { border: 1px solid var(--line); background: transparent; border-radius: 9px; padding: 5px 9px; cursor: pointer; color: var(--muted); }
 .icon-btn:hover { color: var(--ink); }
 
-main { display: grid; grid-template-columns: minmax(330px, 410px) 1fr; gap: 20px; padding: 20px 22px 28px; max-width: 1500px; margin: 0 auto; }
-@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 14px 16px 24px; } }
-@media (max-width: 600px) { header .model { display: none; } header { padding: 12px 16px; } }
+.modelinfo { padding: 10px 20px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; gap: 16px; flex-wrap: wrap; }
+.modelinfo b { color: var(--ink); font-weight: 600; }
+
+main { display: grid; grid-template-columns: minmax(340px, 430px) 1fr; gap: 20px; padding: 18px 20px 28px; max-width: 1560px; margin: 0 auto; }
+@media (max-width: 960px) { main { grid-template-columns: 1fr; padding: 14px 14px 24px; } }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
-.controls { padding: 18px; display: flex; flex-direction: column; gap: 16px; align-self: start; }
-.label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; display: flex; justify-content: space-between; align-items: baseline; }
-.label small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.controls { padding: 16px; display: flex; flex-direction: column; gap: 15px; align-self: start; }
+.label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.label small { text-transform: none; letter-spacing: 0; font-weight: 400; text-align: right; }
 
-.mode { display: grid; grid-template-columns: 1fr 1fr; background: var(--check); border-radius: 11px; padding: 4px; }
-.mode button { text-align: center; padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 14px; color: var(--muted); border: 0; background: transparent; cursor: pointer; }
-.mode button:hover { color: var(--ink); }
-.mode button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-.src[hidden] { display: none; }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--check); border-radius: 11px; padding: 4px; gap: 2px; }
+.tabs button { padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 13.5px; color: var(--muted); border: 0; background: transparent; cursor: pointer; }
+.tabs button:hover:not(:disabled) { color: var(--ink); }
+.tabs button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.tabs button:disabled { opacity: .4; cursor: not-allowed; }
+.tabnote { font-size: 12.5px; color: var(--muted); margin: -6px 2px 0; }
 
-.drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 14px; text-align: center; color: var(--muted); font-size: 13.5px; cursor: pointer; transition: border-color .15s, background .15s; }
+.drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 13px; text-align: center; color: var(--muted); font-size: 13.5px; cursor: pointer; transition: border-color .15s, background .15s; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
-.refs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
-.refs:empty { display: none; margin: 0; }
+.refs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 9px; }
+.refs:empty { display: none; }
 .ref { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--check); border: 1px solid var(--line); }
 .ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ref button { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; cursor: pointer; font-size: 14px; line-height: 24px; padding: 0; }
 .ref span { position: absolute; left: 5px; bottom: 5px; font-size: 11px; background: rgba(0,0,0,.6); color: #fff; padding: 1px 6px; border-radius: 6px; }
 
-textarea { width: 100%; min-height: 112px; resize: vertical; border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; background: var(--bg); outline: none; }
+textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; background: var(--bg); outline: none; }
+#prompt { min-height: 104px; } #neg { min-height: 54px; }
 textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-select, input[type=number], input[type=text] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--bg); outline: none; }
-.chips { display: flex; flex-wrap: wrap; gap: 7px; }
-.chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; background: transparent; }
+select, input[type=number], input[type=text] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; background: var(--bg); outline: none; }
+input:disabled, select:disabled { opacity: .5; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; background: transparent; }
 .chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 .check { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; cursor: pointer; }
 .check input { margin-top: 3px; accent-color: var(--accent); }
 .check small { display: block; color: var(--muted); font-size: 12.5px; }
-details summary { cursor: pointer; color: var(--muted); font-size: 13.5px; list-style: none; }
-details summary::before { content: "\25B8  "; } details[open] summary::before { content: "\25BE  "; }
-details .inner { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.note { font-size: 12.5px; color: var(--muted); margin: 0; }
+.note.warn { color: var(--warn); }
+details { border-top: 1px solid var(--line); padding-top: 11px; }
+details summary { cursor: pointer; font-size: 13.5px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; }
+details summary::before { content: "\25B8"; margin-right: 8px; color: var(--muted); } details[open] summary::before { content: "\25BE"; }
+details summary span.hint { font-weight: 400; color: var(--muted); font-size: 12.5px; margin-left: auto; }
+details .inner { display: flex; flex-direction: column; gap: 11px; margin-top: 11px; }
+.lora-row { display: grid; grid-template-columns: 1fr 74px 28px; gap: 6px; align-items: center; }
 .go { border: 0; border-radius: 12px; padding: 13px; font-weight: 700; font-size: 15.5px; background: var(--accent); color: var(--accent-ink); cursor: pointer; transition: filter .15s; }
 .go:hover { filter: brightness(1.06); } .go:disabled { opacity: .5; cursor: default; }
-.ghost { border: 1px solid var(--line); background: transparent; border-radius: 12px; padding: 11px; cursor: pointer; font-weight: 600; }
-.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+.mini { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 4px 9px; font-size: 12.5px; cursor: pointer; }
+.mini.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
 
 .stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.canvas { position: relative; display: grid; place-items: center; min-height: 420px; padding: 18px; overflow: hidden;
+.canvas { position: relative; display: grid; place-items: center; min-height: 440px; padding: 18px; overflow: hidden;
   background-image: linear-gradient(45deg, var(--check) 25%, transparent 25%), linear-gradient(-45deg, var(--check) 25%, transparent 25%),
   linear-gradient(45deg, transparent 75%, var(--check) 75%), linear-gradient(-45deg, transparent 75%, var(--check) 75%);
   background-size: 22px 22px; background-position: 0 0, 0 11px, 11px -11px, -11px 0; }
-.canvas img { max-width: 100%; max-height: calc(100vh - 290px); border-radius: 8px; box-shadow: var(--shadow); display: block; }
-.canvas img.preview { filter: saturate(.85) blur(.4px); image-rendering: auto; }
-.empty { text-align: center; color: var(--muted); max-width: 380px; }
+.canvas img { max-width: 100%; max-height: calc(100vh - 300px); border-radius: 8px; box-shadow: var(--shadow); display: block; }
+.canvas img.preview { filter: saturate(.85) blur(.4px); }
+.empty { text-align: center; color: var(--muted); max-width: 400px; }
 .empty b { display: block; color: var(--ink); font-size: 18px; margin-bottom: 6px; }
-.progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: transparent; }
+.progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.paint { position: relative; display: inline-block; line-height: 0; }
+.paint img { max-height: calc(100vh - 360px); }
+.paint canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; border-radius: 8px; touch-action: none; }
+.paintbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; font-size: 13px; }
+.paintbar label { display: flex; gap: 6px; align-items: center; }
+.paintbar input[type=range] { width: 120px; }
 .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 16px; font-size: 13.5px; }
 .statusbar .stat { color: var(--muted); } .statusbar .stat b { color: var(--ink); font-weight: 600; }
-.statusbar .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-.act { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 7px 12px; cursor: pointer; font-size: 13.5px; font-weight: 600; }
+.statusbar .actions { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
+.act { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 6px 11px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .act.primary { border-color: var(--accent); color: var(--accent); }
 .act:disabled { opacity: .45; cursor: default; }
 .error { color: var(--bad); font-weight: 600; }
-
+.batch { display: flex; gap: 8px; padding: 0 16px 12px; flex-wrap: wrap; }
+.batch img { width: 74px; height: 74px; object-fit: cover; border-radius: 8px; border: 2px solid transparent; cursor: pointer; }
+.batch img.on { border-color: var(--accent); }
 .history { padding: 14px 16px; }
 .history .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 9px; }
 .history .strip:empty::after { content: "Your images will collect here."; color: var(--muted); font-size: 13.5px; grid-column: 1 / -1; }
 .thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--check); }
 .thumb.on { border-color: var(--accent); }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.thumb span { position: absolute; left: 4px; top: 4px; font-size: 10.5px; font-weight: 700; background: rgba(0,0,0,.62); color: #fff; padding: 1px 6px; border-radius: 6px; letter-spacing: .03em; }
-.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
+.thumb span { position: absolute; left: 4px; top: 4px; font-size: 10px; font-weight: 700; background: rgba(0,0,0,.62); color: #fff; padding: 1px 6px; border-radius: 6px; letter-spacing: .03em; text-transform: uppercase; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; max-width: 90vw; }
 .toast.show { opacity: 1; }
+@media (max-width: 640px) { header { padding: 10px 14px; } .model-pick { flex-basis: 100%; max-width: none; order: 3; } }
 </style>
 </head>
 <body>
 <header>
   <h1>Image Studio</h1>
-  <span class="model" id="model">connecting…</span>
+  <div class="model-pick">
+    <select id="model" aria-label="Model"></select>
+    <span class="badge nsfw" id="m-badge" hidden>NSFW</span>
+  </div>
   <span class="spacer"></span>
-  <span class="pill"><span class="dot" id="dot"></span><span id="srv">checking</span></span>
+  <span class="pill"><span class="dot" id="dot"></span><span id="srv">connecting</span></span>
   <button class="icon-btn" id="theme" title="Toggle light / dark">◐</button>
 </header>
+<div class="modelinfo" id="minfo"></div>
 
 <main>
   <section class="panel controls">
-    <div class="mode" role="tablist" aria-label="Mode"><button type="button" role="tab" id="m-gen" class="on" aria-selected="true">Generate</button><button type="button" role="tab" id="m-edit" aria-selected="false">Edit</button></div>
+    <div class="tabs" role="tablist" aria-label="Mode">
+      <button type="button" role="tab" data-mode="gen" class="on">Generate</button>
+      <button type="button" role="tab" data-mode="edit">Edit</button>
+      <button type="button" role="tab" data-mode="inpaint">Inpaint</button>
+      <button type="button" role="tab" data-mode="img2img">Image→Image</button>
+    </div>
+    <p class="tabnote" id="tabnote" hidden></p>
 
-    <div class="src" id="src" hidden>
-      <div class="label">Source image <small id="src-note">add the image to edit</small></div>
+    <div id="src" hidden>
+      <div class="label"><span id="src-label">Source image</span> <small id="src-note"></small></div>
       <div class="drop" id="drop" tabindex="0">Drop, paste <kbd>Ctrl</kbd>+<kbd>V</kbd>, or click to choose an image</div>
       <input type="file" id="file" accept="image/*" multiple hidden>
       <div class="refs" id="refs"></div>
@@ -143,48 +177,128 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
       <div class="label">Prompt <small><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</small></div>
       <textarea id="prompt" placeholder="Describe the image you want…"></textarea>
     </div>
+    <div>
+      <div class="label">Negative prompt <small id="neg-note"></small></div>
+      <textarea id="neg" placeholder="What to avoid (needs CFG above 1)"></textarea>
+    </div>
 
     <div>
       <div class="label">Size <small id="size-note"></small></div>
       <div class="chips" id="sizes"></div>
+      <div class="row" id="custom" hidden style="margin-top:8px">
+        <input type="number" id="cw" min="256" max="2048" step="16" placeholder="width">
+        <input type="number" id="ch" min="256" max="2048" step="16" placeholder="height">
+      </div>
     </div>
 
-    <label class="check"><input type="checkbox" id="alpha">
-      <span>Transparent background<small>Qwen-Image 2.1 can output RGBA — good for logos, stickers, cut-outs.</small></span></label>
+    <div id="strength-box" hidden>
+      <div class="label">Strength <small id="strength-val"></small></div>
+      <input type="range" id="strength" min="0.05" max="1" step="0.05" value="0.75">
+      <p class="note">How much to change: low keeps the original, 1.0 repaints completely.</p>
+    </div>
 
-    <details>
-      <summary>Advanced</summary>
+    <div class="row">
+      <div><div class="label">Images</div><select id="batch"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+      <div><div class="label">Seed <small><a href="#" id="seed-rnd" style="color:inherit">random</a></small></div><input type="number" id="seed" placeholder="random"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="lock"><span>Keep the same seed between runs</span></label>
+    <label class="check" id="alpha-box"><input type="checkbox" id="alpha"><span>Transparent background<small>RGBA output — logos, stickers, cut-outs.</small></span></label>
+
+    <details id="d-sampling">
+      <summary>Sampling <span class="hint" id="samp-hint"></span></summary>
       <div class="inner">
         <div class="row">
-          <div><div class="label">Seed</div><input type="number" id="seed" placeholder="random"></div>
-          <div><div class="label">Steps</div><input type="number" id="steps" min="1" max="100" placeholder="server default"></div>
+          <div><div class="label">Steps <small id="steps-note"></small></div><input type="number" id="steps" min="1" max="150"></div>
+          <div><div class="label">CFG</div><input type="number" id="cfg" min="1" max="20" step="0.5"></div>
         </div>
-        <label class="check"><input type="checkbox" id="lock"> <span>Keep the same seed between runs</span></label>
-        <div><div class="label">Format</div><select id="fmt"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option></select></div>
-        <p class="hint">The served model is the 8-step Turbo; more steps rarely help it. Expect about 1&frac34; minutes for a 1024&times;1024 image and about 2 minutes for an edit.</p>
+        <div class="row">
+          <div><div class="label">Image CFG <small>edit/inpaint</small></div><input type="number" id="imgcfg" min="1" max="20" step="0.5" placeholder="= CFG"></div>
+          <div><div class="label">Flow shift</div><input type="number" id="shift" step="0.1" placeholder="default"></div>
+        </div>
+        <div class="row">
+          <div><div class="label">Sampler</div><select id="sampler"></select></div>
+          <div><div class="label">Scheduler</div><select id="scheduler"></select></div>
+        </div>
+        <div class="row">
+          <div><div class="label">Eta</div><input type="number" id="eta" step="0.1" placeholder="default"></div>
+          <div></div>
+        </div>
+        <p class="note" id="cfg-note"></p>
+      </div>
+    </details>
+
+    <details id="d-lora" hidden>
+      <summary>LoRA <span class="hint" id="lora-hint"></span></summary>
+      <div class="inner"><div id="loras"></div><button class="mini" id="lora-add" type="button">+ add LoRA</button></div>
+    </details>
+
+    <details id="d-hires">
+      <summary>Hires fix <span class="hint" id="hires-hint">off</span></summary>
+      <div class="inner">
+        <label class="check"><input type="checkbox" id="hires"><span>Upscale and refine after the first pass<small>Sharper large images; roughly doubles the time.</small></span></label>
+        <div class="row">
+          <div><div class="label">Upscaler</div><select id="hires-up"></select></div>
+          <div><div class="label">Scale</div><input type="number" id="hires-scale" value="1.5" min="1.1" max="3" step="0.1"></div>
+        </div>
+        <div class="row">
+          <div><div class="label">Steps <small>0 = same</small></div><input type="number" id="hires-steps" value="0" min="0" max="100"></div>
+          <div><div class="label">Denoise</div><input type="number" id="hires-den" value="0.5" min="0.05" max="1" step="0.05"></div>
+        </div>
+      </div>
+    </details>
+
+    <details id="d-perf">
+      <summary>Performance &amp; output</summary>
+      <div class="inner">
+        <div class="row">
+          <div><div class="label">Speed cache</div><select id="cache">
+            <option value="disabled">off (exact)</option><option value="easycache">easycache</option><option value="dbcache">dbcache</option>
+            <option value="taylorseer">taylorseer</option><option value="cache-dit">cache-dit</option><option value="spectrum">spectrum</option></select></div>
+          <div><div class="label">Live preview</div><select id="preview"><option value="proj">fast (blurry)</option><option value="vae">full quality (slower)</option><option value="none">off</option></select></div>
+        </div>
+        <p class="note">Speed caches skip some computation for approximate, faster results.</p>
+        <label class="check"><input type="checkbox" id="vaetile" checked><span>VAE tiling<small>Keep on: large decodes need it on this GPU.</small></span></label>
+        <div class="row">
+          <div><div class="label">Format</div><select id="fmt"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option></select></div>
+          <div><div class="label">Quality</div><input type="number" id="quality" value="95" min="1" max="100"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="meta" checked><span>Embed prompt &amp; settings in the file</span></label>
       </div>
     </details>
 
     <button class="go" id="go">Generate</button>
-    <p class="hint" id="go-hint">Jobs run one at a time on the GPU; extra requests queue.</p>
+    <p class="note">Jobs run one at a time per model; extra requests queue.</p>
   </section>
 
   <section class="stage">
     <div class="panel canvas" id="canvas">
-      <div class="empty" id="empty"><b>Nothing here yet</b>Write a prompt and press Generate — or drop in a photo and describe how to change it.</div>
+      <div class="empty" id="empty"><b>Nothing here yet</b>Pick a model, write a prompt and press Generate — or switch to Edit / Inpaint and bring an image.</div>
       <img id="view" alt="" hidden>
+      <div class="paint" id="paint" hidden><img id="paint-img" alt=""><canvas id="mask"></canvas></div>
       <div class="progress"><i id="bar"></i></div>
     </div>
-    <div class="panel statusbar">
-      <span class="stat" id="st-status">Idle</span>
-      <span class="stat" id="st-time"></span>
-      <span class="stat" id="st-seed"></span>
-      <span class="actions">
-        <button class="act primary" id="a-edit" disabled title="Use this image as the source for the next edit">Edit this</button>
-        <button class="act" id="a-again" disabled title="Same prompt, new seed">Variation</button>
-        <button class="act" id="a-dl" disabled>Download</button>
-        <button class="act" id="a-cancel" hidden>Cancel</button>
-      </span>
+    <div class="panel paintbar" id="paintbar" hidden>
+      <b>Mask</b><span class="note">paint the area to change</span>
+      <label>Brush <input type="range" id="brush" min="8" max="200" value="48"></label>
+      <button class="mini on" id="m-paint" type="button">Paint</button><button class="mini" id="m-erase" type="button">Erase</button>
+      <button class="mini" id="m-invert" type="button">Invert</button><button class="mini" id="m-clear" type="button">Clear</button>
+    </div>
+    <div class="panel">
+      <div class="statusbar">
+        <span class="stat" id="st-status">Idle</span>
+        <span class="stat" id="st-time"></span>
+        <span class="stat" id="st-seed"></span>
+        <span class="actions">
+          <button class="act primary" id="a-edit" disabled title="Use this image as the source for an edit">Edit</button>
+          <button class="act" id="a-inpaint" disabled title="Paint a mask on this image and repaint part of it">Inpaint</button>
+          <button class="act" id="a-i2i" disabled title="Use this image as the starting point">Img→Img</button>
+          <button class="act" id="a-again" disabled title="Same settings, new seed">Variation</button>
+          <button class="act" id="a-reuse" disabled title="Load this image's prompt and settings">Reuse</button>
+          <button class="act" id="a-dl" disabled>Download</button>
+          <button class="act" id="a-cancel" hidden>Cancel</button>
+        </span>
+      </div>
+      <div class="batch" id="batchrow" hidden></div>
     </div>
     <div class="panel history">
       <div class="label">History <small><a href="#" id="clear" style="color:inherit">clear</a></small></div>
@@ -198,106 +312,167 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const S = { mode: 'gen', refs: [], size: 'auto', job: null, polling: null, started: 0, current: null, history: [], lastSeed: null, defaults: {} };
+  const S = {
+    models: [], model: null, caps: {}, mode: 'gen', refs: [], init: null, size: 'sq', job: null, started: 0,
+    current: null, batch: [], history: [], lastSeed: null, maskDirty: false, budget: null,
+  };
   const SIZES = [
-    { k: 'auto', label: 'Match source', w: 0, h: 0, editOnly: true },
-    { k: 'sq', label: 'Square 1024', w: 1024, h: 1024 },
-    { k: 'land', label: 'Landscape 1344×768', w: 1344, h: 768 },
-    { k: 'port', label: 'Portrait 768×1344', w: 768, h: 1344 },
-    { k: 'photo', label: '4:3 1152×864', w: 1152, h: 864 },
-    { k: 'small', label: 'Draft 512', w: 512, h: 512 },
+    { k: 'auto', label: 'Match source', src: true },
+    { k: 'sq', label: '1024²', w: 1024, h: 1024 }, { k: 'land', label: '1344×768', w: 1344, h: 768 },
+    { k: 'port', label: '768×1344', w: 768, h: 1344 }, { k: 'photo', label: '1152×864', w: 1152, h: 864 },
+    { k: 'tall', label: '864×1152', w: 864, h: 1152 }, { k: 'small', label: '512²', w: 512, h: 512 }, { k: 'custom', label: 'Custom' },
   ];
+  const MODE = {
+    gen: { go: 'Generate', doing: 'Generating', label: '', note: '' },
+    edit: { go: 'Apply edit', doing: 'Editing', label: 'Images to edit', note: 'Describe the change. Up to 3 references — call them image 1, image 2…' },
+    inpaint: { go: 'Inpaint', doing: 'Inpainting', label: 'Image to inpaint', note: 'Paint over the area to repaint (right), then describe what goes there.' },
+    img2img: { go: 'Transform', doing: 'Transforming', label: 'Starting image', note: 'The image is the starting point; strength sets how far it moves.' },
+  };
+
+  // ---------- helpers ----------
+  const toast = m => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2600); };
+  const fmtTime = s => s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')} s`;
+  const num = (id, def) => { const v = $(id).value; return v === '' ? def : Number(v); };
+  const snap = v => Math.max(256, Math.min(2048, Math.round(v / 16) * 16));
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  async function api(path, opt) {
+    const r = await fetch(path, Object.assign({ cache: 'no-store' }, opt || {}));
+    const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch (e) {}
+    if (!r.ok) throw new Error((j && j.error && j.error.message) || txt.slice(0, 200) || `HTTP ${r.status}`);
+    return j;
+  }
+  const M = () => S.models.find(m => m.id === S.model) || null;
+  const U = () => (M() && M().ui) || {};
 
   // ---------- theme ----------
   const root = document.documentElement;
   try { const t = localStorage.getItem('studio-theme'); if (t) root.dataset.theme = t; } catch (e) {}
   $('theme').onclick = () => {
     const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    root.dataset.theme = dark ? 'light' : 'dark';
-    try { localStorage.setItem('studio-theme', root.dataset.theme); } catch (e) {}
+    root.dataset.theme = dark ? 'light' : 'dark'; try { localStorage.setItem('studio-theme', root.dataset.theme); } catch (e) {}
   };
 
-  const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2200); };
-  const fmtTime = s => s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')} s`;
-
-  // ---------- server status ----------
-  async function caps() {
-    try {
-      const r = await fetch('/sdcpp/v1/capabilities', { cache: 'no-store' });
-      const c = await r.json();
-      $('model').textContent = (c.model && (c.model.stem || c.model.name)) || 'local model';
-      S.defaults = (c.defaults_by_mode && c.defaults_by_mode.img_gen) || c.defaults || {};
-      if (S.defaults.sample_params && !$('steps').value) $('steps').placeholder = `default ${S.defaults.sample_params.sample_steps}`;
-      setSrv(S.job ? 'busy' : 'ok', S.job ? 'working' : 'online');
-    } catch (e) { setSrv('bad', 'offline — retrying'); }
-  }
-  function setSrv(cls, text) { $('dot').className = 'dot ' + cls; $('srv').textContent = text; }
-  caps(); setInterval(() => { if (!S.job) caps(); }, 15000);
-
-  // ---------- sizes ----------
-  function renderSizes() {
-    const box = $('sizes'); box.innerHTML = '';
-    const edit = S.mode === 'edit' && S.refs.length > 0;
-    if (!edit && S.size === 'auto') S.size = 'sq';
-    if (edit && !renderSizes.touched) S.size = 'auto';
-    for (const s of SIZES) {
-      if (s.editOnly && !edit) continue;
-      const b = document.createElement('button'); b.className = 'chip' + (S.size === s.k ? ' on' : ''); b.textContent = s.label;
-      b.onclick = () => { S.size = s.k; renderSizes.touched = true; renderSizes(); };
-      box.appendChild(b);
+  // ---------- models ----------
+  async function refreshModels() {
+    clearTimeout(refreshModels.t);
+    let st;
+    try { st = await api('/studio/models'); }
+    catch (e) { setSrv('bad', 'offline — retrying'); refreshModels.t = setTimeout(refreshModels, 4000); return; }
+    S.models = st.models; S.budget = st;
+    if (!S.model) {
+      let saved = null; try { saved = localStorage.getItem('studio-model'); } catch (e) {}
+      S.model = (saved && st.models.some(m => m.id === saved && !(m.missing && m.missing.length))) ? saved : (st.current || st.default);
     }
-    const [w, h] = dims(); $('size-note').textContent = `${w}×${h}`;
+    const sel = $('model');
+    sel.innerHTML = '';
+    for (const m of st.models) {
+      const o = document.createElement('option'); o.value = m.id;
+      const miss = m.missing && m.missing.length;
+      const tag = miss ? ' — files missing' : m.state === 'ready' ? ' — loaded' : m.state === 'loading' ? ' — loading…' : m.state === 'failed' ? ' — failed' : '';
+      o.textContent = `${m.label}${tag}`; o.disabled = !!miss; sel.appendChild(o);
+    }
+    sel.value = S.model;
+    renderModelInfo();
+    const m = M();
+    if (m && m.state === 'ready' && !S.caps[m.id]) await loadCaps(m.id);
+    if (!S.job) {
+      const label = m ? ({ ready: 'ready', loading: 'loading model…', failed: 'model failed', stopped: 'not loaded' })[m.state] || m.state : 'no model';
+      setSrv(m && m.state === 'ready' ? 'ok' : m && m.state === 'loading' ? 'busy' : m && m.state === 'failed' ? 'bad' : '', label);
+      $('go').disabled = !(m && m.state === 'ready');
+    }
+    refreshModels.t = setTimeout(refreshModels, st.models.some(x => x.state === 'loading') ? 2000 : 12000);
   }
-  // "Match source": keep the first reference's aspect ratio at ~1 megapixel, both sides multiples of 32.
-  function dims() {
-    const s = SIZES.find(x => x.k === S.size) || SIZES[1];
-    if (s.k !== 'auto') return [s.w, s.h];
-    const r = S.refs[0]; if (!r) return [1024, 1024];
-    // Keep the source's own pixel count, clamped to [512^2, 1.25 MP]: editing a 512 image should not
-    // silently cost a 1024 render, and a 4K photo should not ask for a 4K render (~10x the time).
-    const ar = r.w / r.h, area = Math.min(1.25 * 1024 * 1024, Math.max(512 * 512, r.w * r.h));
-    let w = Math.sqrt(area * ar), h = w / ar;
-    const snap = v => Math.max(256, Math.min(2048, Math.round(v / 32) * 32));
-    return [snap(w), snap(h)];
+  function renderModelInfo() {
+    const m = M(); if (!m) return; const st = S.budget || {};
+    $('m-badge').hidden = !m.nsfw;
+    $('minfo').innerHTML = `<span>${esc(m.description)}</span><span>Licence: <b>${esc(m.licence || '?')}</b></span>` +
+      `<span>GPU reserved: <b>${esc(st.used_gb)} / ${esc(st.budget_gb)} GB</b></span>` +
+      (m.state === 'failed' ? `<span class="error">${esc(m.error || 'failed')}</span>` : '');
   }
+  async function loadCaps(id) {
+    try { S.caps[id] = await api(`/sdcpp/v1/capabilities?model=${encodeURIComponent(id)}`); if (id === S.model) applyCaps(); } catch (e) {}
+  }
+  function applyCaps() {
+    const c = S.caps[S.model] || {}; const u = U();
+    const fill = (sel, items, cur) => { const s = $(sel); const prev = s.value; s.innerHTML = ''; for (const it of items) { const o = document.createElement('option'); o.value = o.textContent = it; s.appendChild(o); } s.value = items.includes(cur) ? cur : items.includes(prev) ? prev : items[0]; };
+    fill('sampler', c.samplers || [u.sampler || 'euler'], u.sampler || 'euler');
+    fill('scheduler', c.schedulers || ['default'], 'default');
+    fill('hires-up', (c.upscalers || [{ name: 'Latent' }]).map(x => x.name), 'Latent');
+    const loras = c.loras || [];
+    $('d-lora').hidden = !loras.length; $('lora-hint').textContent = loras.length ? `${loras.length} available` : '';
+    if (c.preview_modes) for (const o of $('preview').options) o.disabled = !c.preview_modes.includes(o.value);
+  }
+  function applyModelDefaults() {
+    const u = U();
+    $('steps').value = u.fixed_steps || u.steps || ''; $('cfg').value = u.cfg != null ? u.cfg : 1; $('imgcfg').value = '';
+    $('steps').disabled = !!u.fixed_steps;
+    $('steps-note').textContent = u.fixed_steps ? `fixed by this model` : '';
+    if (u.sampler && [...$('sampler').options].some(o => o.value === u.sampler)) $('sampler').value = u.sampler;
+    $('alpha-box').hidden = !u.alpha; if (!u.alpha) $('alpha').checked = false;
+    const e = document.querySelector('.tabs [data-mode="edit"]'); e.disabled = !u.edit;
+    e.title = u.edit ? '' : 'This model does not do instruction edits — use Inpaint or Image→Image';
+    if (!u.edit && S.mode === 'edit') setMode('img2img');
+    updateNotes();
+  }
+  $('model').onchange = async () => {
+    S.model = $('model').value; try { localStorage.setItem('studio-model', S.model); } catch (e) {}
+    applyModelDefaults(); applyCaps(); renderModelInfo();
+    const m = M();
+    if (m && m.state !== 'ready' && m.state !== 'loading') {
+      try { await api('/studio/models/load', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: S.model }) }); toast(`Loading ${m.label}…`); }
+      catch (e) { toast(`Could not load: ${e.message}`); }
+    }
+    refreshModels();
+  };
+  function setSrv(cls, text) { $('dot').className = 'dot ' + cls; $('srv').textContent = text; }
 
-  // ---------- references (source images) ----------
-  // Mode is EXPLICIT (the tabs set it). It used to be implied by "is an image attached", and the tabs
-  // were plain labels -- clicking "Edit" on a fresh page did nothing, which read as a broken UI.
+  // ---------- modes ----------
   function setMode(m) {
-    if (m) S.mode = m;
-    const edit = S.mode === 'edit';
-    $('m-gen').setAttribute('aria-selected', String(!edit)); $('m-edit').setAttribute('aria-selected', String(edit));
-    $('src').hidden = !edit;
-    $('m-gen').classList.toggle('on', !edit); $('m-edit').classList.toggle('on', edit);
-    $('go').textContent = edit ? 'Apply edit' : 'Generate';
-    $('prompt').placeholder = edit ? 'Describe the change — e.g. "make it night, keep everything else the same"' : 'Describe the image you want…';
-    $('src-note').textContent = !S.refs.length ? 'add the image to edit' : (S.refs.length > 1 ? `${S.refs.length} references — mention them as image 1, image 2…` : 'editing this image');
-    renderRefs(); renderSizes();
+    if (m === 'edit' && !U().edit) { toast('This model does not do instruction edits — try Inpaint or Image→Image'); return; }
+    S.mode = m;
+    document.querySelectorAll('.tabs button').forEach(b => { const on = b.dataset.mode === m; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
+    $('src').hidden = m === 'gen';
+    $('src-label').textContent = MODE[m].label; $('tabnote').textContent = MODE[m].note; $('tabnote').hidden = !MODE[m].note;
+    $('go').textContent = MODE[m].go;
+    $('strength-box').hidden = !(m === 'img2img' || m === 'inpaint');
+    if (m === 'inpaint') $('strength').value = 1; else if (m === 'img2img' && Number($('strength').value) === 1) $('strength').value = 0.65;
+    $('strength-val').textContent = Number($('strength').value).toFixed(2);
+    $('prompt').placeholder = ({ gen: 'Describe the image you want…', edit: 'Describe the change — e.g. "make it night, keep everything else"', inpaint: 'Describe what should appear in the painted area', img2img: 'Describe the target look' })[m];
+    if (m !== 'gen' && sources().length) S.size = 'auto';
+    if (m === 'gen' && S.size === 'auto') S.size = 'sq';
+    renderRefs(); renderSizes(); renderPaint(); updateNotes();
   }
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+    if (b.disabled) return; setMode(b.dataset.mode);
+    if (b.dataset.mode !== 'gen' && !sources().length) $('file').click();
+  });
+  $('strength').oninput = () => { $('strength-val').textContent = Number($('strength').value).toFixed(2); };
+
+  // ---------- sources ----------
+  const sources = () => S.mode === 'edit' ? S.refs : (S.init ? [S.init] : []);
   function renderRefs() {
-    const box = $('refs'); box.innerHTML = '';
-    S.refs.forEach((r, i) => {
+    const box = $('refs'); box.innerHTML = ''; const list = sources();
+    list.forEach((r, i) => {
       const d = document.createElement('div'); d.className = 'ref';
-      d.innerHTML = `<img alt=""><button title="Remove">×</button>${S.refs.length > 1 ? `<span>image ${i + 1}</span>` : ''}`;
+      d.innerHTML = `<img alt=""><button title="Remove" type="button">×</button>${list.length > 1 ? `<span>image ${i + 1}</span>` : ''}`;
       d.querySelector('img').src = r.url;
-      d.querySelector('button').onclick = () => { S.refs.splice(i, 1); setMode(); };
+      d.querySelector('button').onclick = () => { if (S.mode === 'edit') S.refs.splice(i, 1); else S.init = null; renderRefs(); renderSizes(); renderPaint(); };
       box.appendChild(d);
     });
+    $('src-note').textContent = list.length ? `${list[0].w}×${list[0].h}` : 'required';
   }
-  function addRefFromDataUrl(url) {
-    if (S.refs.length >= 3) { toast('Up to 3 reference images'); return; }
+  function addImage(url, forMode) {
     const im = new Image();
-    im.onload = () => { S.refs.push({ url, w: im.naturalWidth, h: im.naturalHeight }); setMode('edit'); };
-    im.onerror = () => toast('That file is not an image I can read');
-    im.src = url;
+    im.onload = () => {
+      const r = { url, w: im.naturalWidth, h: im.naturalHeight };
+      if (forMode) setMode(forMode); else if (S.mode === 'gen') setMode(U().edit ? 'edit' : 'img2img');
+      if (S.mode === 'edit') { if (S.refs.length >= 3) { toast('Up to 3 reference images'); return; } S.refs.push(r); }
+      else { S.init = r; S.maskDirty = false; }
+      S.size = 'auto'; renderRefs(); renderSizes(); renderPaint();
+    };
+    im.onerror = () => toast('That file is not an image I can read'); im.src = url;
   }
-  function addFiles(files) {
-    for (const f of files) {
-      if (!f.type.startsWith('image/')) continue;
-      const rd = new FileReader(); rd.onload = () => addRefFromDataUrl(rd.result); rd.readAsDataURL(f);
-    }
-  }
+  function addFiles(files) { for (const f of files) { if (!f.type.startsWith('image/')) continue; const rd = new FileReader(); rd.onload = () => addImage(rd.result); rd.readAsDataURL(f); } }
   const drop = $('drop');
   drop.onclick = () => $('file').click();
   drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
@@ -305,151 +480,259 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
-  document.addEventListener('paste', e => { const fs = [...(e.clipboardData && e.clipboardData.files || [])]; if (fs.length) { addFiles(fs); toast('Image pasted as source'); } });
+  document.addEventListener('paste', e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) { addFiles(fs); toast('Image pasted'); } });
+
+  // ---------- sizes ----------
+  function renderSizes() {
+    const box = $('sizes'); box.innerHTML = ''; const hasSrc = S.mode !== 'gen' && sources().length > 0;
+    if (S.size === 'auto' && !hasSrc) S.size = 'sq';
+    for (const s of SIZES) {
+      if (s.src && !hasSrc) continue;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (S.size === s.k ? ' on' : ''); b.textContent = s.label;
+      b.onclick = () => { S.size = s.k; if (s.k === 'custom' && !$('cw').value) { const [w, h] = dims(); $('cw').value = w; $('ch').value = h; } renderSizes(); }; box.appendChild(b);
+    }
+    $('custom').hidden = S.size !== 'custom';
+    const [w, h] = dims(); $('size-note').textContent = `${w}×${h}`;
+  }
+  $('cw').oninput = $('ch').oninput = () => { const [w, h] = dims(); $('size-note').textContent = `${w}×${h}`; };
+  function dims() {
+    if (S.size === 'custom') return [snap(num('cw', 1024)), snap(num('ch', 1024))];
+    const s = SIZES.find(x => x.k === S.size) || SIZES[1];
+    if (s.k !== 'auto') return [s.w, s.h];
+    const r = sources()[0]; if (!r) return [1024, 1024];
+    // keep the source's aspect and pixel count, clamped to [512², 1.25 MP]
+    const ar = r.w / r.h, area = Math.min(1.25 * 1024 * 1024, Math.max(512 * 512, r.w * r.h));
+    const w = Math.sqrt(area * ar); return [snap(w), snap(w / ar)];
+  }
+
+  // ---------- inpaint mask painter ----------
+  const mc = $('mask'), mctx = mc.getContext('2d', { willReadFrequently: true }); let erasing = false, drawing = false, last = null;
+  function renderPaint() {
+    const on = S.mode === 'inpaint' && !!S.init && !S.job;
+    $('paint').hidden = !on; $('paintbar').hidden = !on;
+    if (on) {
+      $('view').hidden = true; $('empty').hidden = true;
+      const pi = $('paint-img');
+      if (pi.dataset.src !== S.init.url) {
+        pi.dataset.src = S.init.url; pi.src = S.init.url;
+        mc.width = S.init.w; mc.height = S.init.h; mctx.clearRect(0, 0, mc.width, mc.height); S.maskDirty = false;
+      }
+    } else if (S.current) { $('view').hidden = false; $('empty').hidden = true; }
+    else if (!S.job) { $('view').hidden = true; $('empty').hidden = false; }
+  }
+  const pos = e => { const r = mc.getBoundingClientRect(); return [(e.clientX - r.left) * mc.width / r.width, (e.clientY - r.top) * mc.height / r.height]; };
+  function stroke(a, b) {
+    const scale = mc.width / Math.max(1, mc.getBoundingClientRect().width);
+    mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+    mctx.strokeStyle = 'rgba(249,115,22,.55)'; mctx.lineCap = mctx.lineJoin = 'round'; mctx.lineWidth = Number($('brush').value) * scale;
+    mctx.beginPath(); mctx.moveTo(a[0], a[1]); mctx.lineTo(b[0] + 0.01, b[1]); mctx.stroke(); S.maskDirty = true;
+  }
+  mc.addEventListener('pointerdown', e => { drawing = true; mc.setPointerCapture(e.pointerId); last = pos(e); stroke(last, last); });
+  mc.addEventListener('pointermove', e => { if (!drawing) return; const p = pos(e); stroke(last, p); last = p; });
+  ['pointerup', 'pointercancel'].forEach(ev => mc.addEventListener(ev, () => { drawing = false; }));
+  const setTool = er => { erasing = er; $('m-paint').classList.toggle('on', !er); $('m-erase').classList.toggle('on', er); };
+  $('m-paint').onclick = () => setTool(false);
+  $('m-erase').onclick = () => setTool(true);
+  $('m-clear').onclick = () => { mctx.clearRect(0, 0, mc.width, mc.height); S.maskDirty = false; };
+  $('m-invert').onclick = () => {
+    const d = mctx.getImageData(0, 0, mc.width, mc.height);
+    for (let i = 3; i < d.data.length; i += 4) { const on = d.data[i] > 10; d.data[i - 3] = 249; d.data[i - 2] = 115; d.data[i - 1] = 22; d.data[i] = on ? 0 : 140; }
+    mctx.putImageData(d, 0, 0); S.maskDirty = true;
+  };
+  // sd.cpp mask semantics: white = repaint, black = keep (measured 2026-10-15)
+  function exportMask() {
+    const out = document.createElement('canvas'); out.width = mc.width; out.height = mc.height;
+    const o = out.getContext('2d'); o.fillStyle = '#000'; o.fillRect(0, 0, out.width, out.height);
+    const src = mctx.getImageData(0, 0, mc.width, mc.height), dst = o.getImageData(0, 0, out.width, out.height);
+    for (let i = 3; i < src.data.length; i += 4) if (src.data[i] > 10) { dst.data[i - 3] = dst.data[i - 2] = dst.data[i - 1] = 255; }
+    o.putImageData(dst, 0, 0); return out.toDataURL('image/png');
+  }
+
+  // ---------- LoRA ----------
+  $('lora-add').onclick = () => {
+    const list = (S.caps[S.model] || {}).loras || []; if (!list.length) return;
+    const row = document.createElement('div'); row.className = 'lora-row';
+    row.innerHTML = `<select>${list.map(l => `<option value="${esc(l.path || l.name)}">${esc(l.name)}</option>`).join('')}</select><input type="number" value="1" step="0.05"><button class="mini" type="button">×</button>`;
+    row.querySelector('button').onclick = () => row.remove(); $('loras').appendChild(row);
+  };
+  const loraList = () => [...$('loras').children].map(r => ({ path: r.querySelector('select').value, multiplier: Number(r.querySelector('input').value) || 1 }));
+
+  // ---------- notes ----------
+  function updateNotes() {
+    const u = U(); const cfg = num('cfg', u.cfg || 1); const neg = $('neg').value.trim();
+    $('neg-note').textContent = cfg <= 1 ? 'inactive at CFG 1' : `active (CFG ${cfg})`;
+    let n = u.note || '';
+    if (neg && cfg <= 1) n = 'Your negative prompt is IGNORED at CFG 1 — raise CFG (e.g. 2–3) for it to work; that roughly doubles the time. ' + n;
+    $('cfg-note').textContent = n; $('cfg-note').className = 'note' + (neg && cfg <= 1 ? ' warn' : '');
+    $('samp-hint').textContent = `${u.fixed_steps ? u.fixed_steps + ' (fixed)' : num('steps', u.steps || '?')} steps · CFG ${cfg}`;
+    $('hires-hint').textContent = $('hires').checked ? `×${$('hires-scale').value}` : 'off';
+  }
+  ['cfg', 'neg', 'steps', 'hires', 'hires-scale'].forEach(id => $(id).addEventListener('input', updateNotes));
+  $('hires').addEventListener('change', updateNotes);
+  $('seed-rnd').onclick = e => { e.preventDefault(); $('seed').value = ''; $('lock').checked = false; toast('Seed will be random'); };
 
   // ---------- run ----------
-  async function run() {
-    if (S.job) return;
+  function collect() {
+    const u = U(); const [w, h] = dims();
     let prompt = $('prompt').value.trim();
-    if (!prompt) { $('prompt').focus(); toast('Write a prompt first'); return; }
-    const edit = S.mode === 'edit';
-    if (edit && !S.refs.length) { toast('Add the image to edit first'); $('file').click(); return; }
     if ($('alpha').checked) prompt = `This is an RGBA image with transparency. ${prompt}. The image has alpha channel and the background is transparent.`;
-    const [w, h] = dims();
     let seed;
     if ($('seed').value !== '') seed = parseInt($('seed').value, 10);
     else if ($('lock').checked && S.lastSeed != null) seed = S.lastSeed;
     else seed = Math.floor(Math.random() * 2147483647);
-    const body = { prompt, width: w, height: h, seed, batch_count: 1, output_format: $('fmt').value, preview: 'proj', preview_interval: 1 };
-    if (edit) body.ref_images = S.refs.map(r => r.url);
-    if ($('steps').value) body.sample_params = Object.assign({}, S.defaults.sample_params || {}, { sample_steps: parseInt($('steps').value, 10) });
-
-    let r;
-    try {
-      r = await fetch('/sdcpp/v1/img_gen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (e) { failed('Server unreachable — it may be restarting; try again in a few seconds.'); return; }
-    if (!r.ok) { failed(`Server refused the job (HTTP ${r.status}): ${(await r.text()).slice(0, 200)}`); return; }
-    const j = await r.json();
-    S.job = { id: j.id, prompt: $('prompt').value.trim(), mode: edit ? 'edit' : 'gen', seed, w, h, fmt: body.output_format, refs: edit ? S.refs.map(x => x.url) : [] };
-    S.started = Date.now(); S.lastSeed = seed;
-    busy(true); $('st-status').textContent = 'Queued…'; $('st-seed').innerHTML = `seed <b>${seed}</b>`;
+    const guidance = { txt_cfg: num('cfg', u.cfg || 1) };
+    if ($('imgcfg').value !== '') guidance.img_cfg = num('imgcfg');
+    const sp = { sample_method: $('sampler').value || u.sampler || 'euler', scheduler: $('scheduler').value || 'default', guidance };
+    if (!u.fixed_steps && $('steps').value !== '') sp.sample_steps = num('steps');
+    if ($('shift').value !== '') sp.flow_shift = num('shift');
+    if ($('eta').value !== '') sp.eta = num('eta');
+    const body = {
+      model: S.model, prompt, negative_prompt: $('neg').value.trim(), width: w, height: h, seed,
+      batch_count: Number($('batch').value), sample_params: sp,
+      output_format: $('fmt').value, output_compression: num('quality', 95), embed_image_metadata: $('meta').checked,
+      preview: $('preview').value, preview_interval: 1, cache_mode: $('cache').value,
+      vae_tiling_params: { enabled: $('vaetile').checked },
+    };
+    const loras = loraList(); if (loras.length) body.lora = loras;
+    if ($('hires').checked) body.hires = { enabled: true, upscaler: $('hires-up').value || 'Latent', scale: num('hires-scale', 1.5), steps: num('hires-steps', 0), denoising_strength: num('hires-den', 0.5) };
+    if (S.mode === 'edit') body.ref_images = S.refs.map(r => r.url);
+    if (S.mode === 'img2img' || S.mode === 'inpaint') { body.init_image = S.init.url; body.strength = Number($('strength').value); }
+    if (S.mode === 'inpaint') body.mask_image = exportMask();
+    return body;
+  }
+  async function run() {
+    if (S.job) return;
+    const m = M();
+    if (!m || m.state !== 'ready') { toast(m && m.state === 'loading' ? 'Model is still loading…' : 'Select a model first'); return; }
+    if (!$('prompt').value.trim()) { $('prompt').focus(); toast('Write a prompt first'); return; }
+    if (S.mode !== 'gen' && !sources().length) { toast('Add an image first'); $('file').click(); return; }
+    if (S.mode === 'inpaint' && !S.maskDirty) { toast('Paint the area to change first'); return; }
+    const body = collect();
+    let j;
+    try { j = await api('/sdcpp/v1/img_gen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+    catch (e) { failed(`Could not start: ${e.message}`); return; }
+    const settings = Object.assign({}, body); delete settings.init_image; delete settings.ref_images; delete settings.mask_image;
+    S.job = { id: j.id, mode: S.mode, model: S.model, settings, uiPrompt: $('prompt').value.trim(), seed: body.seed, w: body.width, h: body.height };
+    S.started = Date.now(); S.lastSeed = body.seed;
+    busy(true); $('st-status').textContent = 'Queued…'; $('st-seed').innerHTML = `seed <b>${body.seed}</b>`;
+    renderPaint();
     poll();
   }
   async function poll() {
     if (!S.job) return;
     let s;
-    try { s = await (await fetch(`/sdcpp/v1/jobs/${S.job.id}`, { cache: 'no-store' })).json(); }
-    catch (e) { S.polling = setTimeout(poll, 2000); $('st-status').textContent = 'Connection lost — still waiting…'; return; }
-    const el = (Date.now() - S.started) / 1000;
-    $('st-time').innerHTML = `elapsed <b>${fmtTime(el)}</b>`;
-    if (s.status === 'queued') { $('st-status').innerHTML = `Queued — position <b>${s.queue_position}</b>`; }
+    try { s = await api(`/sdcpp/v1/jobs/${S.job.id}`); }
+    catch (e) {
+      if (/unknown or expired|belonged to/.test(e.message)) { S.job = null; busy(false); failed(e.message); return; }
+      $('st-status').textContent = 'Connection lost — still waiting…'; setTimeout(poll, 2000); return;
+    }
+    const el = (Date.now() - S.started) / 1000; $('st-time').innerHTML = `elapsed <b>${fmtTime(el)}</b>`;
+    if (s.status === 'queued') $('st-status').innerHTML = `Queued — position <b>${s.queue_position}</b>`;
     else if (s.status === 'generating') {
       if (s.preview && s.preview.b64_json) {
         show(`data:image/png;base64,${s.preview.b64_json}`, true);
-        const p = s.preview.step / Math.max(1, s.preview.total_steps);
-        $('bar').style.width = `${Math.round(p * 92)}%`;
-        $('st-status').innerHTML = `${S.job.mode === 'edit' ? 'Editing' : 'Generating'} — step <b>${s.preview.step}/${s.preview.total_steps}</b>`;
-      } else { $('st-status').textContent = S.job.mode === 'edit' ? 'Reading the source image…' : 'Encoding the prompt…'; $('bar').style.width = '4%'; }
-    }
-    else if (s.status === 'completed' && s.result && s.result.images && s.result.images.length) {
+        $('bar').style.width = `${Math.round(s.preview.step / Math.max(1, s.preview.total_steps) * 92)}%`;
+        $('st-status').innerHTML = `${MODE[S.job.mode].doing}${s.preview.pass > 1 ? ` (pass ${s.preview.pass})` : ''} — step <b>${s.preview.step}/${s.preview.total_steps}</b>`;
+      } else { $('st-status').textContent = S.job.mode === 'gen' ? 'Encoding the prompt…' : 'Reading the image…'; $('bar').style.width = '4%'; }
+    } else if (s.status === 'completed' && s.result && s.result.images && s.result.images.length) {
       const mime = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' }[s.result.output_format] || 'image/png';
-      const url = `data:${mime};base64,${s.result.images[0].b64_json}`;
-      const item = { id: S.job.id, url, prompt: S.job.prompt, mode: S.job.mode, seed: S.job.seed, w: S.job.w, h: S.job.h, fmt: s.result.output_format, secs: el, at: Date.now() };
-      S.job = null; busy(false); $('bar').style.width = '100%'; setTimeout(() => $('bar').style.width = '0', 600);
-      select(item); S.history.unshift(item); renderHistory(); save(item);
-      $('st-status').innerHTML = `<b>Done</b>`; $('st-time').innerHTML = `took <b>${fmtTime(el)}</b>`;
+      const job = S.job;
+      const items = s.result.images.map((im, i) => ({
+        id: `${job.id}-${i}`, url: `data:${mime};base64,${im.b64_json}`, prompt: job.uiPrompt, mode: job.mode, model: job.model,
+        settings: job.settings, seed: job.seed + i, w: job.w, h: job.h, fmt: s.result.output_format, secs: el, at: Date.now() + i,
+      }));
+      S.job = null; $('bar').style.width = '100%'; setTimeout(() => $('bar').style.width = '0', 600);
+      S.batch = items; renderBatch(); select(items[0]); busy(false);
+      for (const it of items.slice().reverse()) { S.history.unshift(it); save(it); }
+      renderHistory(); $('st-status').innerHTML = '<b>Done</b>'; $('st-time').innerHTML = `took <b>${fmtTime(el)}</b>`;
       return;
-    }
-    else if (s.status === 'failed' || s.status === 'cancelled') {
+    } else if (s.status === 'failed' || s.status === 'cancelled') {
       const msg = s.status === 'cancelled' ? 'Cancelled.' : `Failed: ${(s.error && s.error.message) || 'unknown error'}`;
       S.job = null; busy(false); $('bar').style.width = '0'; failed(msg, s.status === 'cancelled'); return;
     }
-    S.polling = setTimeout(poll, 900);
+    setTimeout(poll, 900);
   }
-  function failed(msg, quiet) { $('st-status').innerHTML = quiet ? msg : `<span class="error">${msg}</span>`; if (S.current) show(S.current.url); }
+  function failed(msg, quiet) { $('st-status').innerHTML = quiet ? esc(msg) : `<span class="error">${esc(msg)}</span>`; if (S.current) show(S.current.url); renderPaint(); }
   function busy(on) {
-    $('go').disabled = on; $('a-cancel').hidden = !on;
-    ['a-edit', 'a-again', 'a-dl'].forEach(id => $(id).disabled = on || !S.current);
-    setSrv(on ? 'busy' : 'ok', on ? 'working' : 'online');
+    $('go').disabled = on; $('a-cancel').hidden = !on; $('model').disabled = on;
+    ['a-edit', 'a-inpaint', 'a-i2i', 'a-again', 'a-reuse', 'a-dl'].forEach(id => $(id).disabled = on || !S.current);
+    if (!on && S.current) $('a-edit').disabled = !U().edit;
+    if (on) setSrv('busy', 'working'); else refreshModels();
   }
-  $('a-cancel').onclick = async () => { if (!S.job) return; try { await fetch(`/sdcpp/v1/jobs/${S.job.id}/cancel`, { method: 'POST' }); } catch (e) {} $('st-status').textContent = 'Cancelling…'; };
+  $('a-cancel').onclick = async () => { if (!S.job) return; try { await api(`/sdcpp/v1/jobs/${S.job.id}/cancel`, { method: 'POST' }); } catch (e) {} $('st-status').textContent = 'Cancelling…'; };
 
-  // ---------- view ----------
+  // ---------- view / results ----------
   function show(url, preview) {
-    const v = $('view'); v.src = url; v.hidden = false; v.classList.toggle('preview', !!preview); $('empty').hidden = true;
-    // The live preview is a latent projection at 1/16 of the output size; stretch it to the target
-    // dimensions (CSS max-width/max-height still fit it to the panel). Final images use natural size.
-    // Same box the final image will get: no wider than its pixels, the panel, or the height budget.
-    if (preview && S.job) { v.style.width = `min(${S.job.w}px, 100%, calc((100vh - 290px) * ${S.job.w / S.job.h}))`; v.style.aspectRatio = `${S.job.w} / ${S.job.h}`; }
+    const v = $('view'); v.src = url; v.hidden = false; v.classList.toggle('preview', !!preview); $('empty').hidden = true; $('paint').hidden = true; $('paintbar').hidden = true;
+    if (preview && S.job) { v.style.width = `min(${S.job.w}px, 100%, calc((100vh - 300px) * ${S.job.w / S.job.h}))`; v.style.aspectRatio = `${S.job.w} / ${S.job.h}`; }
     else { v.style.width = ''; v.style.aspectRatio = ''; }
   }
   function select(item) {
     S.current = item; show(item.url);
-    ['a-edit', 'a-again', 'a-dl'].forEach(id => $(id).disabled = !!S.job);
-    $('st-seed').innerHTML = `seed <b>${item.seed}</b> · ${item.w}×${item.h} · ${item.mode === 'edit' ? 'edit' : 'generated'}`;
+    ['a-edit', 'a-inpaint', 'a-i2i', 'a-again', 'a-reuse', 'a-dl'].forEach(id => $(id).disabled = !!S.job);
+    $('a-edit').disabled = !!S.job || !U().edit;
+    const mm = S.models.find(x => x.id === item.model);
+    $('st-seed').innerHTML = `seed <b>${item.seed}</b> · ${item.w}×${item.h} · ${esc(item.mode)} · ${esc(mm ? mm.label : item.model)}`;
     document.querySelectorAll('.thumb').forEach(t => t.classList.toggle('on', t.dataset.id === item.id));
+    document.querySelectorAll('#batchrow img').forEach(t => t.classList.toggle('on', t.dataset.id === item.id));
   }
-  $('a-edit').onclick = () => {
-    if (!S.current) return;
-    S.refs = []; addRefFromDataUrl(S.current.url); renderSizes.touched = false;
-    $('prompt').value = ''; $('prompt').focus(); toast('Now describe the change');
+  function renderBatch() {
+    const row = $('batchrow'); row.innerHTML = ''; row.hidden = S.batch.length < 2;
+    for (const it of S.batch) { const im = document.createElement('img'); im.src = it.url; im.dataset.id = it.id; im.onclick = () => select(it); row.appendChild(im); }
+  }
+  const useAs = mode => {
+    if (!S.current) return; const c = S.current;
+    if (mode === 'edit') S.refs = [];
+    addImage(c.url, mode); $('prompt').value = ''; $('prompt').focus();
+    toast(mode === 'inpaint' ? 'Paint the area to change, then describe it' : 'Now describe the change');
   };
-  $('a-again').onclick = () => {
-    if (!S.current) return; $('prompt').value = S.current.prompt; $('seed').value = ''; $('lock').checked = false; run();
-  };
+  $('a-edit').onclick = () => useAs('edit');
+  $('a-inpaint').onclick = () => useAs('inpaint');
+  $('a-i2i').onclick = () => useAs('img2img');
+  $('a-again').onclick = () => { if (!S.current) return; reuse(S.current, true); $('seed').value = ''; $('lock').checked = false; run(); };
+  $('a-reuse').onclick = () => { if (S.current) { reuse(S.current); toast('Prompt and settings loaded'); } };
+  function reuse(it, keepSeed) {
+    const st = it.settings || {}; $('prompt').value = it.prompt || ''; $('neg').value = st.negative_prompt || '';
+    if (it.model && it.model !== S.model && S.models.some(x => x.id === it.model)) { $('model').value = it.model; $('model').onchange(); }
+    const sp = st.sample_params || {};
+    if (sp.sample_steps != null && !U().fixed_steps) $('steps').value = sp.sample_steps;
+    if (sp.guidance) { $('cfg').value = sp.guidance.txt_cfg; $('imgcfg').value = sp.guidance.img_cfg != null ? sp.guidance.img_cfg : ''; }
+    if (sp.sample_method) $('sampler').value = sp.sample_method; if (sp.scheduler) $('scheduler').value = sp.scheduler;
+    $('shift').value = sp.flow_shift != null ? sp.flow_shift : ''; $('eta').value = sp.eta != null ? sp.eta : '';
+    if (st.cache_mode) $('cache').value = st.cache_mode;
+    $('hires').checked = !!(st.hires && st.hires.enabled);
+    if (!keepSeed) $('seed').value = it.seed;
+    S.size = 'custom'; $('cw').value = it.w; $('ch').value = it.h; renderSizes(); updateNotes();
+  }
   $('a-dl').onclick = () => {
-    if (!S.current) return;
-    const a = document.createElement('a'); a.href = S.current.url;
-    const slug = S.current.prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40).replace(/^-|-$/g, '') || 'image';
-    a.download = `${slug}-${S.current.seed}.${S.current.fmt === 'jpeg' ? 'jpg' : S.current.fmt}`; a.click();
+    if (!S.current) return; const a = document.createElement('a'); a.href = S.current.url;
+    const slug = (S.current.prompt || 'image').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40).replace(/^-|-$/g, '') || 'image';
+    a.download = `${slug}-${S.current.seed}.${S.current.fmt === 'jpeg' ? 'jpg' : S.current.fmt || 'png'}`; a.click();
   };
   $('go').onclick = run;
-  $('m-gen').onclick = () => setMode('gen');
-  $('m-edit').onclick = () => { setMode('edit'); if (!S.refs.length) $('file').click(); };
   $('prompt').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
 
-  // ---------- history (IndexedDB: per-browser, survives reloads; never required) ----------
+  // ---------- history (IndexedDB, per browser) ----------
   function renderHistory() {
     const box = $('strip'); box.innerHTML = '';
-    for (const it of S.history.slice(0, 60)) {
+    for (const it of S.history.slice(0, 80)) {
       const d = document.createElement('div'); d.className = 'thumb' + (S.current && S.current.id === it.id ? ' on' : ''); d.dataset.id = it.id;
-      d.title = it.prompt; d.innerHTML = `<img alt="" loading="lazy"><span>${it.mode === 'edit' ? 'EDIT' : 'GEN'}</span>`;
-      d.querySelector('img').src = it.url; d.onclick = () => select(it);
-      box.appendChild(d);
+      const mm = S.models.find(x => x.id === it.model); d.title = `${it.prompt || ''}\n${mm ? mm.label : it.model || ''}`;
+      d.innerHTML = `<img alt="" loading="lazy"><span>${esc(it.mode || 'gen')}</span>`;
+      d.querySelector('img').src = it.url; d.onclick = () => { S.batch = []; renderBatch(); select(it); }; box.appendChild(d);
     }
   }
   let db = null;
-  function openDb() {
-    return new Promise(res => {
-      try {
-        const rq = indexedDB.open('image-studio', 1);
-        rq.onupgradeneeded = () => rq.result.createObjectStore('items', { keyPath: 'id' });
-        rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null);
-      } catch (e) { res(null); }
-    });
-  }
-  function save(item) {
-    if (!db) return;
-    try {
-      const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').put(item);
-      // keep the newest 60
-      if (S.history.length > 60) for (const old of S.history.slice(60)) tx.objectStore('items').delete(old.id);
-    } catch (e) {}
-  }
-  $('clear').onclick = e => {
-    e.preventDefault(); if (!confirm('Clear the history stored in this browser?')) return;
-    S.history = []; renderHistory();
-    try { if (db) db.transaction('items', 'readwrite').objectStore('items').clear(); } catch (er) {}
-  };
-  openDb().then(d => {
-    db = d; if (!db) return;
-    try {
-      const rq = db.transaction('items').objectStore('items').getAll();
-      rq.onsuccess = () => { S.history = (rq.result || []).sort((a, b) => b.at - a.at); renderHistory(); if (S.history[0] && !S.current) select(S.history[0]); };
-    } catch (e) {}
-  });
+  function openDb() { return new Promise(res => { try { const rq = indexedDB.open('image-studio', 1); rq.onupgradeneeded = () => rq.result.createObjectStore('items', { keyPath: 'id' }); rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null); } catch (e) { res(null); } }); }
+  function save(it) { if (!db) return; try { const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').put(it); for (const o of S.history.slice(80)) tx.objectStore('items').delete(o.id); } catch (e) {} }
+  $('clear').onclick = e => { e.preventDefault(); if (!confirm('Clear the history stored in this browser?')) return; S.history = []; renderHistory(); try { if (db) db.transaction('items', 'readwrite').objectStore('items').clear(); } catch (er) {} };
+  openDb().then(d => { db = d; if (!db) return; try { const rq = db.transaction('items').objectStore('items').getAll(); rq.onsuccess = () => { S.history = (rq.result || []).sort((a, b) => b.at - a.at); renderHistory(); if (S.history[0] && !S.current) select(S.history[0]); }; } catch (e) {} });
 
-  setMode('gen');
+  // ---------- boot ----------
+  (async () => {
+    await refreshModels(); applyModelDefaults(); applyCaps(); setMode('gen');
+    const m = M(); if (m && (m.state === 'stopped' || m.state === 'failed') && !(m.missing && m.missing.length)) $('model').onchange();
+  })();
 })();
 </script>
 </body>

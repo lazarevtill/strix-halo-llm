@@ -42,6 +42,12 @@
 #>
 [CmdletBinding()]
 param(
+    # DEFAULT = ROUTER MODE: images-router.py on :Port serves Image Studio and switches between every model
+    # in image-models.json (one sd-server backend per model, several resident within -BudgetGB).
+    # -Single = the original one-model sd-server (the -Model below), kept as the rollback path.
+    [switch] $Single,
+    [string] $Preload   = 'default',    # router: model to start at launch ('default', an id, or 'none')
+    [double] $BudgetGB  = 88,           # router: GPU memory it may reserve for backends (of ~109 usable)
     [ValidateSet('base', 'turbo', 'base-q8', 'turbo-q8')]
     [string] $Model     = 'turbo-q8',
     [int]    $Port      = 8080,   # replaces the LLM on the same port (LAN firewall rule already exists)
@@ -67,6 +73,54 @@ $exe = Join-Path $binDir 'sd-server.exe'
 $modelsDir = if ($env:MODELS_DIR) { $env:MODELS_DIR } else { Join-Path $repoRoot 'models' }
 $logDir = Join-Path $repoRoot 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+function Supervise([string]$Exe, [object[]]$ArgList, [string]$Tag, [string]$Prune) {
+    # Run, restart on exit, back off (never give up) after too many exits. The process is either the router
+    # (which itself restarts its backends) or, with -Single, sd-server directly.
+    $restarts = New-Object System.Collections.ArrayList
+    while ($true) {
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $out = Join-Path $logDir "$Tag-$stamp.out"; $err = Join-Path $logDir "$Tag-$stamp.err"
+        Get-ChildItem $logDir -Filter $Prune | Sort-Object LastWriteTime -Descending | Select-Object -Skip 10 | ForEach-Object {
+            Remove-Item $_.FullName -Force -EA SilentlyContinue; Remove-Item ([IO.Path]::ChangeExtension($_.FullName, '.out')) -Force -EA SilentlyContinue }
+        $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
+        Write-Host ("{0:s}  {1} PID {2} started (logs: {3})" -f (Get-Date), $Tag, $p.Id, $out)
+        if ($Once) { exit 0 }
+        $p.WaitForExit()
+        Write-Warning ("{0:s}  {1} exited (code {2})" -f (Get-Date), $Tag, $p.ExitCode)
+        $null = $restarts.Add((Get-Date))
+        $recent = @($restarts | Where-Object { $_ -gt (Get-Date).AddHours(-1) }).Count
+        if ($recent -gt $MaxRestartsPerHour) {
+            # BACK OFF, never give up: a hard exit would leave :$Port dead until the next logon.
+            Write-Warning ("{0:s}  {1} exited {2} times in the last hour -- backing off 15 min. See {3}" -f (Get-Date), $Tag, $recent, $err)
+            Start-Sleep -Seconds 900
+            $restarts.Clear()
+            continue
+        }
+        Start-Sleep -Seconds 10
+    }
+}
+
+if (-not $Single) {
+    # ---- ROUTER MODE ----------------------------------------------------------------------------------
+    # Resolve python to an ABSOLUTE path now (the Startup launcher's environment is the one that matters),
+    # and run it isolated (-I) so nothing in the working directory can shadow a stdlib module.
+    $py = $null
+    foreach ($c in 'python', 'py') { $cmd = Get-Command $c -EA SilentlyContinue | Where-Object { $_.Source -notlike '*\WindowsApps\*' } | Select-Object -First 1; if ($cmd) { $py = $cmd.Source; break } }
+    if (-not $py) { Write-Error 'Python 3 not found (needed for images-router.py). Install it, or run with -Single.'; exit 1 }
+    $router = Join-Path $PSScriptRoot 'images-router.py'
+    $ra = @('-I', $router, '--port', $Port, '--bind', $Bind, '--sd-server', $exe, '--models-dir', $modelsDir,
+            '--budget-gb', $BudgetGB, '--preload', $Preload, '--log-dir', $logDir)
+    if ($Ui -and $Ui -ne 'auto') { $ra += @('--ui', $Ui) }
+    Write-Host "images-router -> http://${Bind}:$Port  (Image Studio at /, models from image-models.json, budget $BudgetGB GB)" -ForegroundColor Cyan
+    Write-Host "  python : $py"
+    Write-Host "  engine : $exe"
+    if ($DryRun) { Write-Host "`n[DryRun] $py $($ra -join ' ')" -ForegroundColor DarkGray; exit 0 }
+    if (-not (Test-Path $exe)) { Write-Error "sd-server.exe not found: $exe"; exit 1 }
+    $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -EA SilentlyContinue
+    if ($busy) { Write-Error "port $Port is already in use by PID $($busy[0].OwningProcess)"; exit 1 }
+    Supervise $py $ra 'images-router' 'images-router-*.err'
+}
 
 $diffusion = @{
     'base'    = 'qwen_image_2.1_bf16.safetensors'
@@ -110,30 +164,5 @@ foreach ($k in $files.Keys) {
 $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -EA SilentlyContinue
 if ($busy) { Write-Error "port $Port is already in use by PID $($busy[0].OwningProcess)"; exit 1 }
 
-# ---- supervise: run, and restart on exit (sd-server never reloads itself) ------------------------
-$restarts = New-Object System.Collections.ArrayList
-while ($true) {
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $out = Join-Path $logDir "images-$stamp.out"; $err = Join-Path $logDir "images-$stamp.err"
-    # keep the newest 10 launches
-    Get-ChildItem $logDir -Filter 'images-*.err' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 10 | ForEach-Object {
-        Remove-Item $_.FullName -Force -EA SilentlyContinue; Remove-Item ([IO.Path]::ChangeExtension($_.FullName, '.out')) -Force -EA SilentlyContinue }
-    $p = Start-Process -FilePath $exe -ArgumentList $a -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
-    Write-Host ("{0:s}  sd-server PID {1} started (logs: {2})" -f (Get-Date), $p.Id, $err)
-    if ($Once) { exit 0 }
-    $p.WaitForExit()
-    $code = $p.ExitCode
-    Write-Warning ("{0:s}  sd-server exited (code {1})" -f (Get-Date), $code)
-    $null = $restarts.Add((Get-Date))
-    $recent = @($restarts | Where-Object { $_ -gt (Get-Date).AddHours(-1) }).Count
-    if ($recent -gt $MaxRestartsPerHour) {
-        # BACK OFF, never give up. A client can crash sd-server on demand (the edits + extra_args abort
-        # above), so a hard exit here would let six bad requests take :8080 down until the next logon --
-        # and with no exporter or watchdog running, nobody would see it. Wait, then try again.
-        Write-Warning ("{0:s}  sd-server exited {1} times in the last hour -- backing off 15 min. See {2}" -f (Get-Date), $recent, $err)
-        Start-Sleep -Seconds 900
-        $restarts.Clear()
-        continue
-    }
-    Start-Sleep -Seconds 10
-}
+# ---- SINGLE MODE: supervise sd-server directly ------------------------------------------------------
+Supervise $exe $a 'images' 'images-2*.err'

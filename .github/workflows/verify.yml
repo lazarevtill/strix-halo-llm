@@ -61,7 +61,7 @@ jobs:
           python-version: '3.12'
 
       - name: py_compile
-        run: python -m py_compile evals/*.py evals/code/*.py
+        run: python -m py_compile evals/*.py evals/code/*.py scripts/windows/*.py
 
       # A real self-test, not a smoke import: it asserts defines() and the
       # strict/rescued/best turn selection against the failure shapes that
