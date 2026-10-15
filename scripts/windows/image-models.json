@@ -6,7 +6,10 @@
     "the router reserves vram_gb + compute_gb per resident backend against its budget.",
     "ui: what the web UI should offer for this model (edit = takes ref_images instructions;",
     "fixed_steps = a --sigmas preset governs the step count, so a steps override is ignored).",
-    "family: the images_remote.FAMILIES recipe it belongs to -- decides which LoRAs fit (UI)."
+    "family: the images_remote.FAMILIES recipe it belongs to -- decides which LoRAs fit (UI).",
+    "kind: 'image' (default) or 'video' -- video models take /sdcpp/v1/vid_gen jobs (frames, fps, init/end image) and",
+    "return a webm/webp/avi; compute_gb overrides the registry-wide headroom (video activations are far bigger).",
+    "engine: optional sd-server path relative to the repo root, for a model the default build can't load."
   ],
   "default": "qwen-image-2.1-turbo",
   "compute_gb": 8,
@@ -176,6 +179,148 @@
         "width": 1024,
         "height": 1024,
         "note": "Turbo: 8 steps at CFG 1. The negative prompt needs CFG > 1 (about 2x the time)."
+      }
+    },
+    {
+      "id": "wan22-ti2v-turbo",
+      "label": "Wan 2.2 TI2V-5B Turbo (video)",
+      "kind": "video",
+      "family": "wan22-5b",
+      "description": "Text->video and image->video in one 5B model: 4 steps, 24 fps, 1280x704. A 2 s clip at full size takes ~1.5 min.",
+      "licence": "Apache-2.0",
+      "nsfw": false,
+      "vram_gb": 11.0,
+      "compute_gb": 16,
+      "files": {
+        "diffusion-model": "Wan2_2-TI2V-5B-Turbo-Q8_0.gguf",
+        "t5xxl": "umt5-xxl-encoder-Q8_0.gguf",
+        "tae": "taew2_2.safetensors"
+      },
+      "args": [
+        "--flash-attn",
+        "on",
+        "--temporal-tiling",
+        "--steps",
+        "4",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler",
+        "--flow-shift",
+        "5.0",
+        "--video-frames",
+        "49",
+        "--fps",
+        "24"
+      ],
+      "ui": {
+        "video": true,
+        "t2v": true,
+        "i2v": true,
+        "end_image": false,
+        "steps": 4,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 1280,
+        "height": 704,
+        "frames": 49,
+        "fps": 24,
+        "max_frames": 121,
+        "frame_step": 4,
+        "note": "Distilled: 4 steps at CFG 1. Frames are rounded to 4n+1 (49 = 2 s, 121 = 5 s at 24 fps). Decoded with the tiny TAEHV decoder: ~10x faster than the full Wan VAE here (92 s vs 705-972 s for 49 frames at 1280x704), slightly softer."
+      }
+    },
+    {
+      "id": "wan22-i2v-a14b",
+      "label": "Wan 2.2 I2V-A14B 4-step (video, quality)",
+      "kind": "video",
+      "family": "wan22-a14b",
+      "description": "Image->video with the 27B two-expert Wan 2.2 (lightx2v 4-step distill): the best motion here. ~9.5 min for 3 s at 832x480.",
+      "licence": "Apache-2.0",
+      "nsfw": false,
+      "vram_gb": 35.4,
+      "compute_gb": 16,
+      "files": {
+        "diffusion-model": "wan2.2_i2v_A14b_low_noise_lightx2v_4step_720p_260412-Q8_0.gguf",
+        "high-noise-diffusion-model": "wan2.2_i2v_A14b_high_noise_lightx2v_4step_720p_260412-Q8_0.gguf",
+        "t5xxl": "umt5-xxl-encoder-Q8_0.gguf",
+        "vae": "wan_2.1_vae.safetensors"
+      },
+      "args": [
+        "--flash-attn",
+        "on",
+        "--temporal-tiling",
+        "--steps",
+        "2",
+        "--high-noise-steps",
+        "2",
+        "--cfg-scale",
+        "1.0",
+        "--high-noise-cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler",
+        "--high-noise-sampling-method",
+        "euler",
+        "--flow-shift",
+        "5.0",
+        "--video-frames",
+        "49",
+        "--fps",
+        "16"
+      ],
+      "ui": {
+        "video": true,
+        "t2v": false,
+        "i2v": true,
+        "end_image": true,
+        "steps": 2,
+        "high_steps": 2,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 832,
+        "height": 480,
+        "frames": 49,
+        "fps": 16,
+        "max_frames": 81,
+        "frame_step": 4,
+        "note": "Distilled: 2 high-noise + 2 low-noise steps at CFG 1, 16 fps (49 frames = 3 s, 81 = 5 s). Measured: 832x480 x 49 frames = 565 s (190 s per expert + 126 s decode)."
+      }
+    },
+    {
+      "id": "flux3-klein",
+      "label": "FLUX.3 Image Klein",
+      "kind": "image",
+      "family": "flux3-klein",
+      "description": "Black Forest Labs' newest open model (Oct 2026): 5.6B, 16 steps at CFG 1, generation AND editing with up to 10 reference images.",
+      "licence": "FLUX Kommunity License (free commercial use under $5M revenue)",
+      "nsfw": false,
+      "engine": "bin-sd-master-968-8cd731e/sd-server.exe",
+      "vram_gb": 11.0,
+      "files": {
+        "diffusion-model": "flux3_image_klein_sd-Q8_0.gguf",
+        "llm": "Qwen3VL-4B-Instruct-Q8_0.gguf",
+        "vae": "flux2-vae.safetensors"
+      },
+      "args": [
+        "--steps",
+        "16",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler"
+      ],
+      "ui": {
+        "edit": true,
+        "alpha": false,
+        "max_refs": 10,
+        "steps": 16,
+        "cfg": 1,
+        "img_cfg": 1,
+        "sampler": "euler",
+        "width": 1024,
+        "height": 1024,
+        "note": "Distilled: 16 steps at CFG 1. Edit with up to 10 reference images (call them image 1, image 2...)."
       }
     }
   ]

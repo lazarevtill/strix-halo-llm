@@ -130,3 +130,7 @@ scripts/linux/router-models.generated.ini
 
 # Playwright MCP scratch output (browser snapshots/screenshots while testing the image UI)
 .playwright-mcp/
+
+# Image Studio results (images-router.py --outputs-dir): the owner's work, never published
+outputs/
+*.part

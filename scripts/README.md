@@ -17,7 +17,8 @@ scripts/
 │   ├── run-images.ps1      serve Qwen-Image-2.1 (text-to-image + edits) via stable-diffusion.cpp sd-server, supervised
 │   ├── images-router.py    the image router on :8080: one sd-server per model, LRU budget, OpenAI + native API
 │   ├── image-models.json   image-model registry (data only)
-│   ├── images-ui.html      Image Studio: Generate / Edit / Inpaint / Image→Image with a model picker
+│   ├── images_remote.py    "+ Add model": Hugging Face / CivitAI lookup, family detection, verified downloads
+│   ├── ui/                 Image Studio (index.html, studio.css, studio.js): images + video, queue, gallery
 │   ├── stage-nextgen.ps1   test-load a pending model on an ISOLATED port with a separate engine
 │   │                          build + the Vulkan determinism check (docs/ROADMAP.md)
 │   ├── bench-parallel.ps1  what `--parallel N` buys: aggregate vs per-request throughput

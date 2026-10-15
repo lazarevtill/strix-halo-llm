@@ -63,6 +63,12 @@ jobs:
       - name: py_compile
         run: python -m py_compile evals/*.py evals/code/*.py scripts/windows/*.py
 
+      # Image Studio: the script must parse, and the page must stay CSP-clean (no inline script/style/handlers).
+      - name: Image Studio checks
+        run: |
+          node --check scripts/windows/ui/studio.js
+          if grep -nE '<script>|<style|\sstyle=|\son[a-z]+=' scripts/windows/ui/index.html; then echo "inline script/style in ui/index.html breaks the CSP"; exit 1; fi
+
       # A real self-test, not a smoke import: it asserts defines() and the
       # strict/rescued/best turn selection against the failure shapes that
       # produced bugs 12 and 10. Needs no GPU, no Docker, no private cases.

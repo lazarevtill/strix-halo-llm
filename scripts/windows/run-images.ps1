@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Serve Qwen-Image-2.1 (text-to-image + image editing) over an OpenAI-compatible HTTP API, using
-  stable-diffusion.cpp's sd-server on Vulkan. Supervised: restarts the server if it exits.
+  Serve images and video on :8080: supervises images-router.py (one stable-diffusion.cpp sd-server per
+  model, Image Studio at /, see docs/IMAGES.md). -Single runs ONE sd-server (Qwen-Image-2.1) directly --
+  the original mode, kept as the rollback path; the notes below describe that mode.
 
 .DESCRIPTION
   Since 2026-10-15 this box serves IMAGES instead of an LLM. The engine is stable-diffusion.cpp
@@ -58,10 +59,10 @@ param(
     # this iGPU (stable-diffusion.cpp #2022). 90 assumes the box serves images ALONE (no LLM resident).
     [int]    $MaxVram = 90,
     [string[]] $Extra   = @(),          # passed through verbatim to sd-server
-    # The web page served at / : Image Studio (generation + editing in one view, live preview, history).
-    # '' = sd-server's built-in developer console instead.
-    # 'auto' resolves to images-ui.html next to this script. (Not a Join-Path default: under PS 5.1
-    # `powershell -File` leaves $PSScriptRoot EMPTY inside param() defaults, and the launcher died on start.)
+    # Router mode: the Image Studio folder ('auto' = ui\ next to this script; the router's own default).
+    # -Single: '' / 'auto' = sd-server's built-in console (Image Studio needs the router's /studio API),
+    # or a path to an HTML page to serve instead. (Not a Join-Path default: under PS 5.1 `powershell -File`
+    # leaves $PSScriptRoot EMPTY inside param() defaults, and the launcher died on start.)
     [string] $Ui       = 'auto',
     [switch] $Once,
     [switch] $DryRun
@@ -111,7 +112,7 @@ if (-not $Single) {
     $router = Join-Path $PSScriptRoot 'images-router.py'
     $ra = @('-I', $router, '--port', $Port, '--bind', $Bind, '--sd-server', $exe, '--models-dir', $modelsDir,
             '--budget-gb', $BudgetGB, '--preload', $Preload, '--log-dir', $logDir)
-    if ($Ui -and $Ui -ne 'auto') { $ra += @('--ui', $Ui) }
+    if ($Ui -and $Ui -ne 'auto') { $ra += @('--ui-dir', $Ui) }
     Write-Host "images-router -> http://${Bind}:$Port  (Image Studio at /, models from image-models.json, budget $BudgetGB GB)" -ForegroundColor Cyan
     Write-Host "  python : $py"
     Write-Host "  engine : $exe"
@@ -145,8 +146,7 @@ $a = @(
     '--flash-attn', 'auto', '--vae-tiling', '--max-vram', $MaxVram,
     '--listen-ip', $Bind, '--listen-port', $Port
 ) + $sampling + $Extra
-if ($Ui -eq 'auto') { $Ui = Join-Path $PSScriptRoot 'images-ui.html' }
-if ($Ui) {
+if ($Ui -and $Ui -ne 'auto') {
     if (-not (Test-Path $Ui)) { Write-Error "UI page not found: $Ui"; exit 1 }
     $a += @('--serve-html-path', $Ui)
 }

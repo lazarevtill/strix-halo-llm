@@ -189,6 +189,28 @@ COMPANIONS = {
 }
 
 
+# sha256 of each companion (HF LFS oid, fetched 2026-10-16): a fresh download is verified against it
+COMPANION_SHA256 = {
+    "sdxl-vae": "235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1",
+    "clip-l": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd",
+    "clip-g": "ec310df2af79c318e24d20511b601a591ca8cd4f1fce1d8dff822a356bcdb1f4",
+    "t5xxl": "6e480b09fae049a72d2a8c5fbccb8d3e92febeb233bbe9dfe7256958a9167635",
+    "flux-ae": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+    "flux2-vae": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+    "qwen3-4b": "8c2f07f26af9747e41988551106f149b03eb9b5cb6df636027b6bf6278473300",
+    "qwen3-8b": "408b955510e196121c1c375201744783b5c9a43c7956d73fc78df54c66e883d6",
+    "mistral-24b": "b2a40e5ef4eab8837d0462c303e8147ec754e2963e41916b551107d2b0ca6527",
+    "qwen25vl-7b": "577bfb3e41f93f00414e594c56a38bbe91207b3b636ab7faf343e34a20aa73ca",
+    "qwen-image-vae": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+    "qwen3vl-8b": "2715c1a097f1943fb88ad59c7c0e9288a7a50c84d60cf18c6227bd9a40520972",
+    "qwen3vl-8b-mmproj": "ca524100ebf825c9a870db1c580d03879e0da0ab2541697e2458e64891cf9d38",
+    "qwen-image-21-vae": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
+    "qwen3vl-4b": "054721f478bc5fa6beffb7f38eae575d45298f88cbb8d2f83ef675a727863eb1",
+    "wan21-vae": "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
+    "qwen3-06b": "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba",
+}
+
+
 def _ui(steps, cfg, sampler="euler", w=1024, h=1024, **extra):
     d = {"edit": False, "alpha": False, "steps": steps, "cfg": cfg, "sampler": sampler, "width": w, "height": h}
     d.update(extra)
@@ -206,6 +228,9 @@ FAMILIES = {
                  ui=_ui(28, 6, "euler_a"), fast=_ui(8, 1.5, "euler_a"),
                  note="Illustrious / NoobAI: booru tags, e.g. 'masterpiece, best quality, 1girl, ...'. Pony: start with "
                       "'score_9, score_8_up, score_7_up'. The fp16-fix VAE replaces the baked-in one (fp16 NaNs)."),
+    "sd2": dict(label="Stable Diffusion 2.x", group="sd2", main="model", comps={},
+                ui=_ui(25, 7, "euler_a", 768, 768), fast=_ui(8, 1.5, "euler_a", 768, 768),
+                note="SD 2.x 768 models are v-prediction (set automatically when the file or CivitAI says so)."),
     "sd35": dict(label="Stable Diffusion 3.5", group="sd35", main="model", comps={"clip_l": "clip-l", "clip_g": "clip-g", "t5xxl": "t5xxl"},
                  ui=_ui(28, 4.5), fast=_ui(8, 1.5)),
     "flux1": dict(label="FLUX.1 (dev / Krea)", group="flux1", main="diffusion-model", comps={"clip_l": "clip-l", "t5xxl": "t5xxl", "vae": "flux-ae"},
@@ -216,6 +241,10 @@ FAMILIES = {
                          ui=_ui(4, 1), fast=_ui(4, 1), base_ui=_ui(20, 4)),
     "flux2-klein9": dict(label="FLUX.2 klein 9B", group="flux2-klein9", main="diffusion-model", comps={"llm": "qwen3-8b", "vae": "flux2-vae"},
                          ui=_ui(4, 1), fast=_ui(4, 1), base_ui=_ui(20, 4)),
+    "flux3-klein": dict(label="FLUX.3 Image Klein", group="flux3-klein", main="diffusion-model",
+                        comps={"llm": "qwen3vl-4b", "vae": "flux2-vae"}, engine="bin-sd-master-968-8cd731e/sd-server.exe",
+                        ui=_ui(16, 1, edit=True, img_cfg=1), fast=_ui(16, 1, edit=True, img_cfg=1), base_ui=_ui(20, 3.5, edit=True, img_cfg=3.5),
+                        note="FLUX Kommunity License: free commercial use under $5M revenue. Needs sd.cpp master-968+."),
     "flux2-dev": dict(label="FLUX.2 dev (heavy: 24B text encoder)", group="flux2-dev", main="diffusion-model",
                       comps={"llm": "mistral-24b", "vae": "flux2-vae"}, ui=_ui(28, 1), fast=_ui(8, 1)),
     "chroma": dict(label="Chroma", group="chroma", main="diffusion-model", comps={"t5xxl": "t5xxl", "vae": "flux-ae"},
@@ -247,18 +276,20 @@ UNSUPPORTED = {   # CivitAI ecosystems that are open-weight but not loadable by 
 
 CIVITAI_BASE = {
     "SD 1.4": "sd15", "SD 1.5": "sd15", "SD 1.5 LCM": "sd15", "SD 1.5 Hyper": "sd15",
+    "SD 2.0": "sd2", "SD 2.0 768": "sd2", "SD 2.1": "sd2", "SD 2.1 768": "sd2",
     "SDXL 0.9": "sdxl", "SDXL 1.0": "sdxl", "SDXL 1.0 LCM": "sdxl", "SDXL Lightning": "sdxl", "SDXL Hyper": "sdxl",
     "SDXL Turbo": "sdxl", "SDXL Distilled": "sdxl", "Pony": "sdxl", "Illustrious": "sdxl", "NoobAI": "sdxl",
     "SD 3": "sd35", "SD 3.5": "sd35", "SD 3.5 Large": "sd35", "SD 3.5 Large Turbo": "sd35", "SD 3.5 Medium": "sd35",
     "Flux.1 D": "flux1", "Flux.1 Krea": "flux1", "Flux.1 S": "flux1-schnell",
     "Flux.2 Klein 4B": "flux2-klein4", "Flux.2 Klein 4B-base": "flux2-klein4",
     "Flux.2 Klein 9B": "flux2-klein9", "Flux.2 Klein 9B-base": "flux2-klein9", "Flux.2 D": "flux2-dev",
+    "Flux.3 Klein": "flux3-klein", "Flux.3 Klein-base": "flux3-klein",
     "Chroma": "chroma", "Qwen": "qwen-image", "Qwen 2.1": "qwen-image-2.1",
     "ZImageTurbo": "zimage-turbo", "ZImageBase": "zimage-base",
     "Krea 2": "krea2", "Krea 2 Turbo": "krea2", "Anima": "anima",
 }
 
-FAST_RE = re.compile(r"turbo|lightning|hyper|\blcm\b|dmd|distill|schnell|\b\d{1,2}[ _-]?steps?\b|\bfast\b", re.I)
+FAST_RE = re.compile(r"\b(turbo|lightning|hyper(-?sd)?|lcm|dmd2?|distill(ed)?|schnell|fast)\b|\b\d{1,2}[ _-]?steps?\b", re.I)
 
 
 def family_list():
@@ -297,11 +328,27 @@ def classify_keys(keys):
             re.search(r"(input|middle|output|down|mid|up)_blocks?_\d+_(\d+_|attentions_\d+_)transformer_blocks_[1-9]", blob):
         # SDXL's attention blocks hold 2-10 transformer blocks; SD 1.5's hold exactly one (index 0)
         fam = "sdxl"
+    elif has("cond_stage_model_model_transformer"):            # OpenCLIP text encoder = SD 2.x
+        fam = "sd2"
     elif has("cond_stage_model_transformer") or has("input_blocks") or has("down_blocks") or has("lora_te_"):
         fam = "sd15"
     allinone = kind == "model" and (has("text_encoders_") or has("cond_stage_model") or has("conditioner_embedders")) \
-        and fam not in ("sd15", "sdxl", "sd35")
+        and fam not in ("sd15", "sd2", "sdxl", "sd35")
     return kind, fam, allinone
+
+
+def unet_only(keys, family):
+    """A UNet-only SD/SDXL file has no text encoder to load with -m (and this tool has no CLIP companions for it)."""
+    if family not in ("sd15", "sd2", "sdxl"):
+        return False
+    blob = "\n".join(k.lower() for k in keys[:20000])
+    return not any(m in blob for m in ("conditioner.", "cond_stage_model.", "text_encoders.", "te_"))
+
+
+def is_vpred(keys, meta):
+    meta = meta or {}
+    pt = str(meta.get("modelspec.prediction_type") or meta.get("prediction_type") or "").lower()
+    return pt in ("v", "v_prediction", "v-prediction") or any(k in ("v_pred", "ztsnr") for k in keys)
 
 
 def _gguf_names(buf):
@@ -342,7 +389,7 @@ def _gguf_names(buf):
 
 
 def sniff(url):
-    """Tensor names of a remote .safetensors / .gguf via Range requests (a few MB at most)."""
+    """(tensor names, safetensors __metadata__) of a remote .safetensors / .gguf via Range requests (a few MB)."""
     head = get_range(url, 0, 7)
     if not head or len(head) < 8:
         return None
@@ -350,7 +397,7 @@ def sniff(url):
         for size in (2 << 20, 16 << 20, 64 << 20):
             buf = get_range(url, 0, size - 1)
             try:
-                return _gguf_names(buf)
+                return _gguf_names(buf), {}
             except (IndexError, struct.error):
                 if not buf or len(buf) < size:
                     return None
@@ -358,8 +405,9 @@ def sniff(url):
     n, = struct.unpack("<Q", head)
     if n > 100 << 20:
         return None
-    hdr = get_range(url, 8, 8 + n - 1)
-    return [k for k in json.loads(hdr) if k != "__metadata__"]
+    hdr = json.loads(get_range(url, 8, 8 + n - 1))
+    meta = hdr.pop("__metadata__", None) or {}
+    return list(hdr), meta
 
 
 # ---- inspect ---------------------------------------------------------------------------------------------
@@ -423,9 +471,44 @@ def parse_url(url):
     raise RemoteError("paste a link from huggingface.co, civitai.com or civitai.red")
 
 
+_CACHE, _CACHE_LOCK = {}, threading.Lock()
+
+
 def inspect(url, file_key=None):
+    """Cached for 5 minutes per (url, file): changing the family in the dialog must not re-query the site."""
+    key = (url, file_key)
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit and time.time() - hit[0] < 300:
+            return json.loads(hit[1])
     p = parse_url(url)
-    return _inspect_civitai(p, file_key) if p["site"] == "civitai" else _inspect_hf(p, file_key)
+    info = _inspect_civitai(p, file_key) if p["site"] == "civitai" else _inspect_hf(p, file_key)
+    with _CACHE_LOCK:
+        if len(_CACHE) > 64:
+            _CACHE.clear()
+        _CACHE[key] = (time.time(), json.dumps(info))
+    return info
+
+
+DIT_FAMILIES = ("flux1", "flux1-schnell", "chroma", "sd35", "qwen-image", "qwen-image-2.1", "krea2", "zimage-turbo",
+                "zimage-base", "flux2-klein4", "flux2-klein9", "flux2-dev", "anima")
+
+
+def _flags(info, keys, meta, sel):
+    """Shared post-sniff checks for both sites."""
+    fam = info.get("family")
+    info["vpred"] = bool(keys) and is_vpred(keys, meta) or bool(re.search(r"v-?pred", sel["name"], re.I)) or \
+        info.get("base") in ("SD 2.0 768", "SD 2.1 768")
+    info["unet_only"] = bool(keys) and info.get("kind") == "model" and unet_only(keys, fam)
+    if info["unet_only"]:
+        info["unsupported"] = ("this is a UNet-only %s file without its text encoders -- pick the full checkpoint "
+                               "(usually the bigger file)" % (FAMILIES[fam]["label"] if fam in FAMILIES else "SD"))
+    fp8 = re.search(r"fp8|e4m3|e5m2", sel["name"] + " " + sel.get("detail", ""), re.I)
+    info["warn_fp8"] = bool(fp8) and fam in DIT_FAMILIES
+    # FLUX.2 klein 4B and 9B share tensor names; the file cannot tell them apart, so don't claim it does
+    if fam and info.get("sniffed") and fam.startswith("flux2-klein") and info["sniffed"].startswith("flux2-klein"):
+        info["sniffed"] = fam
+    return info
 
 
 def _civitai_api(p, path):
@@ -477,10 +560,11 @@ def _inspect_civitai(p, file_key):
     why = "CivitAI base model '%s'" % base if family else None
     unsupported = None if family else UNSUPPORTED.get(base) or ("'%s' is not a family this sd.cpp build can load" % base if base else None)
     allinone = False
-    access, sniffed = None, None
+    access, sniffed, keys, meta = None, None, None, {}
     try:
-        keys = sniff(sel["url"])
-        if keys:
+        got = sniff(sel["url"])
+        if got:
+            keys, meta = got
             k2, f2, allinone = classify_keys(keys)
             sniffed = f2
             if kind is None:
@@ -493,7 +577,7 @@ def _inspect_civitai(p, file_key):
     except (RemoteError, OSError, ValueError) as e:
         access = "could not read the file header: %s" % e
     nsfw = bool(m.get("nsfw")) or bool((m.get("nsfwLevel") or 0) & 24)   # bitmask: 1 PG, 2 PG-13, 4 R, 8 X, 16 XXX
-    return {
+    return _flags({
         "site": "civitai", "host": host, "page": "https://%s/models/%s?modelVersionId=%s" % (host, m.get("id"), v.get("id")),
         "name": m.get("name"), "version": {"id": v.get("id"), "name": v.get("name")},
         "versions": [{"id": x.get("id"), "name": x.get("name"), "base": x.get("baseModel")} for x in versions[:30]],
@@ -503,17 +587,19 @@ def _inspect_civitai(p, file_key):
                                                     "" if m.get("allowDerivatives", True) else "; no derivatives"),
         "trained_words": v.get("trainedWords") or [], "files": files, "file": sel["key"], "access": access,
         "suggested_id": _slug(m.get("name")), "suggested_label": "%s%s" % (m.get("name"), " (%s)" % v.get("name") if len(versions) > 1 else ""),
-    }
+    }, keys, meta, sel)
 
 
 HF_BASE = [  # regex over the card's base_model / tags / repo name -> family
     (r"z-image-turbo|z_image_turbo", "zimage-turbo"), (r"z-image|z_image", "zimage-base"),
+    (r"flux[.-]?3.*klein", "flux3-klein"),
     (r"flux\.?2.*klein.*9b", "flux2-klein9"), (r"flux\.?2.*klein", "flux2-klein4"), (r"flux\.?2", "flux2-dev"),
     (r"flux\.?1.*schnell", "flux1-schnell"), (r"flux\.?1|flux-dev|flux1", "flux1"),
-    (r"chroma", "chroma"), (r"krea-?2|krea2", "krea2"), (r"anima", "anima"),
+    (r"\bchroma", "chroma"), (r"\bkrea-?2|\bkrea2", "krea2"), (r"\banima\b", "anima"),
     (r"qwen-image-2\.1|qwen_image_2\.1", "qwen-image-2.1"), (r"qwen-image|qwen_image", "qwen-image"),
     (r"stable-diffusion-3|sd3", "sd35"),
     (r"stable-diffusion-xl|sdxl|pony|illustrious|noob", "sdxl"),
+    (r"stable-diffusion-2|sd-?2\.[01]\b", "sd2"),
     (r"stable-diffusion-v1|stable-diffusion-v-1|sd-?1\.5|sd15", "sd15"),
 ]
 
@@ -552,10 +638,11 @@ def _inspect_hf(p, file_key):
     family = next((fam for rx, fam in HF_BASE if re.search(rx, text)), None)
     why = "the model card (base_model / tags)" if family else None
     kind = "lora" if ("lora" in tags or "lora" in sel["name"].lower()) else None
-    allinone, access, sniffed = False, None, None
+    allinone, access, sniffed, keys, meta = False, None, None, None, {}
     try:
-        keys = sniff(sel["url"])
-        if keys:
+        got = sniff(sel["url"])
+        if got:
+            keys, meta = got
             k2, f2, allinone = classify_keys(keys)
             sniffed = f2
             kind = k2
@@ -567,7 +654,7 @@ def _inspect_hf(p, file_key):
     except (RemoteError, OSError, ValueError) as e:
         access = "could not read the file header: %s" % e
     gated = info.get("gated")
-    return {
+    return _flags({
         "site": "hf", "host": "huggingface.co", "page": "https://huggingface.co/%s" % repo,
         "name": repo.split("/")[-1], "version": {"id": rev, "name": rev}, "versions": [],
         "kind": kind or "model", "type": "HF", "base": bm, "family": family, "family_why": why, "sniffed": sniffed,
@@ -576,7 +663,7 @@ def _inspect_hf(p, file_key):
                                                                          " (gated)" if gated else ""),
         "trained_words": card.get("instance_prompt") and [card["instance_prompt"]] or [], "files": files, "file": sel["key"],
         "access": access, "suggested_id": _slug(repo.split("/")[-1]), "suggested_label": repo.split("/")[-1],
-    }
+    }, keys, meta, sel)
 
 
 # ---- downloads ---------------------------------------------------------------------------------------------
@@ -595,8 +682,9 @@ class Job:
 
 
 class Remote:
-    def __init__(self, models_dir, lora_dir, local_registry, log, on_change):
+    def __init__(self, models_dir, lora_dir, local_registry, log, on_change, ids=lambda: set()):
         self.models_dir, self.lora_dir, self.path, self.log, self.on_change = models_dir, lora_dir, local_registry, log, on_change
+        self.ids = ids                         # every model id the router knows (tracked + local)
         self.lock = threading.RLock()
         self.jobs, self.queue = [], []
         self.cv = threading.Condition(self.lock)
@@ -633,7 +721,7 @@ class Remote:
         for flag, c in FAMILIES[family]["comps"].items():
             cp = COMPANIONS[c]
             dest = os.path.join(self.models_dir, cp["file"])
-            out.append({"name": cp["file"], "dest": dest, "bytes": cp["bytes"], "sha256": None, "flag": flag,
+            out.append({"name": cp["file"], "dest": dest, "bytes": cp["bytes"], "sha256": COMPANION_SHA256.get(c), "flag": flag,
                         "url": "https://huggingface.co/%s/resolve/main/%s" % (cp["repo"], urllib.parse.quote(cp["path"])),
                         "present": os.path.exists(dest) and os.path.getsize(dest) == cp["bytes"]})
         return out
@@ -651,8 +739,13 @@ class Remote:
             items += self.companion_items(family)
         need = sum(i["bytes"] for i in items if not i["present"])
         free = shutil.disk_usage(self.models_dir).free
+        queued = self.queued_bytes()            # what jobs already in the queue will still write
         return {"items": [{k: i[k] for k in ("name", "bytes", "present")} for i in items], "download_bytes": need,
-                "free_bytes": free, "ok_space": free - need >= MIN_FREE_BYTES}, items
+                "free_bytes": free, "queued_bytes": queued, "ok_space": free - queued - need >= MIN_FREE_BYTES}, items
+
+    def queued_bytes(self):
+        with self.lock:
+            return sum(max(0, j.total - j.done_bytes) for j in self.jobs if j.state in ("queued", "downloading"))
 
     def add(self, url, file_key, family, mid, label, existing_ids):
         info = inspect(url, file_key)
@@ -678,7 +771,9 @@ class Remote:
             job = Job(jid, label or info["suggested_label"], items,
                       lambda j: self._register(j, info, sel, family, mid, label or info["suggested_label"], items))
             self.jobs.insert(0, job)
-            del self.jobs[20:]
+            live = [j for j in self.jobs if j.state in ("queued", "downloading", "verifying")]
+            done = [j for j in self.jobs if j not in live]
+            self.jobs = [j for j in self.jobs if j in live or j in done[:20]]   # never drop a job that is still running
             self.queue.append(job)
             self.cv.notify()
         self.log("download %s queued: %s (%s, %.2f GB to fetch)" % (jid, job.label, family or "lora", plan["download_bytes"] / 1e9))
@@ -785,14 +880,19 @@ class Remote:
                 self.write(d)
                 result = "LoRA %s" % fname
             else:
-                d["models"] = [x for x in d["models"] if x.get("id") != mid]
+                taken = set(self.ids()) | {x.get("id") for x in d["models"]}
+                base_id, n = mid, 2
+                while mid in taken:                    # another add may have taken the id while this one downloaded
+                    mid = "%s-%d" % (base_id, n)
+                    n += 1
                 d["models"].append(build_entry(info, family, mid, label, items, src))
                 self.write(d)
                 result = "model %s" % mid
         self.on_change()
         return result
 
-    def remove(self, kind, ident, delete_files):
+    def remove(self, kind, ident, delete_files, protected=frozenset()):
+        """protected: file names any OTHER model (tracked or local) still uses -- never deleted."""
         with self.lock:
             d = self.read()
             if kind == "lora":
@@ -804,7 +904,7 @@ class Remote:
                 d["models"] = [x for x in d["models"] if x.get("id") != ident]
                 main = hit[0].get("main_file") if hit else None
                 # only the model's own file -- companions are shared with other models
-                still = {f for x in d["models"] for f in (x.get("files") or {}).values()}
+                still = {f for x in d["models"] for f in (x.get("files") or {}).values()} | set(protected)
                 paths = [os.path.join(self.models_dir, main)] if main and main not in still else []
             if not hit:
                 raise RemoteError("%s %r was not added from a remote (only those can be removed here)" % (kind, ident))
@@ -824,15 +924,20 @@ def build_entry(info, family, mid, label, items, src):
     fast = info.get("fast")
     ui = dict(fam["fast"] if fast else fam["ui"])
     main = next(i for i in items if i.get("main"))
-    if family.startswith("flux2-klein") and re.search(r"base", (info.get("base") or "") + main["name"], re.I):
+    if (family.startswith("flux2-klein") or family == "flux3-klein") and re.search(r"base", (info.get("base") or "") + main["name"], re.I):
         ui = dict(fam["base_ui"])
     files = {("model" if info.get("allinone") else fam["main"]): main["name"]}
     for i in items:
         if i.get("flag"):
             files[i["flag"]] = i["name"]
     args = list(fam.get("args", []))
-    if re.search(r"v-?pred", main["name"] + " " + (info.get("name") or ""), re.I):
+    if info.get("vpred"):
         args += ["--prediction", "v"]
+    if family == "sdxl" and re.search(r"pony|illustrious|noob", " ".join(str(x) for x in (info.get("base"), info.get("name"))), re.I):
+        ui["clip_skip"] = 2                                # what these anime SDXL lines are trained and prompted with
+    if family == "qwen-image-2.1" and fast:                # same preset the tracked Turbo entry uses
+        args += ["--sigmas", "qwen-image-2.1-turbo"]
+        ui["fixed_steps"] = 8
     args += ["--steps", str(ui["steps"]), "--cfg-scale", str(float(ui["cfg"])), "--sampling-method", ui["sampler"]]
     total = sum(i["bytes"] for i in items)
     if fam.get("note"):
@@ -845,4 +950,5 @@ def build_entry(info, family, mid, label, items, src):
         "licence": info["licence"], "nsfw": bool(info["nsfw"]),
         "vram_gb": round(total / 1e9 * 1.05 + 0.5, 1),       # replaced by the measured figure after the first load
         "vram_measured": False, "files": files, "args": args, "ui": ui, "source": src, "added": time.strftime("%Y-%m-%d"),
+        **({"engine": fam["engine"]} if fam.get("engine") else {}),
     }

@@ -577,6 +577,57 @@ $REG = [ordered]@{
         )
         note  = 'FLUX.1 VAE (ae.safetensors) -- the VAE Z-Image uses.'
     }
+    # ---- FLUX.3 Image Klein (BFL, released 2026-10-15; added 2026-10-16) ------------------------------------
+    # Needs sd.cpp master-968-8cd731e or newer (FLUX.3 support is #2143, one commit after master-967).
+    # LICENCE: FLUX Kommunity License v1.0 -- free commercial use under $5M annual revenue, else non-commercial;
+    # bans NCII/CSAM. The official repo is gated (click-through); this is an ungated sd.cpp GGUF conversion of it.
+    'flux3-klein' = @{
+        repo  = 'akhaliq/flux-3-image-klein-sd-gguf'
+        files = @(
+            @{ p='flux3_image_klein_sd-Q8_0.gguf'; b=5991748384 }   # 5.6B, distilled: 16 steps, CFG 1; edits with up to 10 refs
+        )
+        note  = 'FLUX.3 Image Klein Q8_0 (5.6B, gen + edit). FLUX Kommunity License. Needs flux2-vae + kroma-te (Qwen3-VL-4B).'
+    }
+    'flux2-vae' = @{
+        repo  = 'Comfy-Org/flux2-klein-4B'
+        files = @(
+            @{ p='split_files/vae/flux2-vae.safetensors'; b=336211292 }   # identical size to FLUX.3's own ae.safetensors
+        )
+        note  = 'FLUX.2 VAE -- used by FLUX.2 klein and FLUX.3 Image Klein.'
+    }
+    # ---- Video: Wan 2.2 (added 2026-10-15; all Apache-2.0, ungated) --------------------------------------
+    # sd-server master-967 serves video on /sdcpp/v1/vid_gen (PR #1437). Byte counts from the HF tree API.
+    'wan22-ti2v-turbo' = @{
+        repo  = 'hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF'
+        files = @(
+            @{ p='Wan2_2-TI2V-5B-Turbo-Q8_0.gguf'; b=5404990176 }   # quanhaol's 4-step Turbo of Wan2.2-TI2V-5B (origin repo since made private)
+        )
+        note  = 'Wan 2.2 TI2V-5B Turbo Q8_0: text->video AND image->video, 4 steps, 24 fps. Needs wan-umt5 + wan22-vae.'
+    }
+    'wan22-i2v-a14b-4step' = @{
+        repo  = 'jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF'
+        files = @(
+            @{ p='high_noise_260412/wan2.2_i2v_A14b_high_noise_lightx2v_4step_720p_260412-Q8_0.gguf'; b=15416449664 }
+            @{ p='low_noise_260412/wan2.2_i2v_A14b_low_noise_lightx2v_4step_720p_260412-Q8_0.gguf';  b=15416449664 }
+        )
+        # lightx2v's distilled Wan2.2-I2V-A14B (2 experts: high-noise + low-noise), 4 steps, CFG 1, 16 fps.
+        # Uses the Wan 2.1 VAE ('wan21-vae'), no clip_vision.
+        note  = 'Wan 2.2 I2V-A14B lightx2v 4-step distilled Q8_0 (2 x 15.4 GB): quality image->video. Needs wan-umt5 + wan21-vae.'
+    }
+    'wan-umt5' = @{
+        repo  = 'city96/umt5-xxl-encoder-gguf'
+        files = @(
+            @{ p='umt5-xxl-encoder-Q8_0.gguf'; b=6043068256 }
+        )
+        note  = 'umt5-xxl text encoder (Q8_0) shared by every Wan model.'
+    }
+    'wan22-vae' = @{
+        repo  = 'Comfy-Org/Wan_2.2_ComfyUI_Repackaged'
+        files = @(
+            @{ p='split_files/vae/wan2.2_vae.safetensors'; b=1409400960 }
+        )
+        note  = 'Wan 2.2 VAE -- TI2V-5B only (the A14B models use the Wan 2.1 VAE).'
+    }
     'qwen-image-21-q8' = @{
         repo  = 'leejet/Qwen-Image-2.1-GGUF'
         files = @(
