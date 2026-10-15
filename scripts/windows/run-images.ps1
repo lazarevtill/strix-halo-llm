@@ -52,6 +52,11 @@ param(
     # this iGPU (stable-diffusion.cpp #2022). 90 assumes the box serves images ALONE (no LLM resident).
     [int]    $MaxVram = 90,
     [string[]] $Extra   = @(),          # passed through verbatim to sd-server
+    # The web page served at / : Image Studio (generation + editing in one view, live preview, history).
+    # '' = sd-server's built-in developer console instead.
+    # 'auto' resolves to images-ui.html next to this script. (Not a Join-Path default: under PS 5.1
+    # `powershell -File` leaves $PSScriptRoot EMPTY inside param() defaults, and the launcher died on start.)
+    [string] $Ui       = 'auto',
     [switch] $Once,
     [switch] $DryRun
 )
@@ -86,6 +91,11 @@ $a = @(
     '--flash-attn', 'auto', '--vae-tiling', '--max-vram', $MaxVram,
     '--listen-ip', $Bind, '--listen-port', $Port
 ) + $sampling + $Extra
+if ($Ui -eq 'auto') { $Ui = Join-Path $PSScriptRoot 'images-ui.html' }
+if ($Ui) {
+    if (-not (Test-Path $Ui)) { Write-Error "UI page not found: $Ui"; exit 1 }
+    $a += @('--serve-html-path', $Ui)
+}
 
 Write-Host "sd-server  Qwen-Image-2.1 [$Model] -> http://${Bind}:$Port  (OpenAI /v1/images/generations + /edits, web UI at /)" -ForegroundColor Cyan
 Write-Host "  engine : $exe"

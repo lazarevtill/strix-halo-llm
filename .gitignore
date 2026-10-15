@@ -127,3 +127,6 @@ secrets.*
 # router mode generated preset (paths are box-specific)
 scripts/windows/router-models.generated.ini
 scripts/linux/router-models.generated.ini
+
+# Playwright MCP scratch output (browser snapshots/screenshots while testing the image UI)
+.playwright-mcp/

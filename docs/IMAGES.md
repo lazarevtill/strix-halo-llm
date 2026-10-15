@@ -28,6 +28,35 @@ PyTorch runtimes (ComfyUI, Lemonade's TheNoise) are likely 2-3x faster on ROCm, 
 OpenAI API and stages weights through system RAM — and only ~32 GB is visible to Windows here, often
 <10 GB free. A ROCm runtime is the obvious next A/B, not a settled loss.
 
+## Web UI — Image Studio (`http://<box>:8080/`)
+
+One page for both jobs: `scripts/windows/images-ui.html`, served by sd-server itself
+(`--serve-html-path`, so it is same-origin with the API — no CORS, no second server). The mode is implicit:
+
+- **No source image → Generate.** Prompt, size presets (1024², 1344×768, 768×1344, 1152×864, a 512
+  draft), optional fixed seed.
+- **Source image attached → Edit.** Drop, paste (Ctrl+V) or pick a file, or press **Edit this** on any
+  result to chain edits. Up to 3 reference images ("image 1, image 2…" in the prompt). "Match source"
+  keeps the source's aspect and pixel count, clamped to 512²…1.25 MP.
+- **Transparent background** wraps the prompt in Qwen-Image-2.1's RGBA phrasing; verified to return a
+  real alpha channel (65% fully transparent pixels on a sticker prompt).
+- Live preview and step counter while it works, Cancel, Variation (same prompt, new seed), Download,
+  and a history of the last 60 results kept in the browser's IndexedDB (per browser, survives reloads).
+- No external dependencies — works on a LAN without internet. Light/dark, usable at phone width.
+
+It uses the **native async API** (`POST /sdcpp/v1/img_gen` + `GET /sdcpp/v1/jobs/{id}`), not the
+OpenAI routes: that is what gives progress, preview and cancel, and it sidesteps the edits crash
+below — the same `<sd_cpp_extra_args>` text that aborts `/v1/images/edits` is inert in a native
+request (measured). The live preview is a cheap latent projection (1/16 of the output size,
+upscaled for display), so it is blurry by design.
+
+Verified end to end in a browser on 2026-10-15: generate → **Edit this** → "give the cat round glasses
+and put an open book next to it" produced exactly that with the scene unchanged (19 s at 512²); a
+1024² generation took 1 min 31 s with the preview tracking all 8 steps.
+
+The stock sd-server developer console (every sampler knob, video mode) is still the fallback:
+`run-images.ps1 -Ui ''`.
+
 ## API
 
 ```

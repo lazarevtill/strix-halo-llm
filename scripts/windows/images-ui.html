@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Image Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23c2410c%27/%3E%3Ccircle cx=%2211%27 cy=%2712%27 r=%274%27 fill=%27%23fff%27/%3E%3Cpath d=%27M4 26l8-9 6 6 4-4 6 7z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<!--
+  Image Studio: one page for text-to-image AND image editing on the local stable-diffusion.cpp
+  sd-server (Qwen-Image-2.1). Served by sd-server itself (--serve-html-path, see run-images.ps1), so it
+  talks to the API on the same origin. Uses the NATIVE async API (/sdcpp/v1/img_gen + job polling):
+  live preview, progress, cancel -- and it avoids the OpenAI /v1/images/edits + sd_cpp_extra_args
+  crash measured on master-967. No external dependencies: works on a LAN with no internet.
+  Mode is implicit: no source image = GENERATE; source image(s) attached = EDIT.
+-->
+<style>
+:root {
+  --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1b18; --muted: #6f6a62; --line: #e3dfd8;
+  --accent: #c2410c; --accent-ink: #ffffff; --accent-soft: #fbeee6; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+  --check: #ebe8e2; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  --radius: 14px; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141311; --panel: #1d1c19; --ink: #f1eee8; --muted: #a39d93; --line: #302e2a;
+    --accent: #f97316; --accent-ink: #1a0d04; --accent-soft: #2c1d12; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+    --check: #24221f; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141311; --panel: #1d1c19; --ink: #f1eee8; --muted: #a39d93; --line: #302e2a;
+  --accent: #f97316; --accent-ink: #1a0d04; --accent-soft: #2c1d12; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+  --check: #24221f; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+button, input, select, textarea { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+header .model { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+header .spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.busy { background: var(--warn); }
+.icon-btn { border: 1px solid var(--line); background: transparent; border-radius: 9px; padding: 5px 9px; cursor: pointer; color: var(--muted); }
+.icon-btn:hover { color: var(--ink); }
+
+main { display: grid; grid-template-columns: minmax(330px, 410px) 1fr; gap: 20px; padding: 20px 22px 28px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 14px 16px 24px; } }
+@media (max-width: 600px) { header .model { display: none; } header { padding: 12px 16px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.controls { padding: 18px; display: flex; flex-direction: column; gap: 16px; align-self: start; }
+.label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; display: flex; justify-content: space-between; align-items: baseline; }
+.label small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+.mode { display: grid; grid-template-columns: 1fr 1fr; background: var(--check); border-radius: 11px; padding: 4px; }
+.mode div { text-align: center; padding: 7px 0; border-radius: 8px; font-weight: 600; font-size: 14px; color: var(--muted); }
+.mode div.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 14px; text-align: center; color: var(--muted); font-size: 13.5px; cursor: pointer; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.refs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.refs:empty { display: none; margin: 0; }
+.ref { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--check); border: 1px solid var(--line); }
+.ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ref button { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; cursor: pointer; font-size: 14px; line-height: 24px; padding: 0; }
+.ref span { position: absolute; left: 5px; bottom: 5px; font-size: 11px; background: rgba(0,0,0,.6); color: #fff; padding: 1px 6px; border-radius: 6px; }
+
+textarea { width: 100%; min-height: 112px; resize: vertical; border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; background: var(--bg); outline: none; }
+textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+select, input[type=number], input[type=text] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--bg); outline: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; background: transparent; }
+.chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.check { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.check input { margin-top: 3px; accent-color: var(--accent); }
+.check small { display: block; color: var(--muted); font-size: 12.5px; }
+details summary { cursor: pointer; color: var(--muted); font-size: 13.5px; list-style: none; }
+details summary::before { content: "\25B8  "; } details[open] summary::before { content: "\25BE  "; }
+details .inner { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.go { border: 0; border-radius: 12px; padding: 13px; font-weight: 700; font-size: 15.5px; background: var(--accent); color: var(--accent-ink); cursor: pointer; transition: filter .15s; }
+.go:hover { filter: brightness(1.06); } .go:disabled { opacity: .5; cursor: default; }
+.ghost { border: 1px solid var(--line); background: transparent; border-radius: 12px; padding: 11px; cursor: pointer; font-weight: 600; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+
+.stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.canvas { position: relative; display: grid; place-items: center; min-height: 420px; padding: 18px; overflow: hidden;
+  background-image: linear-gradient(45deg, var(--check) 25%, transparent 25%), linear-gradient(-45deg, var(--check) 25%, transparent 25%),
+  linear-gradient(45deg, transparent 75%, var(--check) 75%), linear-gradient(-45deg, transparent 75%, var(--check) 75%);
+  background-size: 22px 22px; background-position: 0 0, 0 11px, 11px -11px, -11px 0; }
+.canvas img { max-width: 100%; max-height: calc(100vh - 290px); border-radius: 8px; box-shadow: var(--shadow); display: block; }
+.canvas img.preview { filter: saturate(.85) blur(.4px); image-rendering: auto; }
+.empty { text-align: center; color: var(--muted); max-width: 380px; }
+.empty b { display: block; color: var(--ink); font-size: 18px; margin-bottom: 6px; }
+.progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: transparent; }
+.progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 16px; font-size: 13.5px; }
+.statusbar .stat { color: var(--muted); } .statusbar .stat b { color: var(--ink); font-weight: 600; }
+.statusbar .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.act { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 7px 12px; cursor: pointer; font-size: 13.5px; font-weight: 600; }
+.act.primary { border-color: var(--accent); color: var(--accent); }
+.act:disabled { opacity: .45; cursor: default; }
+.error { color: var(--bad); font-weight: 600; }
+
+.history { padding: 14px 16px; }
+.history .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 9px; }
+.history .strip:empty::after { content: "Your images will collect here."; color: var(--muted); font-size: 13.5px; grid-column: 1 / -1; }
+.thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--check); }
+.thumb.on { border-color: var(--accent); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb span { position: absolute; left: 4px; top: 4px; font-size: 10.5px; font-weight: 700; background: rgba(0,0,0,.62); color: #fff; padding: 1px 6px; border-radius: 6px; letter-spacing: .03em; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Image Studio</h1>
+  <span class="model" id="model">connecting…</span>
+  <span class="spacer"></span>
+  <span class="pill"><span class="dot" id="dot"></span><span id="srv">checking</span></span>
+  <button class="icon-btn" id="theme" title="Toggle light / dark">◐</button>
+</header>
+
+<main>
+  <section class="panel controls">
+    <div class="mode" aria-label="Mode"><div id="m-gen" class="on">Generate</div><div id="m-edit">Edit</div></div>
+
+    <div>
+      <div class="label">Source image <small id="src-note">optional — add one to edit it</small></div>
+      <div class="drop" id="drop" tabindex="0">Drop, paste <kbd>Ctrl</kbd>+<kbd>V</kbd>, or click to choose an image</div>
+      <input type="file" id="file" accept="image/*" multiple hidden>
+      <div class="refs" id="refs"></div>
+    </div>
+
+    <div>
+      <div class="label">Prompt <small><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</small></div>
+      <textarea id="prompt" placeholder="Describe the image you want…"></textarea>
+    </div>
+
+    <div>
+      <div class="label">Size <small id="size-note"></small></div>
+      <div class="chips" id="sizes"></div>
+    </div>
+
+    <label class="check"><input type="checkbox" id="alpha">
+      <span>Transparent background<small>Qwen-Image 2.1 can output RGBA — good for logos, stickers, cut-outs.</small></span></label>
+
+    <details>
+      <summary>Advanced</summary>
+      <div class="inner">
+        <div class="row">
+          <div><div class="label">Seed</div><input type="number" id="seed" placeholder="random"></div>
+          <div><div class="label">Steps</div><input type="number" id="steps" min="1" max="100" placeholder="server default"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="lock"> <span>Keep the same seed between runs</span></label>
+        <div><div class="label">Format</div><select id="fmt"><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option></select></div>
+        <p class="hint">The served model is the 8-step Turbo; more steps rarely help it. Expect about 1&frac34; minutes for a 1024&times;1024 image and about 2 minutes for an edit.</p>
+      </div>
+    </details>
+
+    <button class="go" id="go">Generate</button>
+    <p class="hint" id="go-hint">Jobs run one at a time on the GPU; extra requests queue.</p>
+  </section>
+
+  <section class="stage">
+    <div class="panel canvas" id="canvas">
+      <div class="empty" id="empty"><b>Nothing here yet</b>Write a prompt and press Generate — or drop in a photo and describe how to change it.</div>
+      <img id="view" alt="" hidden>
+      <div class="progress"><i id="bar"></i></div>
+    </div>
+    <div class="panel statusbar">
+      <span class="stat" id="st-status">Idle</span>
+      <span class="stat" id="st-time"></span>
+      <span class="stat" id="st-seed"></span>
+      <span class="actions">
+        <button class="act primary" id="a-edit" disabled title="Use this image as the source for the next edit">Edit this</button>
+        <button class="act" id="a-again" disabled title="Same prompt, new seed">Variation</button>
+        <button class="act" id="a-dl" disabled>Download</button>
+        <button class="act" id="a-cancel" hidden>Cancel</button>
+      </span>
+    </div>
+    <div class="panel history">
+      <div class="label">History <small><a href="#" id="clear" style="color:inherit">clear</a></small></div>
+      <div class="strip" id="strip"></div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const S = { refs: [], size: 'auto', job: null, polling: null, started: 0, current: null, history: [], lastSeed: null, defaults: {} };
+  const SIZES = [
+    { k: 'auto', label: 'Match source', w: 0, h: 0, editOnly: true },
+    { k: 'sq', label: 'Square 1024', w: 1024, h: 1024 },
+    { k: 'land', label: 'Landscape 1344×768', w: 1344, h: 768 },
+    { k: 'port', label: 'Portrait 768×1344', w: 768, h: 1344 },
+    { k: 'photo', label: '4:3 1152×864', w: 1152, h: 864 },
+    { k: 'small', label: 'Draft 512', w: 512, h: 512 },
+  ];
+
+  // ---------- theme ----------
+  const root = document.documentElement;
+  try { const t = localStorage.getItem('studio-theme'); if (t) root.dataset.theme = t; } catch (e) {}
+  $('theme').onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('studio-theme', root.dataset.theme); } catch (e) {}
+  };
+
+  const toast = msg => { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2200); };
+  const fmtTime = s => s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')} s`;
+
+  // ---------- server status ----------
+  async function caps() {
+    try {
+      const r = await fetch('/sdcpp/v1/capabilities', { cache: 'no-store' });
+      const c = await r.json();
+      $('model').textContent = (c.model && (c.model.stem || c.model.name)) || 'local model';
+      S.defaults = (c.defaults_by_mode && c.defaults_by_mode.img_gen) || c.defaults || {};
+      if (S.defaults.sample_params && !$('steps').value) $('steps').placeholder = `default ${S.defaults.sample_params.sample_steps}`;
+      setSrv(S.job ? 'busy' : 'ok', S.job ? 'working' : 'online');
+    } catch (e) { setSrv('bad', 'offline — retrying'); }
+  }
+  function setSrv(cls, text) { $('dot').className = 'dot ' + cls; $('srv').textContent = text; }
+  caps(); setInterval(() => { if (!S.job) caps(); }, 15000);
+
+  // ---------- sizes ----------
+  function renderSizes() {
+    const box = $('sizes'); box.innerHTML = '';
+    const edit = S.refs.length > 0;
+    if (!edit && S.size === 'auto') S.size = 'sq';
+    if (edit && !renderSizes.touched) S.size = 'auto';
+    for (const s of SIZES) {
+      if (s.editOnly && !edit) continue;
+      const b = document.createElement('button'); b.className = 'chip' + (S.size === s.k ? ' on' : ''); b.textContent = s.label;
+      b.onclick = () => { S.size = s.k; renderSizes.touched = true; renderSizes(); };
+      box.appendChild(b);
+    }
+    const [w, h] = dims(); $('size-note').textContent = `${w}×${h}`;
+  }
+  // "Match source": keep the first reference's aspect ratio at ~1 megapixel, both sides multiples of 32.
+  function dims() {
+    const s = SIZES.find(x => x.k === S.size) || SIZES[1];
+    if (s.k !== 'auto') return [s.w, s.h];
+    const r = S.refs[0]; if (!r) return [1024, 1024];
+    // Keep the source's own pixel count, clamped to [512^2, 1.25 MP]: editing a 512 image should not
+    // silently cost a 1024 render, and a 4K photo should not ask for a 4K render (~10x the time).
+    const ar = r.w / r.h, area = Math.min(1.25 * 1024 * 1024, Math.max(512 * 512, r.w * r.h));
+    let w = Math.sqrt(area * ar), h = w / ar;
+    const snap = v => Math.max(256, Math.min(2048, Math.round(v / 32) * 32));
+    return [snap(w), snap(h)];
+  }
+
+  // ---------- references (source images) ----------
+  function setMode() {
+    const edit = S.refs.length > 0;
+    $('m-gen').classList.toggle('on', !edit); $('m-edit').classList.toggle('on', edit);
+    $('go').textContent = edit ? 'Apply edit' : 'Generate';
+    $('prompt').placeholder = edit ? 'Describe the change — e.g. "make it night, keep everything else the same"' : 'Describe the image you want…';
+    $('src-note').textContent = edit ? (S.refs.length > 1 ? `${S.refs.length} references — mention them as image 1, image 2…` : 'editing this image') : 'optional — add one to edit it';
+    renderRefs(); renderSizes();
+  }
+  function renderRefs() {
+    const box = $('refs'); box.innerHTML = '';
+    S.refs.forEach((r, i) => {
+      const d = document.createElement('div'); d.className = 'ref';
+      d.innerHTML = `<img alt=""><button title="Remove">×</button>${S.refs.length > 1 ? `<span>image ${i + 1}</span>` : ''}`;
+      d.querySelector('img').src = r.url;
+      d.querySelector('button').onclick = () => { S.refs.splice(i, 1); setMode(); };
+      box.appendChild(d);
+    });
+  }
+  function addRefFromDataUrl(url) {
+    if (S.refs.length >= 3) { toast('Up to 3 reference images'); return; }
+    const im = new Image();
+    im.onload = () => { S.refs.push({ url, w: im.naturalWidth, h: im.naturalHeight }); setMode(); };
+    im.onerror = () => toast('That file is not an image I can read');
+    im.src = url;
+  }
+  function addFiles(files) {
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) continue;
+      const rd = new FileReader(); rd.onload = () => addRefFromDataUrl(rd.result); rd.readAsDataURL(f);
+    }
+  }
+  const drop = $('drop');
+  drop.onclick = () => $('file').click();
+  drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+  $('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+  document.addEventListener('paste', e => { const fs = [...(e.clipboardData && e.clipboardData.files || [])]; if (fs.length) { addFiles(fs); toast('Image pasted as source'); } });
+
+  // ---------- run ----------
+  async function run() {
+    if (S.job) return;
+    let prompt = $('prompt').value.trim();
+    if (!prompt) { $('prompt').focus(); toast('Write a prompt first'); return; }
+    const edit = S.refs.length > 0;
+    if ($('alpha').checked) prompt = `This is an RGBA image with transparency. ${prompt}. The image has alpha channel and the background is transparent.`;
+    const [w, h] = dims();
+    let seed;
+    if ($('seed').value !== '') seed = parseInt($('seed').value, 10);
+    else if ($('lock').checked && S.lastSeed != null) seed = S.lastSeed;
+    else seed = Math.floor(Math.random() * 2147483647);
+    const body = { prompt, width: w, height: h, seed, batch_count: 1, output_format: $('fmt').value, preview: 'proj', preview_interval: 1 };
+    if (edit) body.ref_images = S.refs.map(r => r.url);
+    if ($('steps').value) body.sample_params = Object.assign({}, S.defaults.sample_params || {}, { sample_steps: parseInt($('steps').value, 10) });
+
+    let r;
+    try {
+      r = await fetch('/sdcpp/v1/img_gen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } catch (e) { failed('Server unreachable — it may be restarting; try again in a few seconds.'); return; }
+    if (!r.ok) { failed(`Server refused the job (HTTP ${r.status}): ${(await r.text()).slice(0, 200)}`); return; }
+    const j = await r.json();
+    S.job = { id: j.id, prompt: $('prompt').value.trim(), mode: edit ? 'edit' : 'gen', seed, w, h, fmt: body.output_format, refs: edit ? S.refs.map(x => x.url) : [] };
+    S.started = Date.now(); S.lastSeed = seed;
+    busy(true); $('st-status').textContent = 'Queued…'; $('st-seed').innerHTML = `seed <b>${seed}</b>`;
+    poll();
+  }
+  async function poll() {
+    if (!S.job) return;
+    let s;
+    try { s = await (await fetch(`/sdcpp/v1/jobs/${S.job.id}`, { cache: 'no-store' })).json(); }
+    catch (e) { S.polling = setTimeout(poll, 2000); $('st-status').textContent = 'Connection lost — still waiting…'; return; }
+    const el = (Date.now() - S.started) / 1000;
+    $('st-time').innerHTML = `elapsed <b>${fmtTime(el)}</b>`;
+    if (s.status === 'queued') { $('st-status').innerHTML = `Queued — position <b>${s.queue_position}</b>`; }
+    else if (s.status === 'generating') {
+      if (s.preview && s.preview.b64_json) {
+        show(`data:image/png;base64,${s.preview.b64_json}`, true);
+        const p = s.preview.step / Math.max(1, s.preview.total_steps);
+        $('bar').style.width = `${Math.round(p * 92)}%`;
+        $('st-status').innerHTML = `${S.job.mode === 'edit' ? 'Editing' : 'Generating'} — step <b>${s.preview.step}/${s.preview.total_steps}</b>`;
+      } else { $('st-status').textContent = S.job.mode === 'edit' ? 'Reading the source image…' : 'Encoding the prompt…'; $('bar').style.width = '4%'; }
+    }
+    else if (s.status === 'completed' && s.result && s.result.images && s.result.images.length) {
+      const mime = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' }[s.result.output_format] || 'image/png';
+      const url = `data:${mime};base64,${s.result.images[0].b64_json}`;
+      const item = { id: S.job.id, url, prompt: S.job.prompt, mode: S.job.mode, seed: S.job.seed, w: S.job.w, h: S.job.h, fmt: s.result.output_format, secs: el, at: Date.now() };
+      S.job = null; busy(false); $('bar').style.width = '100%'; setTimeout(() => $('bar').style.width = '0', 600);
+      select(item); S.history.unshift(item); renderHistory(); save(item);
+      $('st-status').innerHTML = `<b>Done</b>`; $('st-time').innerHTML = `took <b>${fmtTime(el)}</b>`;
+      return;
+    }
+    else if (s.status === 'failed' || s.status === 'cancelled') {
+      const msg = s.status === 'cancelled' ? 'Cancelled.' : `Failed: ${(s.error && s.error.message) || 'unknown error'}`;
+      S.job = null; busy(false); $('bar').style.width = '0'; failed(msg, s.status === 'cancelled'); return;
+    }
+    S.polling = setTimeout(poll, 900);
+  }
+  function failed(msg, quiet) { $('st-status').innerHTML = quiet ? msg : `<span class="error">${msg}</span>`; if (S.current) show(S.current.url); }
+  function busy(on) {
+    $('go').disabled = on; $('a-cancel').hidden = !on;
+    ['a-edit', 'a-again', 'a-dl'].forEach(id => $(id).disabled = on || !S.current);
+    setSrv(on ? 'busy' : 'ok', on ? 'working' : 'online');
+  }
+  $('a-cancel').onclick = async () => { if (!S.job) return; try { await fetch(`/sdcpp/v1/jobs/${S.job.id}/cancel`, { method: 'POST' }); } catch (e) {} $('st-status').textContent = 'Cancelling…'; };
+
+  // ---------- view ----------
+  function show(url, preview) {
+    const v = $('view'); v.src = url; v.hidden = false; v.classList.toggle('preview', !!preview); $('empty').hidden = true;
+    // The live preview is a latent projection at 1/16 of the output size; stretch it to the target
+    // dimensions (CSS max-width/max-height still fit it to the panel). Final images use natural size.
+    // Same box the final image will get: no wider than its pixels, the panel, or the height budget.
+    if (preview && S.job) { v.style.width = `min(${S.job.w}px, 100%, calc((100vh - 290px) * ${S.job.w / S.job.h}))`; v.style.aspectRatio = `${S.job.w} / ${S.job.h}`; }
+    else { v.style.width = ''; v.style.aspectRatio = ''; }
+  }
+  function select(item) {
+    S.current = item; show(item.url);
+    ['a-edit', 'a-again', 'a-dl'].forEach(id => $(id).disabled = !!S.job);
+    $('st-seed').innerHTML = `seed <b>${item.seed}</b> · ${item.w}×${item.h} · ${item.mode === 'edit' ? 'edit' : 'generated'}`;
+    document.querySelectorAll('.thumb').forEach(t => t.classList.toggle('on', t.dataset.id === item.id));
+  }
+  $('a-edit').onclick = () => {
+    if (!S.current) return;
+    S.refs = []; addRefFromDataUrl(S.current.url); renderSizes.touched = false;
+    $('prompt').value = ''; $('prompt').focus(); toast('Now describe the change');
+  };
+  $('a-again').onclick = () => {
+    if (!S.current) return; $('prompt').value = S.current.prompt; $('seed').value = ''; $('lock').checked = false; run();
+  };
+  $('a-dl').onclick = () => {
+    if (!S.current) return;
+    const a = document.createElement('a'); a.href = S.current.url;
+    const slug = S.current.prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40).replace(/^-|-$/g, '') || 'image';
+    a.download = `${slug}-${S.current.seed}.${S.current.fmt === 'jpeg' ? 'jpg' : S.current.fmt}`; a.click();
+  };
+  $('go').onclick = run;
+  $('prompt').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
+
+  // ---------- history (IndexedDB: per-browser, survives reloads; never required) ----------
+  function renderHistory() {
+    const box = $('strip'); box.innerHTML = '';
+    for (const it of S.history.slice(0, 60)) {
+      const d = document.createElement('div'); d.className = 'thumb' + (S.current && S.current.id === it.id ? ' on' : ''); d.dataset.id = it.id;
+      d.title = it.prompt; d.innerHTML = `<img alt="" loading="lazy"><span>${it.mode === 'edit' ? 'EDIT' : 'GEN'}</span>`;
+      d.querySelector('img').src = it.url; d.onclick = () => select(it);
+      box.appendChild(d);
+    }
+  }
+  let db = null;
+  function openDb() {
+    return new Promise(res => {
+      try {
+        const rq = indexedDB.open('image-studio', 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore('items', { keyPath: 'id' });
+        rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null);
+      } catch (e) { res(null); }
+    });
+  }
+  function save(item) {
+    if (!db) return;
+    try {
+      const tx = db.transaction('items', 'readwrite'); tx.objectStore('items').put(item);
+      // keep the newest 60
+      if (S.history.length > 60) for (const old of S.history.slice(60)) tx.objectStore('items').delete(old.id);
+    } catch (e) {}
+  }
+  $('clear').onclick = e => {
+    e.preventDefault(); if (!confirm('Clear the history stored in this browser?')) return;
+    S.history = []; renderHistory();
+    try { if (db) db.transaction('items', 'readwrite').objectStore('items').clear(); } catch (er) {}
+  };
+  openDb().then(d => {
+    db = d; if (!db) return;
+    try {
+      const rq = db.transaction('items').objectStore('items').getAll();
+      rq.onsuccess = () => { S.history = (rq.result || []).sort((a, b) => b.at - a.at); renderHistory(); if (S.history[0] && !S.current) select(S.history[0]); };
+    } catch (e) {}
+  });
+
+  setMode();
+})();
+</script>
+</body>
+</html>

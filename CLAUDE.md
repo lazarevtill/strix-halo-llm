@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **SINCE 2026-10-15 THE BOX SERVES IMAGES, NOT AN LLM.** `:8080` runs stable-diffusion.cpp's
 > `sd-server` (Vulkan) with **Qwen-Image-2.1 Turbo Q8_0** — OpenAI `/v1/images/generations` + `/edits`,
-> launched by `scripts/windows/run-images.ps1 -Model turbo-q8` (supervised). The LLM router, its
+> launched by `scripts/windows/run-images.ps1 -Model turbo-q8` (supervised). The page at `/` is **Image Studio**
+> (`scripts/windows/images-ui.html`, generation + editing in one view, native async API — edit the file and
+> reload, sd-server re-reads it per request). The LLM router, its
 > watchdog and the `:9114` exporter are commented out in the Startup launcher (`rem ROLLBACK-LLM:`).
 > Everything below about llama.cpp still holds for when the LLM comes back. See **docs/IMAGES.md**:
 > ~1.8 min per 1024² image, ~2 min per edit; Q8_0 is 2.4x faster than bf16 on this driver; an
