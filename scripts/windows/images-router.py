@@ -19,6 +19,12 @@ budget (LRU eviction of idle backends), and routes every request to the right on
                                   input aborts the whole backend process (measured 2026-10-15).
   *    /sdapi/v1/...              A1111-style API, current model
   GET  /health                    router liveness
+  POST /studio/remote/inspect     {"url": huggingface.co | civitai.com | civitai.red link} -> what it is, its
+                                  sd.cpp family, files, licence, what adding it would download
+  POST /studio/remote/add         {"url", "file", "family", "id", "label"} -> a download job; when it finishes the
+                                  model joins the LOCAL registry (<models>/image-models.local.json) or the LoRA dir
+  GET  /studio/remote/jobs        download progress          POST /studio/remote/cancel {"id"}
+  POST /studio/remote/remove      {"kind": "model"|"lora", "id", "delete_files"} (remote-added entries only)
 
 Stdlib only. Run with `python -I`. Backends run inside a Windows job object, so they die with the
 router instead of lingering as orphans that hold GPU memory.
@@ -26,6 +32,7 @@ router instead of lingering as orphans that hold GPU memory.
 import argparse
 import ctypes
 import http.client
+import importlib.util
 import http.server
 import json
 import os
@@ -44,6 +51,17 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", 
 def log(msg):
     sys.stdout.write("%s  %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S"), msg))
     sys.stdout.flush()
+
+
+def _load_sibling(name):
+    # `python -I` keeps this directory off sys.path; load the sibling module by its path instead
+    spec = importlib.util.spec_from_file_location(name, os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+REMOTE = _load_sibling("images_remote")
 
 
 # ---- Windows job object: children die with the router ------------------------------------------
@@ -114,13 +132,29 @@ class Router:
         self.a = a
         self.lock = threading.RLock()
         self.job = KillOnCloseJob()
+        # must exist BEFORE any backend starts: _start only passes --lora-model-dir for an existing dir,
+        # and sd-server then rescans it live (a LoRA dropped in later shows up without a restart)
+        os.makedirs(a.lora_dir, exist_ok=True)
+        self.remote = None
+        self.remote = REMOTE.Remote(a.models_dir, a.lora_dir, a.local_registry, log, self.load_registry)
         self.load_registry()
         self.job_map = {}       # job id -> backend id
         self.current = self.default
 
     def load_registry(self):
+        with self.lock:
+            self._load_registry()
+
+    def _load_registry(self):
         with open(self.a.registry, encoding="utf-8") as f:
             reg = json.load(f)
+        tracked = {m["id"] for m in reg["models"]}
+        for m in (self.remote.read()["models"] if self.remote else []):
+            if m.get("id") in tracked:
+                log("local model %s ignored: that id belongs to the tracked registry" % m.get("id"))
+                continue
+            m["user"] = True
+            reg["models"].append(m)
         self.default = reg["default"]
         self.compute_gb = float(reg.get("compute_gb", 8))
         old = getattr(self, "backends", {})
@@ -204,6 +238,7 @@ class Router:
         args += b.spec.get("args", [])
         stamp = time.strftime("%Y%m%d-%H%M%S")
         base = os.path.join(self.a.log_dir, "images-%s-%s" % (b.id, stamp))
+        b.log_base = base
         self._prune_logs(b.id)
         b.state, b.error, b.started_at = "loading", "", time.time()
         out, err = open(base + ".out", "wb"), open(base + ".err", "wb")
@@ -229,12 +264,31 @@ class Router:
             except OSError:
                 pass
             time.sleep(1.5)
+        if ok:
+            self._measure(b)
         with b.cond:
             b.state = "ready" if ok else "failed"
             if not ok and not b.error:
                 b.error = "did not come up within 15 min"
             b.cond.notify_all()
         log("%s %s after %.0f s %s" % (b.id, b.state, time.time() - b.started_at, b.error))
+
+    def _measure(self, b):
+        """Replace a model's reserve with what sd-server reports it loaded (persisted for remote-added models)."""
+        try:
+            with open(b.log_base + ".out", encoding="utf-8", errors="replace") as f:
+                m = re.search(r"total params memory size = ([\d.]+)MB", f.read())
+            if not m:
+                return
+            gb = round(float(m.group(1)) / 1000, 1)
+            if b.spec.get("user") and not b.spec.get("vram_measured"):
+                b.spec["vram_gb"], b.spec["vram_measured"] = gb, True
+                self.remote.update_model(b.id, vram_gb=gb, vram_measured=True)
+                log("%s: measured %.1f GB of weights; saved to the local registry" % (b.id, gb))
+            elif abs(gb - float(b.spec.get("vram_gb", 0))) > 0.5:
+                log("%s: loaded %.1f GB of weights but the registry says %s GB" % (b.id, gb, b.spec.get("vram_gb")))
+        except (OSError, ValueError, AttributeError) as e:
+            log("%s: could not read the weight size from its log (%s)" % (b.id, e))
 
     def _stop(self, b):
         if b.proc and b.proc.poll() is None:
@@ -271,11 +325,14 @@ class Router:
         out = []
         for b in self.backends.values():
             s = {k: b.spec.get(k) for k in ("id", "label", "description", "licence", "nsfw", "vram_gb", "ui")}
-            s.update(state=b.state, error=b.error, busy=b.busy(), port=b.port,
-                     missing=self.missing_files(b.spec), last_used=b.last_used)
+            s.update(state=b.state, error=b.error, busy=b.busy(), port=b.port, user=bool(b.spec.get("user")),
+                     family=b.spec.get("family"), missing=self.missing_files(b.spec), last_used=b.last_used)
             out.append(s)
         return {"default": self.default, "current": self.current, "budget_gb": self.a.budget_gb,
-                "used_gb": round(self.used_gb(), 1), "models": out}
+                "used_gb": round(self.used_gb(), 1), "models": out, "loras": self.remote.read()["loras"],
+                "tokens": REMOTE.token_status(),
+                "families": {k: {"label": v["label"], "group": v["group"]} for k, v in REMOTE.FAMILIES.items()},
+                "downloads": sum(1 for j in self.remote.views() if j["state"] in ("queued", "downloading", "verifying"))}
 
 
 def sweep_orphans(base, n):
@@ -432,6 +489,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if p == "/studio/reload-registry" and self.command == "POST":
                 ROUTER.load_registry()
                 return self.send_json(200, ROUTER.status())
+            if p.startswith("/studio/remote/"):
+                return self.remote_api(p)
 
             # ---- native API ----
             if p == "/sdcpp/v1/img_gen" and self.command == "POST":
@@ -506,6 +565,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def remote_api(self, p):
+        rm = ROUTER.remote
+        try:
+            if p == "/studio/remote/jobs":
+                return self.send_json(200, {"jobs": rm.views(), "tokens": REMOTE.token_status()})
+            if self.command != "POST":
+                return self.err(405, "POST only")
+            req = json.loads(self.body() or b"{}")
+            if p == "/studio/remote/inspect":
+                info = REMOTE.inspect(req.get("url"), req.get("file"))
+                fam = req.get("family") or info["family"]
+                info["plan"] = rm.plan(info, fam if fam in REMOTE.FAMILIES else None)[0]
+                info["families"], info["tokens"] = REMOTE.family_list(), REMOTE.token_status()
+                return self.send_json(200, info)
+            if p == "/studio/remote/add":
+                job = rm.add(req.get("url"), req.get("file"), req.get("family"), req.get("id"), req.get("label"),
+                             set(ROUTER.backends))
+                return self.send_json(202, job)
+            if p == "/studio/remote/cancel":
+                return self.send_json(200, {"cancelled": rm.cancel(req.get("id"))})
+            if p == "/studio/remote/remove":
+                kind, ident = req.get("kind"), req.get("id")
+                if kind == "model":
+                    b = ROUTER.backends.get(ident)
+                    if b and b.spec.get("user"):
+                        ROUTER.stop(ident)          # raises if it has work in progress
+                return self.send_json(200, rm.remove(kind, ident, bool(req.get("delete_files"))))
+            return self.err(404, "unknown remote call")
+        except REMOTE.RemoteError as e:
+            return self.err(400, str(e))
+        except (OSError, ValueError) as e:
+            return self.err(502, "could not reach the model site: %s" % e)
+
     def sync(self, mid, raw, path=None):
         b = ROUTER.ensure(mid)
         b.inflight += 1
@@ -530,12 +622,16 @@ def main():
     ap.add_argument("--ui", default=os.path.join(here, "images-ui.html"))
     ap.add_argument("--sd-server", default=os.path.join(root, "bin-sd-master-967-e47426c", "sd-server.exe"))
     ap.add_argument("--models-dir", default=os.environ.get("MODELS_DIR") or os.path.join(root, "models"))
-    ap.add_argument("--lora-dir", default=os.path.join(root, "models", "loras"))
+    ap.add_argument("--lora-dir", default=None, help="default: <models-dir>/loras")
+    ap.add_argument("--local-registry", default=None,
+                    help="remote-added models; default <models-dir>/image-models.local.json (never the tracked file)")
     ap.add_argument("--log-dir", default=os.path.join(root, "logs"))
     ap.add_argument("--budget-gb", type=float, default=88, help="GPU memory the router may reserve for backends")
     ap.add_argument("--upstream-timeout", type=float, default=3600)
     ap.add_argument("--preload", default="default", help="model to start at launch ('default', an id, or 'none')")
     a = ap.parse_args()
+    a.lora_dir = a.lora_dir or os.path.join(a.models_dir, "loras")
+    a.local_registry = a.local_registry or os.path.join(a.models_dir, "image-models.local.json")
     os.makedirs(a.log_dir, exist_ok=True)
     global ROUTER
     ROUTER = Router(a)

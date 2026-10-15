@@ -139,6 +139,24 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
 .lb-bar button:disabled { opacity: .35; cursor: default; }
 .lb-bar .info { color: #b8b2a8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 160px; min-width: 0; }
 .lb-bar .z { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+/* add-a-model dialog */
+.modal { position: fixed; inset: 0; z-index: 15; background: rgba(0,0,0,.45); display: grid; place-items: start center; padding: 6vh 16px 16px; overflow: auto; }
+.modal-box { width: 100%; max-width: 660px; padding: 0; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.modal-body { display: flex; flex-direction: column; gap: 13px; padding: 16px; }
+.urlrow { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.am-title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 16px; }
+.am-plan { font-size: 13px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; display: flex; flex-direction: column; gap: 3px; }
+.am-plan .f { display: flex; justify-content: space-between; gap: 10px; } .am-plan .f span:last-child { color: var(--muted); white-space: nowrap; }
+.am-plan .f.have span:first-child { color: var(--muted); }
+.words { display: flex; flex-wrap: wrap; gap: 5px; }
+.job { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.job .top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.job .bar { height: 5px; background: var(--check); border-radius: 3px; overflow: hidden; } .job .bar i { display: block; height: 100%; background: var(--accent); }
+.mine { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 13.5px; }
+.mine .it { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.lora-meta { grid-column: 1 / -1; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: -2px; }
+.lora-meta .chip { font-size: 11.5px; padding: 1px 8px; }
 .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 16px; font-size: 13.5px; }
 .statusbar .stat { color: var(--muted); } .statusbar .stat b { color: var(--ink); font-weight: 600; }
 .statusbar .actions { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
@@ -167,7 +185,9 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   <div class="model-pick">
     <select id="model" aria-label="Model"></select>
     <span class="badge nsfw" id="m-badge" hidden>NSFW</span>
+    <button class="icon-btn" id="add-model" type="button" title="Add a model or LoRA from Hugging Face or CivitAI">＋ Add</button>
   </div>
+  <span class="pill" id="dl-pill" hidden title="Downloads in progress — click to see them"></span>
   <span class="spacer"></span>
   <span class="pill"><span class="dot" id="dot"></span><span id="srv">connecting</span></span>
   <button class="icon-btn" id="theme" title="Toggle light / dark">◐</button>
@@ -356,6 +376,35 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<div class="modal" id="addm" hidden role="dialog" aria-modal="true" aria-labelledby="addm-title">
+  <div class="panel modal-box">
+    <div class="modal-head"><b id="addm-title">Add a model or LoRA</b><button class="icon-btn" id="am-close" type="button" title="Close (Esc)">✕</button></div>
+    <div class="modal-body">
+      <div>
+        <div class="label">Link <small>Hugging Face, civitai.com or civitai.red</small></div>
+        <div class="urlrow"><input type="text" id="am-url" placeholder="https://civitai.red/models/…  or  https://huggingface.co/owner/repo"><button class="act primary" id="am-look" type="button">Look up</button></div>
+        <p class="note" id="am-tokens" style="margin-top:6px"></p>
+        <p class="note warn" id="am-err" hidden style="margin-top:6px"></p>
+      </div>
+      <div id="am-result" hidden>
+        <div class="am-title"><b id="am-name"></b><span class="badge" id="am-kind"></span><span class="badge nsfw" id="am-nsfw" hidden>NSFW</span></div>
+        <p class="note" id="am-meta" style="margin-top:4px"></p>
+        <div class="row" style="margin-top:10px">
+          <div id="am-ver-box"><div class="label">Version</div><select id="am-ver"></select></div>
+          <div><div class="label">File</div><select id="am-file"></select></div>
+        </div>
+        <div style="margin-top:10px" id="am-fam-box"><div class="label">Family <small id="am-fam-why"></small></div><select id="am-fam"></select></div>
+        <p class="note warn" id="am-warn" hidden style="margin-top:8px"></p>
+        <div id="am-words-box" hidden style="margin-top:10px"><div class="label">Trigger words</div><div class="words" id="am-words"></div></div>
+        <div style="margin-top:10px" id="am-label-box"><div class="label">Name in the picker</div><input type="text" id="am-label"></div>
+        <div style="margin-top:10px"><div class="label">Will download</div><div class="am-plan" id="am-plan"></div></div>
+        <button class="go" id="am-add" type="button" style="margin-top:12px; width:100%">Download &amp; add</button>
+      </div>
+      <div id="am-jobs" class="mine"></div>
+      <details id="am-mine"><summary>Added from remotes <span class="hint" id="am-mine-n"></span></summary><div class="mine" id="am-list"></div></details>
+    </div>
+  </div>
+</div>
 <div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Image viewer">
   <div class="lb-stage" id="lb-stage"><img id="lb-img" alt="" draggable="false"></div>
   <div class="lb-bar">
@@ -426,13 +475,19 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
     }
     const sel = $('model');
     sel.innerHTML = '';
-    for (const m of st.models) {
-      const o = document.createElement('option'); o.value = m.id;
-      const miss = m.missing && m.missing.length;
-      const tag = miss ? ' — files missing' : m.state === 'ready' ? ' — loaded' : m.state === 'loading' ? ' — loading…' : m.state === 'failed' ? ' — failed' : '';
-      o.textContent = `${m.label}${tag}`; o.disabled = !!miss; sel.appendChild(o);
+    const groups = st.models.some(x => x.user) ? [['Built in', st.models.filter(x => !x.user)], ['Added from remotes', st.models.filter(x => x.user)]] : [[null, st.models]];
+    for (const [title, list] of groups) {
+      const parent = title ? Object.assign(document.createElement('optgroup'), { label: title }) : sel;
+      for (const m of list) {
+        const o = document.createElement('option'); o.value = m.id;
+        const miss = m.missing && m.missing.length;
+        const tag = miss ? ' — files missing' : m.state === 'ready' ? ' — loaded' : m.state === 'loading' ? ' — loading…' : m.state === 'failed' ? ' — failed' : '';
+        o.textContent = `${m.label}${tag}`; o.disabled = !!miss; parent.appendChild(o);
+      }
+      if (title) sel.appendChild(parent);
     }
     sel.value = S.model;
+    if (st.downloads && !AM.poll) pollJobs();
     renderModelInfo();
     const m = M();
     if (m && m.state === 'ready' && !S.caps[m.id]) await loadCaps(m.id);
@@ -820,12 +875,144 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
   };
 
   // ---------- LoRA ----------
+  // A LoRA only works on the family it was trained for (an SDXL LoRA on Z-Image fails silently), so the
+  // list puts this model's family first and marks the rest; trigger words come from the remote's metadata.
+  const famInfo = id => (S.budget && S.budget.families && S.budget.families[id]) || null;
+  const famLabel = id => (famInfo(id) || {}).label || id || '';
+  const loraMeta = path => ((S.budget && S.budget.loras) || []).find(x => x.file === path);
   $('lora-add').onclick = () => {
     const list = (S.caps[S.model] || {}).loras || []; if (!list.length) return;
+    const g = (famInfo((M() || {}).family) || {}).group;
+    const opts = list.map(l => {
+      const mt = loraMeta(l.path || l.name), ok = !g || !mt || !mt.group || mt.group === g;
+      return { v: l.path || l.name, ok, text: `${mt ? mt.name : l.name}${mt && mt.family ? ` — ${famLabel(mt.family)}` : ''}${ok ? '' : ' (other family: will not work here)'}` };
+    }).sort((a, b) => b.ok - a.ok);
     const row = document.createElement('div'); row.className = 'lora-row';
-    row.innerHTML = `<select>${list.map(l => `<option value="${esc(l.path || l.name)}">${esc(l.name)}</option>`).join('')}</select><input type="number" value="1" step="0.05"><button class="mini" type="button">×</button>`;
-    row.querySelector('button').onclick = () => row.remove(); $('loras').appendChild(row);
+    row.innerHTML = `<select>${opts.map(o => `<option value="${esc(o.v)}">${esc(o.text)}</option>`).join('')}</select><input type="number" value="1" step="0.05"><button class="mini" type="button">×</button><div class="lora-meta" hidden></div>`;
+    const sel = row.querySelector('select'), meta = row.querySelector('.lora-meta');
+    const showMeta = () => {
+      const mt = loraMeta(sel.value), words = (mt && mt.trained_words) || []; meta.innerHTML = ''; meta.hidden = !words.length;
+      if (!words.length) return; meta.append('Trigger words:');
+      for (const w of words.slice(0, 12)) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = w; b.title = 'Add to the prompt';
+        b.onclick = () => { const p = $('prompt'); p.value = p.value.trim() ? `${p.value.replace(/[\s,]+$/, '')}, ${w}` : w; }; meta.appendChild(b);
+      }
+    };
+    sel.onchange = showMeta; showMeta();
+    row.querySelector('button.mini').onclick = () => row.remove(); $('loras').appendChild(row);
   };
+
+  // ---------- add a model / LoRA from Hugging Face or CivitAI ----------
+  const AM = { info: null, url: '', fam: '', poll: null, seen: null };
+  const gbs = n => `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} GB`;
+  const JSONH = { 'Content-Type': 'application/json' };
+  function openAdd() { $('addm').hidden = false; renderTokens(); renderMine(); pollJobs(); setTimeout(() => $('am-url').focus(), 50); }
+  function closeAdd() { $('addm').hidden = true; }
+  $('add-model').onclick = openAdd; $('dl-pill').onclick = openAdd; $('am-close').onclick = closeAdd;
+  $('addm').addEventListener('click', e => { if (e.target === $('addm')) closeAdd(); });
+  function renderTokens() {
+    const t = (S.budget && S.budget.tokens) || {};
+    $('am-tokens').innerHTML = `CivitAI key: <b>${t.civitai ? 'set' : 'not set'}</b>` +
+      (t.civitai ? '' : ' — most CivitAI files need one: create it at civitai.com → Account settings → API keys, then on the box run <kbd>setx CIVITAI_TOKEN &lt;key&gt;</kbd> in a terminal (no restart needed).') +
+      ` · Hugging Face token: <b>${t.hf ? 'set' : 'not set'}</b>${t.hf ? '' : ' (only gated repos need one: <kbd>setx HF_TOKEN &lt;token&gt;</kbd>)'}`;
+  }
+  async function lookup(extra) {
+    const url = (extra && extra.url) || $('am-url').value.trim(); if (!url) { $('am-url').focus(); return; }
+    $('am-look').disabled = true; $('am-look').textContent = 'Looking…'; $('am-err').hidden = true; $('am-add').disabled = true;
+    try {
+      AM.info = await api('/studio/remote/inspect', { method: 'POST', headers: JSONH, body: JSON.stringify(Object.assign({ url }, extra || {})) });
+      AM.url = AM.info.page; renderInfo();
+    } catch (e) { $('am-result').hidden = true; $('am-err').hidden = false; $('am-err').textContent = e.message; }
+    finally { $('am-look').disabled = false; $('am-look').textContent = 'Look up'; }
+  }
+  $('am-look').onclick = () => { AM.fam = ''; lookup(); };
+  $('am-url').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); AM.fam = ''; lookup(); } });
+  function renderInfo() {
+    const i = AM.info, lora = i.kind === 'lora'; S.budget.tokens = i.tokens || S.budget.tokens; renderTokens();
+    $('am-result').hidden = false;
+    $('am-name').textContent = i.name; $('am-kind').textContent = lora ? 'LoRA' : i.kind ? 'model' : i.type; $('am-nsfw').hidden = !i.nsfw;
+    $('am-meta').innerHTML = [i.base ? `base model: <b>${esc(i.base)}</b>` : '', esc(i.licence), `<a href="${esc(i.page)}" target="_blank" rel="noopener" style="color:inherit">open page ↗</a>`].filter(Boolean).join(' · ');
+    $('am-ver-box').style.visibility = i.versions && i.versions.length > 1 ? '' : 'hidden';
+    $('am-ver').innerHTML = (i.versions || []).map(v => `<option value="${esc(v.id)}">${esc(v.name)}${v.base ? ` — ${esc(v.base)}` : ''}</option>`).join('');
+    $('am-ver').value = String(i.version.id);
+    $('am-file').innerHTML = i.files.map(f => `<option value="${esc(f.key)}">${esc(f.name)} · ${gbs(f.bytes)}${f.detail ? ` · ${esc(f.detail)}` : ''}${f.primary ? ' ★' : ''}</option>`).join('');
+    $('am-file').value = i.file;
+    $('am-fam').innerHTML = `<option value="">— pick the family —</option>` + i.families.map(f => `<option value="${esc(f.id)}">${esc(f.label)}</option>`).join('');
+    $('am-fam').value = AM.fam || i.family || '';
+    $('am-fam-why').textContent = i.family ? `detected from ${i.family_why}` : lora ? 'optional for a LoRA' : 'not detected — pick it';
+    $('am-label').value = i.suggested_label || i.name;
+    const words = i.trained_words || []; $('am-words-box').hidden = !words.length;
+    $('am-words').innerHTML = words.slice(0, 20).map(w => `<span class="chip">${esc(w)}</span>`).join('');
+    const warn = [];
+    if (!i.kind) warn.push(`CivitAI type "${i.type}" is neither a checkpoint nor a LoRA, so it can't be added here.`);
+    if (i.unsupported && !i.family) warn.push(i.unsupported + '.');
+    if (i.access && i.access !== 'ok') warn.push(i.access);
+    if (i.allinone) warn.push('This file bundles its own text encoder / VAE, so it loads as one checkpoint (no extra downloads).');
+    if (i.family && i.sniffed && famInfo(i.family) && famInfo(i.sniffed) && famInfo(i.family).group !== famInfo(i.sniffed).group)
+      warn.push(`Careful: the file's tensors look like ${famLabel(i.sniffed)}, not ${famLabel(i.family)}.`);
+    $('am-warn').hidden = !warn.length; $('am-warn').textContent = warn.join(' ');
+    const p = i.plan || {}, items = p.items || [];
+    $('am-plan').innerHTML = items.map(f => `<div class="f${f.present ? ' have' : ''}"><span>${esc(f.name)}</span><span>${f.present ? 'already on disk' : gbs(f.bytes)}</span></div>`).join('') +
+      `<div class="f"><b>To download</b><span><b>${gbs(p.download_bytes || 0)}</b> · ${gbs(p.free_bytes || 0)} free on the models disk</span></div>`;
+    const blocked = !i.kind || (!lora && !$('am-fam').value) || (i.access && /API key|gated|refused/i.test(i.access)) || p.ok_space === false;
+    $('am-add').disabled = !!blocked; $('am-add').textContent = lora ? 'Download LoRA' : 'Download & add model';
+  }
+  $('am-fam').onchange = () => { AM.fam = $('am-fam').value; lookup({ url: AM.url, file: $('am-file').value, family: AM.fam || undefined }); };
+  $('am-file').onchange = () => lookup({ url: AM.url, file: $('am-file').value, family: AM.fam || undefined });
+  $('am-ver').onchange = () => { AM.fam = ''; lookup({ url: AM.url.replace(/modelVersionId=\d+/, `modelVersionId=${$('am-ver').value}`) }); };
+  $('am-add').onclick = async () => {
+    const i = AM.info; if (!i) return; $('am-add').disabled = true;
+    try {
+      const job = await api('/studio/remote/add', { method: 'POST', headers: JSONH, body: JSON.stringify({
+        url: i.page, file: $('am-file').value, family: $('am-fam').value || null, label: $('am-label').value.trim() || i.suggested_label }) });
+      toast(`Downloading ${job.label}…`); $('am-result').hidden = true; $('am-url').value = ''; AM.info = null; AM.fam = ''; pollJobs();
+    } catch (e) { $('am-warn').hidden = false; $('am-warn').textContent = e.message; $('am-add').disabled = false; }
+  };
+  async function pollJobs() {
+    clearTimeout(AM.poll); AM.poll = null; let r;
+    try { r = await api('/studio/remote/jobs'); } catch (e) { AM.poll = setTimeout(pollJobs, 5000); return; }
+    const live = j => ['queued', 'downloading', 'verifying'].includes(j.state);
+    const box = $('am-jobs'); box.innerHTML = '';
+    for (const j of r.jobs.slice(0, 6)) {
+      const pct = j.state === 'done' ? 100 : j.total ? Math.min(100, j.done / j.total * 100) : 0;
+      const state = { queued: 'queued', downloading: `${pct.toFixed(0)}% · ${gbs(j.done)} of ${gbs(j.total)}${j.speed ? ` · ${(j.speed / 1e6).toFixed(0)} MB/s` : ''}`,
+        verifying: 'verifying…', done: 'done', failed: 'failed', cancelled: 'cancelled' }[j.state] || j.state;
+      const d = document.createElement('div'); d.className = 'job';
+      d.innerHTML = `<div class="top"><b>${esc(j.label)}</b><span>${esc(state)}</span></div>${live(j) ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}` +
+        (j.error ? `<div class="error">${esc(j.error)}</div>` : j.current ? `<div class="note">${esc(j.current)}</div>` : j.result ? `<div class="note">${esc(j.result)}</div>` : '');
+      if (live(j)) { const b = document.createElement('button'); b.type = 'button'; b.className = 'mini'; b.textContent = 'Cancel';
+        b.onclick = async () => { try { await api('/studio/remote/cancel', { method: 'POST', headers: JSONH, body: JSON.stringify({ id: j.id }) }); } catch (e) {} pollJobs(); };
+        d.querySelector('.top').appendChild(b); }
+      box.appendChild(d);
+    }
+    const done = r.jobs.filter(j => j.state === 'done').map(j => j.id);
+    if (AM.seen && done.some(id => !AM.seen.includes(id))) { toast('Download finished — it is in the list now'); await refreshModels(); applyCaps(); renderMine(); }
+    AM.seen = done;
+    const act = r.jobs.filter(live);
+    $('dl-pill').hidden = !act.length;
+    if (act.length) $('dl-pill').textContent = `⬇ ${act.length > 1 ? act.length + ' downloads' : act[0].total ? Math.round(act[0].done / act[0].total * 100) + '%' : 'queued'}`;
+    if (act.length || !$('addm').hidden) AM.poll = setTimeout(pollJobs, act.length ? 1500 : 6000);
+  }
+  function renderMine() {
+    const ms = S.models.filter(m => m.user), ls = (S.budget && S.budget.loras) || [];
+    $('am-mine-n').textContent = `${ms.length} model${ms.length === 1 ? '' : 's'} · ${ls.length} LoRA${ls.length === 1 ? '' : 's'}`;
+    const box = $('am-list'); box.innerHTML = ms.length || ls.length ? '' : '<p class="note">Nothing added yet.</p>';
+    const add = (kind, id, label, sub) => {
+      const d = document.createElement('div'); d.className = 'it';
+      d.innerHTML = `<span><b>${esc(label)}</b> <small style="color:var(--muted)">${esc(sub)}</small></span><button class="mini" type="button">Remove</button>`;
+      d.querySelector('button').onclick = async () => {
+        if (!confirm(`Remove "${label}" from the list?`)) return;
+        const del = confirm('Also delete its downloaded file from disk?\nOK = delete the file · Cancel = keep the file');
+        try {
+          const r = await api('/studio/remote/remove', { method: 'POST', headers: JSONH, body: JSON.stringify({ kind, id, delete_files: del }) });
+          toast(`Removed${r.deleted.length ? `; deleted ${r.deleted.join(', ')}` : ''}`); await refreshModels(); renderMine();
+        } catch (e) { toast(e.message); }
+      };
+      box.appendChild(d);
+    };
+    for (const m of ms) add('model', m.id, m.label, `${famLabel(m.family)} · ${m.vram_gb} GB`);
+    for (const l of ls) add('lora', l.file, l.name, `LoRA · ${famLabel(l.family) || 'family unknown'}`);
+  }
   const loraList = () => [...$('loras').children].map(r => ({ path: r.querySelector('select').value, multiplier: Number(r.querySelector('input').value) || 1 }));
 
   // ---------- notes ----------
@@ -1053,6 +1240,7 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line)
 
   // ---------- keys ----------
   document.addEventListener('keydown', e => {
+    if (!$('addm').hidden) { if (e.key === 'Escape') { e.preventDefault(); closeAdd(); } return; }
     if (!$('lb').hidden) {
       const k = e.key, act = { Escape: closeViewer, ArrowLeft: () => lbNav(-1), ArrowRight: () => lbNav(1), '+': () => $('lb-in').onclick(), '=': () => $('lb-in').onclick(),
         '-': () => $('lb-out').onclick(), '0': () => lbz.reset(), '1': () => $('lb-1x').onclick() }[k];

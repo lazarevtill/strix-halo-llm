@@ -127,7 +127,8 @@ image-to-image, and a model picker: **Qwen-Image-2.1 Turbo** (the top open model
 editing on Artificial Analysis), its full-quality base, **Z-Image Turbo** (the fast option, Apache-2.0),
 **Kroma** (uncensored photoreal) and **Anima** (uncensored anime). Several stay loaded at once; apps pick
 one with the OpenAI `model` field. About **1.5–2.5 minutes per 1024x1024 image** on the big models,
-**~53 s on Z-Image Turbo** (Anima: 44 s). Q8_0 weights ran 2.4x faster than bf16 on this
+**~53 s on Z-Image Turbo** (Anima: 44 s). More models and LoRAs — Illustrious, Pony, NoobAI, SDXL,
+FLUX, Chroma and the rest — can be added from Hugging Face or CivitAI straight from the web UI. Q8_0 weights ran 2.4x faster than bf16 on this
 driver at no visible quality cost. Licences differ per model — Qwen-Image and Anima are
 non-commercial. Details and every measurement: **[docs/IMAGES.md](docs/IMAGES.md)**.
 The LLM configuration below is what served `:8080` until then, and comes back with a one-line

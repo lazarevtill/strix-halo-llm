@@ -100,6 +100,49 @@ grain in both areas, because the whole masked rectangle is invented with no colo
 the default (Surroundings 0.9). Only-masked costs the time of a ~1 MP render (51–74 s on Z-Image vs
 12–14 s for the whole 512² image).
 
+## Adding models and LoRAs from Hugging Face and CivitAI
+
+**＋ Add** in Image Studio's header (or the API below) takes a link from **huggingface.co**,
+**civitai.com** or **civitai.red** — a model page, a pinned version, or a single file — and:
+
+1. **Identifies it**: checkpoint or LoRA, and which stable-diffusion.cpp *family* it belongs to — from
+   CivitAI's `baseModel`, the HF card's `base_model` / tags, and the **tensor names in the file's own
+   header** (read with two HTTP Range requests, no download). Families: SD 1.5, **SDXL / Pony /
+   Illustrious / NoobAI**, SD 3.5, FLUX.1 dev/Krea/schnell, FLUX.2 klein 4B/9B and dev, Chroma,
+   Qwen-Image 1.x and 2.1, Z-Image Turbo/base, Krea 2, Anima — every open-weight image ecosystem on
+   civitai.red/ecosystems that this build loads. HiDream I1, Pony V7 (AuraFlow), Kolors and the
+   hosted-only ones (Nano Banana, Imagen, Seedream, GPT Image) are refused with the reason.
+2. **Shows the plan**: licence / commercial-use terms, NSFW flag, trigger words, and every file it would
+   fetch — the model plus the **companions** its family needs (text encoders, VAEs: e.g. the SDXL
+   fp16-fix VAE, `clip_l` + `t5xxl` for FLUX.1, Qwen3-8B for klein 9B), with what is already on disk.
+3. **Downloads** one job at a time: resumable `.part` files, **sha256-verified** (CivitAI's
+   `hashes.SHA256`, HF's LFS oid), refused if it would leave under 50 GB free.
+4. **Registers** a model in **`<models>\image-models.local.json`** — *not* the tracked
+   `image-models.json`: this repo is public and the owner's additions are their business — or drops a
+   LoRA into `models\loras`, which every backend rescans live. Defaults (steps, CFG, sampler, size) come
+   from the family, with fast defaults for turbo / lightning / hyper / LCM / DMD variants and
+   `--prediction v` for v-pred files. After its first load the router replaces the estimated memory with
+   the **measured** `total params memory size` and saves it.
+
+**Keys.** Many CivitAI files answer **401** without an API key (measured: a Z-Image LoRA did; the
+WAI-illustrious checkpoint did not). Create one at civitai.com → Account settings → API keys and, **on the
+box, in a terminal** (not in a chat), run `setx CIVITAI_TOKEN <key>`; gated HF repos take
+`setx HF_TOKEN <token>`. The router reads `HKCU\Environment` on every request, so no restart is needed. A
+token is sent only to civitai.* / huggingface.co — dropped on the redirect to the storage CDN — and never
+appears in a URL, a response or a log. civitai.red is the same platform and API as civitai.com
+(adult content moved there in April 2026); the lookup tries both.
+
+**Measured 2026-10-15** (through the feature, on a side router): **WAI-illustrious-SDXL v17**
+(CivitAI's top Illustrious checkpoint, from civitai.red, 7.27 GB incl. the fp16-fix VAE) downloaded at
+~70 MB/s, sha256 OK, loaded in 4 s, **6.6 GB** measured, **57 s at 1024²** (28 steps, 1.73 s/step, CFG 6),
+same seed → byte-identical, and a clean render — the first SDXL-family model on this box, and it runs
+well. **Pixel Art XL** (an SDXL LoRA from HF) appeared in the running backend's LoRA list without a
+restart and applied **2166 / 2166** tensors (the 0 / 2166 lines in the log are the text encoder and VAE
+passes); same seed with vs without it: grid pixel art vs smooth illustration.
+
+The LoRA panel lists LoRAs of the loaded model's family first, marks the others *will not work here*,
+and shows trigger words as chips that add themselves to the prompt.
+
 ## API (router, `:8080`)
 
 ```
@@ -110,6 +153,9 @@ POST /sdcpp/v1/img_gen              native async job; {"model": ..., + any nativ
 GET  /sdcpp/v1/jobs/{id}            status, live preview, result     (POST .../cancel to cancel)
 GET  /sdcpp/v1/capabilities?model=  samplers, schedulers, LoRAs, upscalers, limits for that model
 GET  /studio/models                 every model's state; POST /studio/models/load | /unload {"model": id}
+POST /studio/remote/inspect         {"url"} -> kind, family, files, licence, NSFW, download plan
+POST /studio/remote/add             {"url", "file", "family", "label"} -> download job -> local registry
+GET  /studio/remote/jobs            progress (POST .../cancel {"id"}); POST .../remove {"kind", "id", "delete_files"}
 ```
 
 The `model` field picks the backend (default: the last one loaded). Apps can now choose a model per

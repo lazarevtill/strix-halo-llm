@@ -8,7 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > stable-diffusion.cpp `sd-server` (Vulkan) backend per model from the data-only registry
 > `image-models.json` -- Qwen-Image 2.1 Turbo (default) / full, **Z-Image Turbo** (the fast one, ~53 s at
 > 1024², Apache-2.0), **Kroma** (uncensored photoreal) and **Anima** (uncensored anime) -- several resident within an 88 GB budget, routed by the `model` field
-> (OpenAI `/v1/images/*` and native `/sdcpp/v1/*`). See **docs/IMAGES.md** for every measurement.
+> (OpenAI `/v1/images/*` and native `/sdcpp/v1/*`). **＋ Add** in the UI pulls more models / LoRAs from
+> Hugging Face, civitai.com and civitai.red (`images_remote.py`: family detection, companion encoders,
+> sha256) into the LOCAL `<models>\image-models.local.json` -- never the tracked registry. CivitAI keys go
+> in `setx CIVITAI_TOKEN` on the box, never in chat. See **docs/IMAGES.md** for every measurement.
 > Traps: an `<sd_cpp_extra_args>` block in an EDIT request crashes sd-server (the router rejects it with
 > 400); `$PSScriptRoot` is EMPTY in PS 5.1 `param()` defaults under `-File`; the browser tool writes into
 > the repo (`.playwright-mcp/`, gitignored); Qwen-Image / Anima licences are non-commercial. The LLM
