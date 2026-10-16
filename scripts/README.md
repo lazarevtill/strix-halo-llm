@@ -8,10 +8,12 @@ nothing to a working endpoint.
 ```
 scripts/
 ├── windows/     PowerShell 5.1  — supported, and where every number came from
-│   ├── fetch-llamacpp.ps1  ⭐ step zero: download the llama.cpp Vulkan release into bin\
+│   ├── paths.ps1           ⭐ the ONE path resolver -- every script dot-sources it (docs/LAYOUT.md)
+│   ├── check-layout.ps1    ⭐ verify every engine / model / launcher path; writes models\INDEX.md
+│   ├── fetch-llamacpp.ps1  ⭐ step zero: download the llama.cpp Vulkan release into engines\llama.cpp\<build>\
 │   ├── run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (prompts for model)
 │   ├── run-router.ps1      ⭐ serve one or more models from ONE endpoint on :8080 (router mode;
-│   │                          -Parallel / -PerSlotCtx / -NoSpec) — what :8080 runs today
+│   │                          -Parallel / -PerSlotCtx / -NoSpec, -Bin <build>) — what :8080 runs today
 │   ├── metrics-exporter.ps1  Prometheus exporter for the router, merged on ONE fixed port (:9114)
 │   ├── router-watchdog.ps1  restart the router when its model child FREEZES (stops answering /health)
 │   ├── image-models.json   image/video model registry (config; the serving code is private)

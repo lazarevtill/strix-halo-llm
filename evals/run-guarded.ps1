@@ -25,6 +25,7 @@ param(
     [string]   $Tasks = ''
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
 $root = $PSScriptRoot
 
 # powershell.exe -File hands "-Models a,b" over as a SINGLE string, not a 2-element array, so the
@@ -32,13 +33,13 @@ $root = $PSScriptRoot
 $Models = @($Models | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
 $REG = @{
-    'ornith-q5' = @{ model='C:\llm-router\models\ornith-1.0-35b-Q5_K_M.gguf'; ctx=131072; spec='' }
+    'ornith-q5' = @{ model=(Find-StrixModel 'ornith-1.0-35b-Q5_K_M.gguf'); ctx=131072; spec='' }
     # ctx is 131072 for ALL THREE on purpose. Laguna previously ran its coding eval at 32768 (KV was
     # shrunk to fit alongside a squatter), which made it the only model whose 3-turn conversation --
     # reasoning echoed into history, 16384 tokens/turn -- could approach its window. Equal ctx
     # removes that as a confound; it costs nothing since each model is the sole occupant.
-    'laguna'    = @{ model='D:\llamacpp-vulkan\models\laguna-s-2.1-Q4_K_M.gguf'; ctx=131072; spec='ngram-mod' }
-    'qwen122b'  = @{ model='D:\llamacpp-vulkan\models\Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf'; ctx=131072; spec='draft-mtp' }
+    'laguna'    = @{ model=(Find-StrixModel 'laguna-s-2.1-Q4_K_M.gguf'); ctx=131072; spec='ngram-mod' }
+    'qwen122b'  = @{ model=(Find-StrixModel 'Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf'); ctx=131072; spec='draft-mtp' }
 }
 
 # ---- kill the squatters (elevated; needs UAC) ----------------------------------------------------

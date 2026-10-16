@@ -205,9 +205,14 @@ the router **stopped** for the big ones, so it's a human-approved, router-down o
   can know an arch and still reject a specific file's tensor layout. The 1 MiB header preflight was
   still worth it; it just can't catch this class. Only a load attempt can.
 
-### Qwen3.8-Flash-Next  (arch `qwen4exp`) — downloaded, unverified
+### Qwen3.8-Flash-Next  (arch `qwen4exp`) — ✅ SERVED on `:8080` since 2026-10-16
+> Gated 2026-10-05 (determinism 12/12, 20.6 / 26.9 t/s), served from 2026-10-16 as the coding model:
+> 26.2 t/s with draft-mtp n=3 through the router, 262144 ctx, one slot, `lazy-mode = on`. **Correction:**
+> the GGUF says `qwen4exp.context_length = 262144` with no rope scaling -- 262 K is NATIVE; the "1 M" below
+> needs YaRN and was never measured here.
+
 - **What:** Qwen's "Qwen4 architecture preview" — MoE + hybrid SSM/attention, natively multimodal,
-  1 M context. **There is no Qwen3.9 or Qwen4 release**; this preview is the current frontier of that
+  1 M context (via YaRN; 262 K native, see the correction above). **There is no Qwen3.9 or Qwen4 release**; this preview is the current frontier of that
   line and it is already on disk.
 - **GGUF:** `UD-IQ4_XS` (87.2 GB) downloaded — the recommended fit under the ceiling (~22 GB left for
   KV/compute). Registry keys `flashnext` / `flashnext-iq1`.

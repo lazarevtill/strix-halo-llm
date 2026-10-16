@@ -26,9 +26,10 @@ param(
     [switch]   $All,
     [switch]   $List,
     [switch]   $WhatIf,
-    [string]   $Dest = 'D:\llamacpp-vulkan\models'
+    [string]   $Dest = ''      # '' => models\llm, or models\image for entries marked dir = 'image' (paths.ps1)
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
 
 # label -> repo, files (path within repo), expected bytes per file, notes
 # Every byte count verified against https://huggingface.co/api/models/<repo>/tree/... on 2026-07-30.
@@ -476,6 +477,7 @@ $REG = [ordered]@{
     # LICENCE: Qwen Research licence -- NON-COMMERCIAL (HF card). Byte counts + per-file dates from the HF
     # tree API 2026-10-15. Files must be used together: diffusion + vae (this entry) + 'qwen-image-21-te'.
     'qwen-image-21' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/Qwen-Image-2.1'
         files = @(
             @{ p='diffusion_models/qwen_image_2.1_bf16.safetensors';       b=14230280616 }   # base, 40 steps, CFG ~6
@@ -485,6 +487,7 @@ $REG = [ordered]@{
         note  = 'Qwen-Image-2.1 base + Turbo (bf16) + VAE. Image gen+edit via sd-server. NON-COMMERCIAL licence.'
     }
     'qwen-image-21-te' = @{
+        dir   = 'image'
         repo  = 'Qwen/Qwen3-VL-8B-Instruct-GGUF'
         files = @(
             @{ p='Qwen3VL-8B-Instruct-F16.gguf';        b=16388044896 }
@@ -496,6 +499,7 @@ $REG = [ordered]@{
         note  = 'Qwen3-VL-8B text encoder (F16 GGUF) + vision mmproj, for Qwen-Image-2.1.'
     }
     'qwen-image-21-turbo-q8' = @{
+        dir   = 'image'
         repo  = 'unsloth/Qwen-Image-2.1-Turbo-GGUF'
         files = @(
             @{ p='qwen-image-2.1-turbo-Q8_0.gguf'; b=7640860480 }
@@ -509,6 +513,7 @@ $REG = [ordered]@{
     # fine-tunes; Kroma is the Chroma author's Krea 2 fine-tune on the Chroma dataset. Anime: Anima.
     # All HF, ungated. Byte counts + per-file dates from the HF tree API 2026-10-15.
     'kroma' = @{
+        dir   = 'image'
         repo  = 'voldemir/Kroma-GGUF'
         files = @(
             @{ p='kroma-v0.3-turbo.q8_0.gguf'; b=13621775872 }   # Q8_0: 2.4x faster than bf16 on this Vulkan driver
@@ -519,6 +524,7 @@ $REG = [ordered]@{
         note  = 'Kroma v0.3 Turbo Q8_0 (Krea 2 fine-tune, uncensored, 12.9B). Licence: MIT + Krea 2 Community License.'
     }
     'kroma-te' = @{
+        dir   = 'image'
         repo  = 'Qwen/Qwen3-VL-4B-Instruct-GGUF'
         files = @(
             @{ p='Qwen3VL-4B-Instruct-Q8_0.gguf'; b=4280406144 }
@@ -526,6 +532,7 @@ $REG = [ordered]@{
         note  = 'Qwen3-VL-4B text encoder (Q8_0) for Kroma / Krea 2. NOT the fp8 encoder (sd.cpp #1708).'
     }
     'wan21-vae' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/Wan_2.1_ComfyUI_repackaged'
         files = @(
             @{ p='split_files/vae/wan_2.1_vae.safetensors'; b=253815318 }
@@ -533,6 +540,7 @@ $REG = [ordered]@{
         note  = 'Wan 2.1 VAE -- the VAE sd.cpp docs/krea2.md specifies for Krea 2 / Kroma.'
     }
     'anima' = @{
+        dir   = 'image'
         repo  = 'vanes430/Anima-Turbo-V1.1-GGUF'
         files = @(
             @{ p='anima-turbo-v1.1-Q8_0.gguf'; b=2239471744 }
@@ -542,6 +550,7 @@ $REG = [ordered]@{
         note  = 'Anima Turbo v1.1 Q8_0 (anime/illustration, uncensored, 2B). Non-commercial licence. Needs anima-te.'
     }
     'anima-te' = @{
+        dir   = 'image'
         repo  = 'circlestone-labs/Anima'
         files = @(
             @{ p='split_files/text_encoders/qwen_3_06b_base.safetensors'; b=1192135096 }
@@ -554,6 +563,7 @@ $REG = [ordered]@{
     # the image registry). Still the current Turbo release (HF lastModified 2026-01-30). leejet's GGUF is
     # the one sd.cpp docs/z_image.md links, from the sd.cpp author.
     'z-image-turbo' = @{
+        dir   = 'image'
         repo  = 'leejet/Z-Image-Turbo-GGUF'
         files = @(
             @{ p='z_image_turbo-Q8_0.gguf'; b=6577440704 }
@@ -561,6 +571,7 @@ $REG = [ordered]@{
         note  = 'Z-Image-Turbo Q8_0 (6B, 8 steps, Apache-2.0). Needs z-image-te.'
     }
     'z-image-te' = @{
+        dir   = 'image'
         # Text encoder: Z-Image ships the ORIGINAL Qwen3-4B (its text_encoder shards 1-2 have the same LFS
         # sha256 as Qwen/Qwen3-4B's, checked 2026-10-15), not the 2507 Instruct the sd.cpp doc example uses.
         # So the official Qwen Q8_0 GGUF. VAE: the FLUX.1 autoencoder, from Comfy-Org's ungated repackage.
@@ -571,6 +582,7 @@ $REG = [ordered]@{
         note  = 'Qwen3-4B text encoder (Q8_0) for Z-Image. Also needs flux-ae.'
     }
     'flux-ae' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/z_image_turbo'
         files = @(
             @{ p='split_files/vae/ae.safetensors'; b=335304388 }
@@ -582,6 +594,7 @@ $REG = [ordered]@{
     # LICENCE: FLUX Kommunity License v1.0 -- free commercial use under $5M annual revenue, else non-commercial;
     # bans NCII/CSAM. The official repo is gated (click-through); this is an ungated sd.cpp GGUF conversion of it.
     'flux3-klein' = @{
+        dir   = 'image'
         repo  = 'akhaliq/flux-3-image-klein-sd-gguf'
         files = @(
             @{ p='flux3_image_klein_sd-Q8_0.gguf'; b=5991748384 }   # 5.6B, distilled: 16 steps, CFG 1; edits with up to 10 refs
@@ -589,6 +602,7 @@ $REG = [ordered]@{
         note  = 'FLUX.3 Image Klein Q8_0 (5.6B, gen + edit). FLUX Kommunity License. Needs flux2-vae + kroma-te (Qwen3-VL-4B).'
     }
     'flux2-vae' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/flux2-klein-4B'
         files = @(
             @{ p='split_files/vae/flux2-vae.safetensors'; b=336211292 }   # identical size to FLUX.3's own ae.safetensors
@@ -598,6 +612,7 @@ $REG = [ordered]@{
     # ---- Image extras (added 2026-10-16): ESRGAN upscalers, YOLOv8 detectors, IP-Adapter, LTX video -----------
     # Sub-folders under the models dir: upscalers\ (ESRGAN) and detectors\ (YOLOv8, sd.cpp layout).
     'upscalers' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/Real-ESRGAN_repackaged'
         files = @(
             @{ p='RealESRGAN_x4plus.safetensors'; b=66857836; as='upscalers\RealESRGAN_x4plus.safetensors' }   # BSD-3, photos
@@ -605,6 +620,7 @@ $REG = [ordered]@{
         note  = 'RealESRGAN x4plus (4x photo upscaler, BSD-3) for Upscale and hires fix.'
     }
     'upscaler-anime' = @{
+        dir   = 'image'
         repo  = 'hlky/RealESRGAN_x4plus_anime_6B'
         files = @(
             @{ p='diffusion_pytorch_model.safetensors'; b=17888804; as='upscalers\RealESRGAN_x4plus_anime_6B.safetensors' }
@@ -612,6 +628,7 @@ $REG = [ordered]@{
         note  = 'RealESRGAN x4plus anime 6B (4x, anime/illustration), safetensors repack.'
     }
     'upscaler-ultrasharp' = @{
+        dir   = 'image'
         repo  = 'Kim2091/UltraSharp'
         files = @(
             @{ p='4x-UltraSharp.safetensors'; b=66864028; as='upscalers\4x-UltraSharp.safetensors' }
@@ -619,6 +636,7 @@ $REG = [ordered]@{
         note  = '4x-UltraSharp (detail-preserving 4x upscaler). LICENCE CC BY-NC-SA 4.0 (non-commercial).'
     }
     'adetailer' = @{
+        dir   = 'image'
         repo  = 'exeterminal/adetailer-yolov8-safetensors'
         files = @(
             @{ p='face_yolov8n.safetensors'; b=6033980;  as='detectors\face_yolov8n.safetensors' }
@@ -630,6 +648,7 @@ $REG = [ordered]@{
         note  = 'ADetailer face/hand detectors (YOLOv8, sd.cpp safetensors layout). AGPL-3.0.'
     }
     'ipadapter-sdxl' = @{
+        dir   = 'image'
         repo  = 'h94/IP-Adapter'
         files = @(
             @{ p='sdxl_models/ip-adapter_sdxl_vit-h.safetensors'; b=698391064 }
@@ -639,6 +658,7 @@ $REG = [ordered]@{
         note  = 'IP-Adapter for SDXL (image prompt), ViT-H. Apache-2.0. Needs clip-vision-h.'
     }
     'clip-vision-h' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/Wan_2.1_ComfyUI_repackaged'
         files = @(
             @{ p='split_files/clip_vision/clip_vision_h.safetensors'; b=1264219396 }
@@ -646,6 +666,7 @@ $REG = [ordered]@{
         note  = 'CLIP-Vision ViT-H/14 image encoder (IP-Adapter, Wan 2.1 I2V).'
     }
     'ltx23' = @{
+        dir   = 'image'
         repo  = 'unsloth/LTX-2.3-GGUF'
         files = @(
             @{ p='distilled-1.1/ltx-2.3-22b-distilled-1.1-Q8_0.gguf';                     b=22755540000 }
@@ -658,6 +679,7 @@ $REG = [ordered]@{
         note  = 'LTX-2.3 distilled-1.1 Q8_0 + connectors + video/audio VAE. Needs ltx23-te.'
     }
     'ltx23-te' = @{
+        dir   = 'image'
         repo  = 'unsloth/gemma-3-12b-it-GGUF'
         files = @(
             @{ p='gemma-3-12b-it-Q8_0.gguf'; b=12510212576 }
@@ -665,6 +687,7 @@ $REG = [ordered]@{
         note  = 'Gemma 3 12B (Q8_0): the LTX-2.3 text encoder. Gemma terms of use.'
     }
     'minimax-h3' = @{
+        dir   = 'image'
         repo  = 'unsloth/MiniMax-H3-GGUF'
         files = @(
             @{ p='minimax_h3_fl2va_pruned-Q8_0.gguf';                 b=21437786208 }
@@ -678,9 +701,20 @@ $REG = [ordered]@{
         # in the UI and written authorisation above $20M revenue.
         note  = 'MiniMax H3 FL2VA pruned Q8_0 + Qwen3-VL-32B (H3 variant) Q4_K_M + video/audio VAE. Licence excludes EU/UK/US/KR.'
     }
+    'minimax-h3-turbo' = @{
+        dir   = 'image'
+        repo  = 'Comfy-Org/MiniMax-H3'
+        files = @(
+            @{ p='loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors'; b=1956193000; as='loras\minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors' }
+        )
+        # lightx2v's 8-step turbo LoRA (Apache-2.0). MEASURED 2026-10-16, 864x480 x 56 frames: 873 s at 20 steps
+        # without it -> 409 s at 8 steps with it, same seed, at least as good a picture, fuller sound.
+        note  = 'MiniMax H3 8-step turbo LoRA (lightx2v, Apache-2.0) -- the registry applies it by default.'
+    }
     # ---- Video: Wan 2.2 (added 2026-10-15; all Apache-2.0, ungated) --------------------------------------
     # sd-server master-967 serves video on /sdcpp/v1/vid_gen (PR #1437). Byte counts from the HF tree API.
     'wan22-ti2v-turbo' = @{
+        dir   = 'image'
         repo  = 'hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF'
         files = @(
             @{ p='Wan2_2-TI2V-5B-Turbo-Q8_0.gguf'; b=5404990176 }   # quanhaol's 4-step Turbo of Wan2.2-TI2V-5B (origin repo since made private)
@@ -688,6 +722,7 @@ $REG = [ordered]@{
         note  = 'Wan 2.2 TI2V-5B Turbo Q8_0: text->video AND image->video, 4 steps, 24 fps. Needs wan-umt5 + wan22-vae.'
     }
     'wan22-i2v-a14b-4step' = @{
+        dir   = 'image'
         repo  = 'jayn7/WAN2.2-I2V_A14B-DISTILL-LIGHTX2V-4STEP-GGUF'
         files = @(
             @{ p='high_noise_260412/wan2.2_i2v_A14b_high_noise_lightx2v_4step_720p_260412-Q8_0.gguf'; b=15416449664 }
@@ -698,6 +733,7 @@ $REG = [ordered]@{
         note  = 'Wan 2.2 I2V-A14B lightx2v 4-step distilled Q8_0 (2 x 15.4 GB): quality image->video. Needs wan-umt5 + wan21-vae.'
     }
     'wan-umt5' = @{
+        dir   = 'image'
         repo  = 'city96/umt5-xxl-encoder-gguf'
         files = @(
             @{ p='umt5-xxl-encoder-Q8_0.gguf'; b=6043068256 }
@@ -705,6 +741,7 @@ $REG = [ordered]@{
         note  = 'umt5-xxl text encoder (Q8_0) shared by every Wan model.'
     }
     'wan22-vae' = @{
+        dir   = 'image'
         repo  = 'Comfy-Org/Wan_2.2_ComfyUI_Repackaged'
         files = @(
             @{ p='split_files/vae/wan2.2_vae.safetensors'; b=1409400960 }
@@ -712,6 +749,7 @@ $REG = [ordered]@{
         note  = 'Wan 2.2 VAE -- TI2V-5B only (the A14B models use the Wan 2.1 VAE).'
     }
     'qwen-image-21-q8' = @{
+        dir   = 'image'
         repo  = 'leejet/Qwen-Image-2.1-GGUF'
         files = @(
             @{ p='qwen_image_2.1-Q8_0.gguf'; b=7687155744 }
@@ -780,6 +818,13 @@ $REG = [ordered]@{
 # model. The bar is "Ornith-1.0-35B-tier agentic/coding quality or better, 2026 releases only" --
 # gpt-oss-120b is the oldest thing in its size class and does not clear it. Don't re-add it.
 
+# Where an entry's files go: -Dest if given, else models\image for dir = 'image' entries, else models\llm.
+function Get-EntryDest([string]$label) {
+    if ($Dest) { return $Dest }
+    if ($REG[$label].dir -eq 'image') { return (Get-StrixModelsDir image) }
+    return (Get-StrixModelsDir llm)
+}
+
 function Show-Reg {
     Write-Host "`nRegistry (label -> weights GiB, status):" -ForegroundColor Cyan
     foreach ($k in $REG.Keys) {
@@ -787,20 +832,19 @@ function Show-Reg {
         $tot = 0; foreach ($f in $REG[$k].files) { if ($f.b -gt 0) { $tot += $f.b } }
         $have = 0
         foreach ($f in $REG[$k].files) {
-            $lp = Join-Path $Dest $(if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) })
+            $lp = Join-Path (Get-EntryDest $k) $(if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) })
             if (Test-Path $lp) { $have += (Get-Item $lp).Length }
         }
         $pct = if ($tot -gt 0) { [math]::Round(100*$have/$tot) } else { 0 }
         $st  = if ($tot -gt 0 -and $have -ge $tot) { 'COMPLETE' } elseif ($have -gt 0) { "$pct%" } else { '-' }
         "{0,-18} {1,8:N2} GiB  {2,-9}  {3}" -f $k, ($tot/1GB), $st, $REG[$k].note
     }
-    $d = Get-PSDrive ($Dest.Substring(0,1)) -EA SilentlyContinue
+    $d = Get-PSDrive ((Get-StrixModelsDir llm).Substring(0,1)) -EA SilentlyContinue
     if ($d) { Write-Host ("`n{0}: {1:N1} GiB free" -f $d.Name, ($d.Free/1GB)) -ForegroundColor DarkGray }
     Write-Host ""
 }
 if ($List) { Show-Reg; return }
 
-if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Force $Dest | Out-Null }
 $curl = (Get-Command curl.exe -EA SilentlyContinue).Source
 if (-not $curl) { Write-Error "curl.exe not found (expected in C:\Windows\System32). Cannot resume large downloads."; exit 1 }
 
@@ -824,14 +868,15 @@ $plannedBytes = 0
 foreach ($s in $sel) {
     foreach ($f in $REG[$s].files) {
         if ($f.b -le 0) { continue }
-        $lp = Join-Path $Dest $(if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) })
+        $lp = Join-Path (Get-EntryDest $s) $(if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) })
         $haveB = if (Test-Path $lp) { (Get-Item $lp).Length } else { 0 }
         if ($haveB -gt $f.b) { $haveB = 0 }   # oversized -> will be deleted and refetched
         $plannedBytes += ($f.b - $haveB)
     }
 }
-$drv = Get-PSDrive ($Dest.Substring(0,1))
-Write-Host ("`nPlan: {0} model(s), ~{1:N1} GiB still to download into {2}" -f $sel.Count, ($plannedBytes/1GB), $Dest) -ForegroundColor Cyan
+$drv = Get-PSDrive ((Get-StrixModelsDir llm).Substring(0,1))
+$dests = @($sel | ForEach-Object { Get-EntryDest $_ } | Select-Object -Unique)
+Write-Host ("`nPlan: {0} model(s), ~{1:N1} GiB still to download into {2}" -f $sel.Count, ($plannedBytes/1GB), ($dests -join ' + ')) -ForegroundColor Cyan
 Write-Host ("{0}: {1:N1} GiB free -> ~{2:N1} GiB after" -f $drv.Name, ($drv.Free/1GB), (($drv.Free-$plannedBytes)/1GB)) -ForegroundColor DarkGray
 if ($plannedBytes -gt $drv.Free) { Write-Error "Not enough free space on $($drv.Name):"; exit 1 }
 if ($WhatIf) { Write-Host "[WhatIf] nothing downloaded." -ForegroundColor Yellow; return }
@@ -847,7 +892,7 @@ foreach ($s in $sel) {
         # identically-named file (e.g. both huihui GGUFs have mmproj-model-bf16.gguf) and so a
         # model resolves to the same on-disk name the launchers expect.
         $name = if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) }
-        $out  = Join-Path $Dest $name
+        $out  = Join-Path (Get-EntryDest $s) $name
         $url  = "https://huggingface.co/$($m.repo)/resolve/main/$($f.p)"
         # 'as' may name a sub-folder (upscalers\, detectors\): curl -o does not create it
         New-Item -ItemType Directory -Force -Path (Split-Path $out -Parent) | Out-Null

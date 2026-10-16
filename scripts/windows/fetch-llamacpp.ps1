@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Download a prebuilt llama.cpp Vulkan binary release into bin\.
+  Download a prebuilt llama.cpp Vulkan binary release into engines\llama.cpp\<build>\.
 
 .DESCRIPTION
   This is step zero. Everything else in this repo -- run-solo.ps1, the benchmarks, the eval
@@ -27,8 +27,8 @@
   Overwrite an existing install instead of stopping.
 
 .EXAMPLE
-  .\scripts\windows\fetch-llamacpp.ps1 -Build b10431                          # the pin, into bin\
-  .\scripts\windows\fetch-llamacpp.ps1 -Build b11330 -Dest .\bin-b11330       # a newer engine, side by side
+  .\scripts\windows\fetch-llamacpp.ps1 -Build b10431                          # the pin -> engines\llama.cpp\b10431
+  .\scripts\windows\fetch-llamacpp.ps1 -Build b11414                          # a newer engine, side by side
 #>
 [CmdletBinding()]
 param(
@@ -39,8 +39,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'   # Invoke-WebRequest is ~10x slower with the bar on
 
-$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-if (-not $Dest) { $Dest = Join-Path $repoRoot 'bin' }
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$repoRoot = $StrixRoot
+# every build gets its own folder: engines\llama.cpp\<build> (side by side; launchers pick one with -Bin <build>)
+if (-not $Dest) { $Dest = Join-Path $repoRoot "engines\llama.cpp\$Build" }
 elseif (-not [IO.Path]::IsPathRooted($Dest)) { $Dest = Join-Path $repoRoot $Dest }
 
 # TLS 1.2 is not the default in PowerShell 5.1 on older builds, and github.com refuses anything

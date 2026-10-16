@@ -34,10 +34,11 @@ param(
     [int] $Reps = 3
 )
 $ErrorActionPreference = 'Continue'
-$Bin    = 'D:\llamacpp-vulkan\bin\llama-server.exe'
-$MDir   = 'D:\llamacpp-vulkan\models'
-$LogDir = 'D:\llamacpp-vulkan\logs\bench-qwen38-opt'
-$OutDir = 'D:\llamacpp-vulkan\evals\results'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$Bin    = Join-Path (Get-StrixEngine 'b10431') 'llama-server.exe'
+$MDir   = Get-StrixModelsDir llm
+$LogDir = Join-Path (Get-StrixLogDir bench) 'bench-qwen38-opt'
+$OutDir = Join-Path $StrixRoot 'evals\results'
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'

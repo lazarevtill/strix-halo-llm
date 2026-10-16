@@ -27,7 +27,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Model   = 'D:\llamacpp-vulkan\models\Qwen3.8-27B-UD-Q4_K_XL.gguf',
+    [string] $Model   = 'Qwen3.8-27B-UD-Q4_K_XL.gguf',   # a name (found by paths.ps1) or a full path
     [int]    $Port    = 8099,
     [int]    $Reps    = 3,
     [int]    $MaxTok  = 400,
@@ -35,11 +35,13 @@ param(
     [switch] $Force
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$Model = Find-StrixModel $Model
 
-$Root   = 'D:\llamacpp-vulkan'
+$Root   = $StrixRoot
 $Bin    = Join-Path $Root 'bin\llama-server.exe'
 $OutDir = Join-Path $Root 'evals\results'
-$LogDir = Join-Path $Root 'logs\bench-qwen38'
+$LogDir = Join-Path (Get-StrixLogDir bench) 'bench-qwen38'
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 $Stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'

@@ -42,8 +42,9 @@ param(
     [string] $Bind = '127.0.0.1'
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
 $root = $PSScriptRoot
-$bin  = 'D:\llamacpp-vulkan\bin\llama-server.exe'
+$bin  = (Join-Path (Get-StrixEngine 'b10431') 'llama-server.exe')
 
 function Get-CommittedByPid {
     $h = @{}

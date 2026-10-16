@@ -26,7 +26,7 @@
 param(
     [string] $Label   = 'qwen38-drytest',
     [string] $Tasks   = 'hard_semver,hard_where',
-    [string] $Model   = 'D:\llamacpp-vulkan\models\Qwen3.8-27B-UD-Q4_K_XL.gguf',
+    [string] $Model   = 'Qwen3.8-27B-UD-Q4_K_XL.gguf',
     [int]    $Ctx     = 131072,
     [int]    $Port    = 8099,
     [string] $Bind    = '127.0.0.1',
@@ -37,7 +37,9 @@ param(
     [int]    $Seed    = 42
 )
 $ErrorActionPreference = 'Stop'
-$bin  = 'D:\llamacpp-vulkan\bin\llama-server.exe'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
+$Model = Find-StrixModel $Model
+$bin  = (Join-Path (Get-StrixEngine 'b10431') 'llama-server.exe')
 $root = Split-Path $PSScriptRoot -Parent
 
 # ---- the GPU must be empty ----------------------------------------------------------------------

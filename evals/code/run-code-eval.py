@@ -21,7 +21,10 @@ import argparse, json, re, subprocess as sp, sys, time, pathlib, urllib.request,
 import datetime as _dt
 
 E = pathlib.Path(__file__).resolve().parent
-BIN = pathlib.Path(r"D:\llamacpp-vulkan\bin\llama-server.exe")
+# The pinned engine, per the layout in scripts/windows/paths.ps1 (engines/llama.cpp/<build>); the old bin/ still works.
+_ROOT = pathlib.Path(__file__).resolve().parents[2]
+BIN = next((p for p in (_ROOT / "engines" / "llama.cpp" / "b10431" / "llama-server.exe", _ROOT / "bin" / "llama-server.exe")
+            if p.exists()), _ROOT / "engines" / "llama.cpp" / "b10431" / "llama-server.exe")
 
 # WHICH SUITE ARE WE RUNNING?
 #

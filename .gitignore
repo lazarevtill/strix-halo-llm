@@ -57,6 +57,8 @@ models/
 # repo -- one `git add -A` from committing ~500 MB of engine binaries. See docs/PUBLISHING.md.
 bin/
 bin-*/
+# Since 2026-10-16 every engine lives in engines/<llama.cpp|stable-diffusion.cpp|poolside>/<build>/ (paths.ps1)
+engines/
 *.exe
 *.dll
 

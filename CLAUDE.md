@@ -2,14 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **SINCE 2026-10-15 THE BOX SERVES IMAGES AND (2026-10-16) VIDEO, NOT AN LLM -- AND THAT WORK IS PRIVATE.**
-> Owner's rule (2026-10-16): the image/video serving code, its UI and every write-up about it are **never
-> published**. Only **numbers** (`docs/IMAGES.md`) and **configs** (`scripts/windows/image-models.json`, the
-> `fetch-models.ps1` labels) belong in this public repo. The code is a separate private git repo checked out at
-> `private/` (gitignored here); `private/CLAUDE.md` has its operating notes. Never copy code, feature or API
-> descriptions, screenshots or outputs from `private/` into this repo. `:8080` = `private\run-images.ps1`,
-> started by the Startup launcher. The LLM router, its watchdog and the `:9114` exporter are commented out
-> there (`rem ROLLBACK-LLM:`); everything below about llama.cpp holds for when the LLM comes back.
+> **SINCE 2026-10-16 `:8080` SERVES THE CODING LLM AGAIN: `flashnext`** (Qwen3.8-Flash-Next, 125B/~6B active,
+> b11414, 262144 ctx, ONE slot, draft-mtp n=3, `lazy-mode = on`) -- measured that day: **26.2 t/s**, 67% of MTP
+> drafts accepted, correct code. Its lazy weight reads grow HOST RAM during long answers (free RAM fell to 2-3 GB
+> with WSL holding 12 GB) -- watch it; `.wslconfig` is capped at 16 GB (applies on the next WSL restart).
+> **Layout since 2026-10-16** (docs/LAYOUT.md): `engines\llama.cpp\<build>`, `engines\stable-diffusion.cpp\<build>`,
+> `models\llm`, `models\image`, `logs\<kind>`; every script resolves paths through `scripts\windows\paths.ps1`
+> (never hardcode one) and `scripts\windows\check-layout.ps1` verifies everything + writes `models\INDEX.md`.
+> **Image/video work is PRIVATE** (owner's rule 2026-10-16): its server lives in `private/` (a separate repo,
+> gitignored here, with its own CLAUDE.md / AGENTS.md); only **numbers** (`docs/IMAGES.md`) and **configs**
+> (`image-models.json`, `fetch-models.ps1` labels with `dir = 'image'`) are published. Never copy code, feature
+> or API descriptions, screenshots or outputs from `private/` into this repo. The image server is OFF; its
+> Startup line is kept as `rem IMAGES-ROLLBACK:` (one mode holds `:8080` and the GPU at a time).
 
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
@@ -39,8 +43,11 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
   run-solo.ps1        ⭐ serve ONE model with the whole ~109 GB budget (-DryRun prints the cmdline)
   run-router.ps1      ⭐ what :8080 runs: llama.cpp router mode, per-model presets ($known),
                       -Parallel/-PerSlotCtx/-NoSpec, -DefaultModels (no -Models => ornith15)
-  fetch-llamacpp.ps1  step zero: prebuilt Vulkan release -> bin\
-  fetch-models.ps1    resume-capable GGUF downloader, byte-verifies against the HF API
+  paths.ps1           ⭐ THE path resolver: engines\, models\llm|image, logs\ -- dot-source it, never hardcode
+  check-layout.ps1    ⭐ verifies every engine/model/launcher reference; writes models\INDEX.md (docs/LAYOUT.md)
+  fetch-llamacpp.ps1  step zero: prebuilt Vulkan release -> engines\llama.cpp\<build>\
+  fetch-models.ps1    resume-capable downloader, byte-verifies against the HF API (-> models\llm, or
+                      models\image for entries marked dir = 'image')
   stage-nextgen.ps1   isolated test-load of a pending model (docs/ROADMAP.md): arch-check -> :8099 ->
                       #27805 determinism diff; stops+restarts the router only if it can't co-reside
   bench-big.ps1       depth-aware llama-bench sweep (never trust depth 0); -Bin A/Bs builds,
@@ -58,33 +65,42 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform
 evals/              ⭐ the harness (see "Evals" below) — where most active work happens
-docs/               INSTALL · EXPLAIN · RESULTS · GOING-FASTER · OPTIMIZATION · BENCHMARKS ·
-                    MULTI-USER · MULTI-BOX (Ethernet cluster design) · ROADMAP (pending models) ·
-                    PUBLISHING · index.html (the Pages report)
+docs/               LAYOUT (where everything lives + how to add parts) · INSTALL · EXPLAIN · RESULTS ·
+                    GOING-FASTER · OPTIMIZATION · BENCHMARKS · MULTI-USER · MULTI-BOX · ROADMAP ·
+                    IMAGES (numbers only) · PUBLISHING · index.html (the Pages report)
+--- gitignored, on the box only ---
+engines/            llama.cpp\<build>\ (b10431 pin, b11414 live, ...) · stable-diffusion.cpp\<build>\ · poolside\ · _attic\
+models/             llm\ (GGUFs, drafts, mmproj) · image\ (+ loras, upscalers, detectors, embeddings) · INDEX.md
+logs/               llm\ · images\ · bench\ · downloads\ · layout-migration-*.tsv (the 2026-10-16 moves)
+outputs/            generated images\ · edits\ · videos\ (image server)
+private/            the private image/video server (its own repo)
 ```
 
-Path conventions differ by tree and this bites: `scripts/windows/*` resolve the repo root by
-climbing out of `$PSScriptRoot` (windows/ climbs 2, windows/legacy/ climbs 3 — fix the chain if you
-move a file), but **`evals/*.ps1` hardcode `D:\llamacpp-vulkan\...` and `C:\llm-router\models\...`**.
-Don't assume either style; check the file.
+**Paths: one resolver since 2026-10-16.** Every script in `scripts/windows/` and `evals/` dot-sources
+`scripts/windows/paths.ps1` (`Get-StrixEngine <build>`, `Get-StrixModelsDir llm|image`, `Find-StrixModel
+<file>`, `Get-StrixLogDir <kind>`, `$StrixRoot`); engines are passed as a build name (`-Bin b11414` --
+`bin-b11414`, `.\bin-b11414` and full paths still resolve) and models by file name. The old locations
+(`bin\`, `bin-<build>\`, flat `models\`, `C:\llm-router\models`) still resolve so nothing breaks mid-move;
+`check-layout.ps1` flags them. `scripts/windows/legacy/` and `scripts/linux|macos/` were not converted.
 
 ## Serve
 
 ```powershell
-.\scripts\windows\fetch-llamacpp.ps1 -Build b10431     # engine into bin\, nothing to compile
-.\scripts\windows\fetch-models.ps1 -Only qwen38        # -List to see the registry
+.\scripts\windows\fetch-llamacpp.ps1 -Build b10431     # engine -> engines\llama.cpp\b10431, nothing to compile
+.\scripts\windows\fetch-models.ps1 -Only qwen38        # -> models\llm (-List to see the registry)
 .\scripts\windows\run-solo.ps1                         # -> :8080, /v1 OpenAI API + web UI
-.\scripts\windows\run-solo.ps1 -Model .\models\X.gguf -Ctx 131072 -Spec draft-mtp
+.\scripts\windows\run-solo.ps1 -Model X.gguf -Ctx 131072 -Spec draft-mtp -Bin b11414
 .\scripts\windows\run-solo.ps1 -DryRun                 # print the llama-server invocation only
+.\scripts\windows\run-router.ps1 -Models flashnext -Bin b11414 -Parallel 1 -PerSlotCtx 262144   # what :8080 runs
+.\scripts\windows\check-layout.ps1                     # after any change: every path a launcher needs exists
 ```
 
 **No launcher has a hardcoded model PATH.** With no `-Model` / `-m` they list the GGUFs they can see
 and ask (taking the only one if there is just one). One exception to "ask": `run-router.ps1`'s
 Enter / non-interactive choice is `-DefaultModels` (`ornith15`), used only if that model is on disk —
-it previously defaulted to *every* known model present, which over-commits the budget. They look in `<repo>/models` unless `MODELS_DIR`
-says otherwise — **this box needs it set**, since its weights are on `C:\llm-router\models` and
-`D:\llamacpp-vulkan\models`, not in the checkout. The previous hardcoded defaults pointed at those
-same paths, which is why every other clone died on startup.
+it previously defaulted to *every* known model present, which over-commits the budget. They look in `<repo>\models\llm`
+(via paths.ps1) unless `MODELS_DIR` says otherwise. Since 2026-10-16 every weight on this box is in the
+checkout's `models\llm` / `models\image` (`C:\llm-router\models` is empty), so `MODELS_DIR` is no longer needed.
 
 `run-solo.ps1` enforces **solo occupancy** (stops any other llama-server, waits for the GPU to
 drain), `--parallel 1`, max context, `-lm none`, `GGML_VK_ENABLE_MEMORY_PRIORITY=1`. Two models each
@@ -363,7 +379,11 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
   both slots generating**, so load does not look like a freeze. Test the watchdog with **`-NoAct`**
   only — anything that reaches its restart path stops the real llama-server processes.
 - **Alternatives gated 2026-10-05, selectable but NOT served** (`run-router.ps1 -Models <label>`):
-  - **`flashnext`** — Qwen3.8-Flash-Next UD-IQ4_XS (qwen4exp, 125B / ~6B active), b11414. **Loads ONLY
+  - **`flashnext`** — **SERVED on :8080 since 2026-10-16** (the owner asked for the strongest coding model with the
+    biggest context; Artificial Analysis index 40 vs Qwen3.8-27B 34 / Qwen3-Coder-Next 9). **Context: 262144 NATIVE**
+    (GGUF `qwen4exp.context_length = 262144`, no rope scaling -- the older "1M" note here was wrong; 1M needs YaRN).
+    Measured 2026-10-16 through the router: loaded in 41 s, **26.2 t/s** decode with draft-mtp n=3 (637/954 drafts
+    accepted), correct code. Qwen3.8-Flash-Next UD-IQ4_XS (qwen4exp, 125B / ~6B active), b11414. **Loads ONLY
     with `lazy-mode = on`** (`-lzm on`): without it the 28.8 GB per-layer embedding table goes to
     host RAM and free system RAM fell 26 GB → 1.1 GB in 24 s (killed by guard; `-lm mmap` too).
     With it: 68.9 GB GPU, determinism 12/12, tg **20.6 t/s plain / 26.9 with draft-mtp n=3 (1.31×)**
@@ -377,7 +397,8 @@ label corrected; the script now prints its sampler and takes `-Temp`. Current ru
     determinism 12/12, correct tool call, 50.6 t/s while co-resident. Fits beside ornith15.
 - **The router auto-starts at logon** via a Startup-folder launcher
   (`…\Startup\StrixHalo-Router.cmd` →
-  `run-router.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144`
+  `run-router.ps1 -Models flashnext -Bin b11414 -Parallel 1 -PerSlotCtx 262144` since 2026-10-16
+  (before: the image server 10-15 -> 10-16; `-Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144`
   as of 2026-10-05 (b11330 2026-10-02 → 10-05) — **2 slots × full native window, speculation ON**, matched to this box's
   sequential app traffic; see the slot entry above. The launcher also starts
   `metrics-exporter.ps1 -Port 9114 -Bind "+"` and (since 2026-10-05) `router-watchdog.ps1` with the

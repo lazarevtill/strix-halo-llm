@@ -7,7 +7,8 @@
     "ui: the defaults offered for this model (edit = takes reference images; fixed_steps = a --sigmas preset",
     "governs the step count; frame_step / frame_base = the frame-count grid of a video model).",
     "family: which model family it belongs to -- decides which LoRAs fit. kind: 'image' (default) or 'video'.",
-    "engine: optional sd-server path relative to the repo root, for a model the default build can't load."
+    "engine: optional sd-server path relative to the repo root, for a model the default build can't load.",
+    "default_lora: LoRAs the server adds to every request for this model (e.g. a turbo LoRA its steps assume)."
   ],
   "default": "qwen-image-2.1-turbo",
   "compute_gb": 8,
@@ -293,7 +294,7 @@
       "description": "Black Forest Labs' newest open model (Oct 2026): 5.6B, 16 steps at CFG 1, generation AND editing with up to 10 reference images.",
       "licence": "FLUX Kommunity License (free commercial use under $5M revenue)",
       "nsfw": false,
-      "engine": "bin-sd-master-968-8cd731e/sd-server.exe",
+      "engine": "engines/stable-diffusion.cpp/master-968-8cd731e/sd-server.exe",
       "vram_gb": 11.0,
       "files": {
         "diffusion-model": "flux3_image_klein_sd-Q8_0.gguf",
@@ -379,7 +380,7 @@
       "label": "MiniMax H3 (video with sound)",
       "kind": "video",
       "family": "minimax-h3",
-      "description": "MiniMax's 33B omni-modal video model (pruned FL2VA, Q8_0): text->video and first / last frame->video with stereo sound, 24 fps.",
+      "description": "MiniMax's 33B omni-modal video model (pruned FL2VA, Q8_0) with the lightx2v 8-step turbo LoRA: text->video and first / last frame->video with stereo sound, 24 fps. 864x480 x 56 frames (2.3 s) in ~7 min.",
       "licence": "MiniMax H3 Community License: NOT licensed in the EU, UK, US or South Korea; commercial use must show \"MiniMax H3\"; written authorisation above $20M revenue",
       "nsfw": false,
       "vram_gb": 45.5,
@@ -407,7 +408,7 @@
         "i2v": true,
         "end_image": true,
         "audio": true,
-        "steps": 20,
+        "steps": 8,
         "cfg": 1,
         "sampler": "euler",
         "width": 864,
@@ -417,8 +418,14 @@
         "max_frames": 124,
         "frame_step": 17,
         "frame_base": 5,
-        "note": "Frames sit on a 17k+5 grid (56 = 2.3 s, 124 = 5.2 s at 24 fps); always 24 fps; sizes multiples of 32. Describe the sound too: it renders stereo audio with the picture."
-      }
+        "note": "8 steps with the turbo LoRA (applied automatically). Frames sit on a 17k+5 grid (56 = 2.3 s, 124 = 5.2 s at 24 fps); always 24 fps; sizes multiples of 32. Describe the sound too: it renders stereo audio with the picture."
+      },
+      "default_lora": [
+        {
+          "path": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+          "multiplier": 1.0
+        }
+      ]
     }
   ]
 }

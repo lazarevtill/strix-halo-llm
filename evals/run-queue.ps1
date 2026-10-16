@@ -32,6 +32,7 @@ param(
     [int]    $Seed = 42
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
 $root  = $PSScriptRoot
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $log   = Join-Path $root "results\queue-$stamp.log"
@@ -99,7 +100,7 @@ if (-not $SkipD) {
     if (-not (Wait-GpuFree)) { exit 3 }
     $p = @{
         Label = 'ornith-easy-ub1024'
-        Model = 'D:\llamacpp-vulkan\models\ornith-1.0-35b-Q5_K_M.gguf'
+        Model = (Find-StrixModel 'ornith-1.0-35b-Q5_K_M.gguf')
         Ctx = 131072; Port = $Port; Seed = $Seed; UBatch = 1024; Bind = '127.0.0.1'
         Tasks = 'token_budget,shard_planner,window_merge,quant_pick'
         SkipTools = $true

@@ -71,6 +71,8 @@ app (where it lives) still works out of the box without advertising anyone's net
 ## Excluded by .gitignore
 
 - `models/` — **~640 GB** of GGUF weights. Never commit weights; `fetch-models.ps1` re-downloads them.
+- `engines/` — every engine build since 2026-10-16 (`engines/llama.cpp/<build>/`, `engines/stable-diffusion.cpp/<build>/`,
+  `engines/poolside/`; docs/LAYOUT.md). The old names below stay ignored for old checkouts.
 - `bin/` and **every `bin-*/`** (glob — e.g. `bin-b10431/`, `bin-b11330/`, `bin-poolside/`) — vendored
   llama.cpp binaries (~90 MB each). The glob matters: listing builds one by one let `bin-b10338`,
   `bin-b10431` and `bin-b11003` sit untracked-but-not-ignored until it was added.

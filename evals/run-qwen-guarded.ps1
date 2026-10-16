@@ -22,12 +22,14 @@
 [CmdletBinding()]
 param(
     [int[]]  $HoldPorts = @(8082, 8088),
-    [string] $Model = 'D:\llamacpp-vulkan\models\Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf',
+    [string] $Model = 'Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf',
     [string] $Label = 'qwen122b',
     [int]    $Ctx   = 131072,
     [string] $Spec  = 'draft-mtp'
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
+$Model = Find-StrixModel $Model
 $root = $PSScriptRoot
 
 # ---- 1) kill the squatters (elevated; needs UAC approval) ----------------------------------------

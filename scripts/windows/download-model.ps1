@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Download a GGUF model from Hugging Face into .\models\ (standard GGUF — loads in stock llama.cpp).
+  Download a GGUF model from Hugging Face into .\models\llm\ (standard GGUF — loads in stock llama.cpp).
 .EXAMPLE
   .\download-model.ps1 -Repo ggml-org/gpt-oss-120b-GGUF -File gpt-oss-120b-mxfp4-00001-of-00003.gguf
   .\download-model.ps1 -Repo unsloth/Qwen3-30B-A3B-GGUF -File Qwen3-30B-A3B-Q4_K_M.gguf
@@ -15,7 +15,8 @@ param(
     [Parameter(Mandatory)] [string] $File,
     [string] $Branch = 'main'
 )
-$out = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\models\$([System.IO.Path]::GetFileName($File))"
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$out = Join-Path (Get-StrixModelsDir llm) ([System.IO.Path]::GetFileName($File))
 $url = "https://huggingface.co/$Repo/resolve/$Branch/$File"
 Write-Host "Downloading $url" -ForegroundColor Green
 $ProgressPreference='SilentlyContinue'

@@ -23,17 +23,19 @@
   bin-b9771 (rollback). Compare, then choose.
 
 .EXAMPLE
-  .\build-poolside.ps1              # configure + build + stage into bin-poolside\
+  .\build-poolside.ps1              # configure + build + stage into engines\poolside\
   .\build-poolside.ps1 -Clean       # wipe the build dir first
 #>
 [CmdletBinding()]
 param(
     [string] $Src  = 'D:\src\llama.cpp-poolside',
-    [string] $Dest = 'D:\llamacpp-vulkan\bin-poolside',
+    [string] $Dest = '',          # '' => engines\poolside
     [switch] $Clean,
     [int]    $Jobs = 0            # 0 = let cmake decide
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+if (-not $Dest) { $Dest = Join-Path $StrixRoot 'engines\poolside' }
 
 if (-not (Test-Path $Src)) { Write-Error "source not found: $Src (git clone --branch laguna https://github.com/poolsideai/llama.cpp $Src)"; exit 1 }
 

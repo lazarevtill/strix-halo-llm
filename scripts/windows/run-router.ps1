@@ -65,8 +65,8 @@ param(
     [switch]   $NoSpec,
     [int]      $ModelsMax = 2,
     [string[]] $Preload   = @(),   # empty => pre-load exactly the selected set
-    [string]   $Bin       = '',    # engine dir override (e.g. bin-b10677 for new arches qwen3next/qwen4exp);
-                                    # empty => the pinned bin\. Relative paths resolve against the repo root.
+    [string]   $Bin       = '',    # engine: a build name (b11414), engines\llama.cpp\<build>, the old bin-<build>,
+                                    # or a full path; empty => the pinned b10431. Resolved by paths.ps1.
     [switch]   $DryRun,
     [switch]   $Force,       # stop other servers even if one has a request in flight
     # Where the router's stdout/stderr go (children's output is relayed through the parent).
@@ -77,13 +77,13 @@ param(
     [int]      $KeepLogs = 10
 )
 $ErrorActionPreference = 'Stop'
-$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-$binDir = if ($Bin) { if ([IO.Path]::IsPathRooted($Bin)) { $Bin } else { Join-Path $repoRoot $Bin } } else { "$repoRoot\bin" }
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$repoRoot = $StrixRoot
+try { $binDir = Get-StrixEngine $Bin } catch { Write-Error $_.Exception.Message; exit 1 }
 $bin = Join-Path $binDir 'llama-server.exe'
 if (-not (Test-Path $bin)) { Write-Error "llama-server.exe not found: $bin"; exit 1 }
 
-$modelsDir = $env:MODELS_DIR
-if (-not $modelsDir) { $modelsDir = "$repoRoot\models" }
+$modelsDir = Get-StrixModelsDir llm          # models\llm (or $env:MODELS_DIR)
 
 # ---- KNOWN tuning for the box's published models -------------------------------------------------
 # Exact tuning for the public models (their projectors are generically named, so they need the map).
@@ -324,7 +324,7 @@ Start-Sleep -Seconds 3
 # ---- launch router ------------------------------------------------------------------------------
 $env:GGML_VK_ENABLE_MEMORY_PRIORITY = '1'
 Write-Host "  launching router..." -ForegroundColor DarkGray
-if (-not $PSBoundParameters.ContainsKey('LogDir')) { $LogDir = Join-Path $repoRoot 'logs' }
+if (-not $PSBoundParameters.ContainsKey('LogDir')) { $LogDir = Get-StrixLogDir llm }
 if ($LogDir) {
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
     $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'

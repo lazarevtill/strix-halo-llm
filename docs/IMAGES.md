@@ -29,6 +29,7 @@ Every number was measured on this box — Radeon 8060S (gfx1151), Windows 11, AM
 |---|---|---|---|
 | Wan 2.2 TI2V-5B Turbo Q8_0 (`wan22-ti2v-turbo`), 4 steps | 11–12 GB | 1280×704 × 49 frames: **92 s**; 896×512 × 25 frames (image→video): **20 s** | Apache-2.0 |
 | Wan 2.2 I2V-A14B, lightx2v 4-step (`wan22-i2v-a14b`) | 35.4 GB | 832×480 × 49 frames: **565 s** (190 s per expert + 126 s decode) | Apache-2.0 |
+| MiniMax H3 FL2VA pruned Q8_0 + Qwen3-VL-32B (H3) Q4_K_M (`minimax-h3`), CFG 1, 24 fps | 43.5 GB weights (+2 GB turbo LoRA) | 864×480 × 56 frames (2.3 s) **with stereo sound**: **873 s** at 20 steps (796 s sampling at 40 s/step, 75 s video decode, 1 s audio) → **409 s** at 8 steps with the lightx2v turbo LoRA (346 s sampling); 512×288 × 22 frames: 111 s (20 steps) | MiniMax H3 Community License — **not licensed in the EU, UK, US or South Korea**; commercial use must show "MiniMax H3" |
 | LTX-2.3 distilled 1.1 Q8_0 + Gemma 3 12B Q8_0 (`ltx23`), 8 steps, CFG 1 | 38.4 GB | 768×512 × 49 frames **with sound: 191 s** (99 s sampling, 75 s video decode, 3 s audio); image→video 768×448 × 25 frames: **86 s** | LTX-2 Community License (free under $10M revenue) + Gemma terms |
 
 ## Weight format matters most on this Vulkan driver
@@ -76,6 +77,8 @@ At 640×352 × 25 frames: full VAE untiled 35 s, tiled 65–73 s. The A14B's Wan
 
 ## Other measurements
 
+- **MiniMax H3 turbo LoRA:** same seed, 20 steps without vs 8 with: 873 s → 409 s, at least as good a picture,
+  louder sound (−36 → −33 dB RMS). It is the registry default (`default_lora`).
 - **Residency:** three image models loaded at once (Qwen Turbo + Kroma + Anima) = **44.4 GB committed**.
 - **4× ESRGAN upscale:** 832×1216 → 3328×4864 in **40 s** (RealESRGAN x4plus anime 6B).
 - **Face repaint (YOLOv8 face detector + inpaint):** **76 s** on the SDXL model, including loading a second copy.
@@ -95,9 +98,11 @@ At 640×352 × 25 frames: full VAE untiled 35 s, tiled 65–73 s. The A14B's Wan
 ```powershell
 .\scripts\windows\fetch-models.ps1 -Only qwen-image-21-turbo-q8,qwen-image-21-te,z-image-turbo,z-image-te,flux-ae,kroma,kroma-te,wan21-vae,anima,anima-te
 .\scripts\windows\fetch-models.ps1 -Only flux3-klein,flux2-vae,wan22-ti2v-turbo,wan-umt5,wan22-i2v-a14b-4step
+.\scripts\windows\fetch-models.ps1 -Only minimax-h3,minimax-h3-turbo
 .\scripts\windows\fetch-models.ps1 -Only ltx23,ltx23-te,upscalers,upscaler-anime,upscaler-ultrasharp,adetailer,ipadapter-sdxl,clip-vision-h
 # + the TAEHV decoders models\taew2_2.safetensors / taew2_1.safetensors (github.com/madebyollin/taehv)
-# + bin-sd-master-968-8cd731e\ (the stable-diffusion.cpp release zip) for FLUX.3
+# + engines\stable-diffusion.cpp\master-968-8cd731e\ (the stable-diffusion.cpp release zip) for FLUX.3
+# All of these land in models\image\ (docs/LAYOUT.md).
 ```
 
 **The LLM is dormant, not gone:** the Startup launcher keeps its three LLM lines (router, metrics exporter,

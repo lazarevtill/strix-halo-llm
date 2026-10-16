@@ -41,13 +41,15 @@ param(
     [int[]]    $UBatch   = @(256),
     [int]      $Batch    = 2048,
     [switch]   $Quick,                                   # depths 0,8192 and 1 rep
-    # models live in two places on this box: the llamacpp-vulkan store and the router store on C:.
-    # Search both so the incumbent (ornith Q5_K_M, which lives on C:) resolves without copying 23 GiB.
-    [string[]] $ModelDirs = @('D:\llamacpp-vulkan\models','C:\llm-router\models'),
-    [string]   $ModelDir = 'D:\llamacpp-vulkan\models',   # where NEW downloads land
-    [string]   $Bin      = 'D:\llamacpp-vulkan\bin',
-    [string]   $Csv      = ''    # empty => bench-big-<timestamp>.csv in the repo root (never overwrites a previous sweep)
+    [string[]] $ModelDirs = @(),   # '' => models\llm, models\image, the old flat models\ (paths.ps1)
+    [string]   $ModelDir = '',     # where NEW downloads land; '' => models\llm
+    [string]   $Bin      = '',     # engine build (b11414 ...); '' => the pinned b10431
+    [string]   $Csv      = ''    # empty => logsenchench-big-<timestamp>.csv (never overwrites a previous sweep)
 )
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+if (-not $ModelDirs) { $ModelDirs = @((Get-StrixModelsDir llm), (Join-Path $StrixRoot 'models\image'), (Join-Path $StrixRoot 'models'), 'C:\llm-router\models') }
+if (-not $ModelDir)  { $ModelDir = Get-StrixModelsDir llm }
+try { $Bin = Get-StrixEngine $Bin } catch { Write-Error $_.Exception.Message; exit 1 }
 $ErrorActionPreference = 'Continue'
 # HARD-WON (2026-09-16): this was a hardcoded adapter LUID. Windows does NOT keep the LUID stable --
 # it is reassigned across reboots and driver resets -- and by the time it was noticed it named an
@@ -314,7 +316,7 @@ foreach ($s in $sel) {
 
 # Timestamped by default: a fixed name meant `-Only a` followed by `-Only b` silently replaced the
 # first sweep's CSV with the second's.
-if (-not $Csv) { $Csv = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) ("bench-big-{0:yyyyMMdd-HHmmss}.csv" -f (Get-Date)) }
+if (-not $Csv) { $Csv = Join-Path (Get-StrixLogDir bench) ("bench-big-{0:yyyyMMdd-HHmmss}.csv" -f (Get-Date)) }
 $results | Export-Csv $Csv -NoTypeInformation
 Write-Host "`n================ SUMMARY ================" -ForegroundColor Green
 $results | Format-Table -AutoSize | Out-String -Width 190 | Write-Host

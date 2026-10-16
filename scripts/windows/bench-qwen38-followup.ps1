@@ -22,12 +22,14 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Model = 'D:\llamacpp-vulkan\models\Qwen3.8-27B-UD-Q4_K_XL.gguf',
+    [string] $Model = 'Qwen3.8-27B-UD-Q4_K_XL.gguf',
     [int]    $Port  = 8099
 )
 $ErrorActionPreference = 'Continue'
-$Bin    = 'D:\llamacpp-vulkan\bin\llama-server.exe'
-$LogDir = 'D:\llamacpp-vulkan\logs\bench-qwen38'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$Model  = Find-StrixModel $Model
+$Bin    = Join-Path (Get-StrixEngine 'b10431') 'llama-server.exe'
+$LogDir = Join-Path (Get-StrixLogDir bench) 'bench-qwen38'
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 function Say([string]$m,[string]$c='Gray'){ Write-Host $m -ForegroundColor $c }
 

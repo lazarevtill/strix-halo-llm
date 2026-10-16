@@ -41,8 +41,8 @@ param(
     [int]    $Port = 8094,
     [int]    $Ctx = 16384,
     [double] $Temp = 0.3,
-    [string] $Bin = 'D:\llamacpp-vulkan\bin\llama-server.exe',
-    [string] $Csv = 'D:\llamacpp-vulkan\evals\results-tools.csv',
+    [string] $Bin = '',
+    [string] $Csv = '',
     # Agent-loop depth. 4 is enough for every case here (longest chain is 2 calls + a summary turn)
     # while still bounding a model that loops on itself.
     [int]    $MaxTurns = 4,
@@ -55,15 +55,18 @@ param(
     [switch] $Verbose_
 )
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
+if (-not $Bin) { $Bin = Join-Path (Get-StrixEngine 'b10431') 'llama-server.exe' }
+if (-not $Csv) { $Csv = Join-Path $StrixRoot 'evalsesults-tools.csv' }
 $root = $PSScriptRoot
 $gpu  = 'luid_0x00000000_0x01c3ed4a_phys_0'
 
 $REG = [ordered]@{
-    'ornith-q5'         = 'C:\llm-router\models\ornith-1.0-35b-Q5_K_M.gguf'
-    'ornith-bf16'       = 'D:\llamacpp-vulkan\models\ornith-1.0-35b-bf16.gguf'
-    'laguna'            = 'D:\llamacpp-vulkan\models\laguna-s-2.1-Q4_K_M.gguf'
-    'qwen122b'          = 'D:\llamacpp-vulkan\models\Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf'
-    'deepseek-v4-flash' = 'D:\llamacpp-vulkan\models\DeepSeek-V4-Flash-UD-IQ2_M-00001-of-00003.gguf'
+    'ornith-q5'         = (Find-StrixModel 'ornith-1.0-35b-Q5_K_M.gguf')
+    'ornith-bf16'       = (Find-StrixModel 'ornith-1.0-35b-bf16.gguf')
+    'laguna'            = (Find-StrixModel 'laguna-s-2.1-Q4_K_M.gguf')
+    'qwen122b'          = (Find-StrixModel 'Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf')
+    'deepseek-v4-flash' = (Find-StrixModel 'DeepSeek-V4-Flash-UD-IQ2_M-00001-of-00003.gguf')
 }
 
 # Keep the tools as RAW JSON TEXT and splice it into the body. Do NOT round-trip through

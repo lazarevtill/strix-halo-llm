@@ -41,8 +41,9 @@ param(
     [int] $UBatch = 256
 )
 $ErrorActionPreference = 'Continue'
-$root    = 'D:\llamacpp-vulkan\evals'
-$bench   = 'D:\llamacpp-vulkan\bin\llama-bench.exe'
+. (Join-Path $PSScriptRoot '..\scripts\windows\paths.ps1')   # engines, models, logs: the one path resolver
+$root    = (Join-Path $StrixRoot 'evals')
+$bench   = (Join-Path (Get-StrixEngine 'b10431') 'llama-bench.exe')
 $outdir  = Join-Path $root 'results'
 New-Item -ItemType Directory -Force -Path $outdir | Out-Null
 # One run -> one stamp, so the speed JSONs and the log of a single invocation stay together. This
@@ -61,11 +62,11 @@ $EASY = 'token_budget,shard_planner,window_merge,quant_pick'
 # if the run is cut short; DeepSeek-V4-Flash has never been served on this box and is last,
 # where a failure to load costs nothing that mattered.
 $MODELS = @(
-    @{ label='ornith';   ctx=131072; spec='';          file='D:\llamacpp-vulkan\models\ornith-1.0-35b-Q5_K_M.gguf' }
-    @{ label='qwen38';   ctx=131072; spec='draft-mtp'; file='D:\llamacpp-vulkan\models\Qwen3.8-27B-UD-Q4_K_XL.gguf' }
-    @{ label='qwen122b'; ctx=131072; spec='draft-mtp'; file='D:\llamacpp-vulkan\models\Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf' }
-    @{ label='laguna';   ctx=131072; spec='';          file='D:\llamacpp-vulkan\models\laguna-s-2.1-Q4_K_M.gguf' }
-    @{ label='deepseek'; ctx=32768;  spec='';          file='D:\llamacpp-vulkan\models\DeepSeek-V4-Flash-UD-IQ2_M-00001-of-00003.gguf' }
+    @{ label='ornith';   ctx=131072; spec='';          file=(Find-StrixModel 'ornith-1.0-35b-Q5_K_M.gguf') }
+    @{ label='qwen38';   ctx=131072; spec='draft-mtp'; file=(Find-StrixModel 'Qwen3.8-27B-UD-Q4_K_XL.gguf') }
+    @{ label='qwen122b'; ctx=131072; spec='draft-mtp'; file=(Find-StrixModel 'Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf') }
+    @{ label='laguna';   ctx=131072; spec='';          file=(Find-StrixModel 'laguna-s-2.1-Q4_K_M.gguf') }
+    @{ label='deepseek'; ctx=32768;  spec='';          file=(Find-StrixModel 'DeepSeek-V4-Flash-UD-IQ2_M-00001-of-00003.gguf') }
 )
 if ($Only.Count) { $MODELS = $MODELS | Where-Object { $Only -contains $_.label } }
 

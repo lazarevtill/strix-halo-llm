@@ -24,12 +24,12 @@
 
 .PARAMETER Bin
   Engine dir holding llama-cli.exe. Defaults to bin\ (the pinned b10431). New arches need a newer
-  build -- e.g. -Bin .\bin-b11003 for nemotron_h_moe / qwen3next, which do NOT load in bin\ at all.
+  build -- e.g. -Bin b11003 for nemotron_h_moe / qwen3next, which do NOT load in the pinned b10431 at all.
 
 .EXAMPLE
-  .\bench-spec.ps1 -Model .\models\Qwopus3.6-27B-Coder-MTP-Q8_0.gguf -Spec draft-mtp
-  .\bench-spec.ps1 -Model .\models\gpt-oss-20b-mxfp4.gguf -Spec ngram-mod
-  .\bench-spec.ps1 -Model .\models\Nemotron-3-Puzzle-75B-A9B-Q6_K.gguf -Bin .\bin-b11003 -NMax 1,2,3,4
+  .\bench-spec.ps1 -Model Qwopus3.6-27B-Coder-MTP-Q8_0.gguf -Spec draft-mtp
+  .\bench-spec.ps1 -Model gpt-oss-20b-mxfp4.gguf -Spec ngram-mod
+  .\bench-spec.ps1 -Model Nemotron-3-Puzzle-75B-A9B-Q6_K.gguf -Bin b11003 -NMax 1,2,3,4
 #>
 [CmdletBinding()]
 param(
@@ -46,14 +46,15 @@ param(
     [string[]] $SpecExtra = @(),
     [string] $Prompt = "Write a complete, well-documented Python implementation of an LRU cache class with get, put, and eviction. Then write 8 unit tests for it."
 )
-$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-if (-not $Bin) { $binDir = "$repoRoot\bin" }
-elseif ([IO.Path]::IsPathRooted($Bin)) { $binDir = $Bin }
-else { $binDir = Join-Path $repoRoot $Bin }
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$repoRoot = $StrixRoot
+try { $binDir = Get-StrixEngine $Bin } catch { Write-Error $_.Exception.Message; exit 1 }
+if (-not (Test-Path $Model)) { $Model = Find-StrixModel $Model }
+$benchLogs = Get-StrixLogDir bench
 $bin = Join-Path $binDir 'llama-cli.exe'
 if (-not (Test-Path $bin)) { Write-Error "llama-cli.exe not found: $bin"; exit 1 }
 # Write prompt to a file so no spaced argument gets split by Start-Process.
-$pf = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\_prompt.txt"
+$pf = Join-Path $benchLogs "spec_prompt.txt"
 Set-Content -Path $pf -Value $Prompt -Encoding UTF8 -NoNewline
 function RunOne($extra,$label){
     # NB: '-no-cnv' was REMOVED from llama-cli (b11046 rejects it outright: "invalid argument: -no-cnv").
@@ -63,8 +64,8 @@ function RunOne($extra,$label){
     # already gives the non-conversation behaviour that '-no-cnv' was there for.
     $a = @('-m',$Model,'-ngl','99','-fa','1','-n',"$NPredict",'-f',$pf,'--no-warmup','--simple-io','-st','--seed','42') + $extra
     if ($Temp -ne '') { $a += @('--temp', $Temp) }
-    $err = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\spec_$label.err"
-    $out = "$($PSScriptRoot | Split-Path -Parent | Split-Path -Parent)\spec_$label.out"
+    $err = Join-Path $benchLogs "spec_$label.err"
+    $out = Join-Path $benchLogs "spec_$label.out"
     Start-Process $bin -ArgumentList $a -NoNewWindow -Wait -RedirectStandardError $err -RedirectStandardOutput $out
     # --simple-io prints "[ Prompt: X t/s | Generation: Y t/s ]" to stdout
     $genline = (Get-Content $out -EA SilentlyContinue | Select-String 'Generation:\s*([\d\.]+)\s*t/s' | Select-Object -Last 1) -join ''

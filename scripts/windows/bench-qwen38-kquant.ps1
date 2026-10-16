@@ -29,8 +29,9 @@ param(
     [switch] $Profile
 )
 $ErrorActionPreference = 'Continue'
-$MDIR = 'D:\llamacpp-vulkan\models'
-$RES  = 'D:\llamacpp-vulkan\evals\results'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$MDIR = Get-StrixModelsDir llm
+$RES  = Join-Path $StrixRoot 'evals\results'
 New-Item -ItemType Directory -Force $RES | Out-Null
 function Say([string]$m,[string]$c='Cyan'){ Write-Host $m -ForegroundColor $c }
 

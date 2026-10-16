@@ -24,13 +24,13 @@
 
 .EXAMPLE
   # Flash-Next (needs router down -- 87 GB can't co-reside):
-  .\stage-nextgen.ps1 -Bin .\bin-b10665 -Model .\models\Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf
+  .\stage-nextgen.ps1 -Bin b10665 -Model Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf
 
   # A DFlash draft for a served model (small -- co-resides). --model-draft / --spec-type
   # draft-dflash are VERIFIED (b11046 --help, and ornith15 serves this way since 2026-10-02).
   # Pass -UBatch at the SERVING value: the gate is per-binary AND per-config.
-  .\stage-nextgen.ps1 -Bin .\bin-b11330 -Model .\models\Ornith-1.5-35B-Q6_K.gguf -UBatch 1024 `
-      -Draft .\models\Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf -SpecType draft-dflash
+  .\stage-nextgen.ps1 -Bin b11330 -Model Ornith-1.5-35B-Q6_K.gguf -UBatch 1024 `
+      -Draft Ornith-1.5-35B-A3B-DFlash-Q8_0.gguf -SpecType draft-dflash
 #>
 [CmdletBinding()]
 param(
@@ -61,7 +61,11 @@ param(
     [string[]] $ExtraArgs = @()
 )
 $ErrorActionPreference = 'Stop'
-$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$repoRoot = $StrixRoot
+try { $Bin = Get-StrixEngine $Bin } catch { Write-Error $_.Exception.Message; exit 1 }
+if (-not (Test-Path $Model)) { $Model = Find-StrixModel $Model }
+if ($Draft -and -not (Test-Path $Draft)) { $Draft = Find-StrixModel $Draft }
 $srv = Join-Path $Bin 'llama-server.exe'
 $dll = Join-Path $Bin 'llama.dll'
 if (-not (Test-Path $srv)) { Write-Error "no llama-server.exe in $Bin"; exit 1 }
@@ -155,8 +159,8 @@ try {
     if ($ExtraArgs.Count) { $a += $ExtraArgs }
     Write-Host "  launching test server on :$Port ..." -ForegroundColor DarkGray
     $proc = Start-Process -FilePath $srv -ArgumentList $a -PassThru -WindowStyle Hidden `
-              -RedirectStandardOutput (Join-Path $repoRoot "logs\stage-nextgen-$Port.out") `
-              -RedirectStandardError  (Join-Path $repoRoot "logs\stage-nextgen-$Port.err")
+              -RedirectStandardOutput (Join-Path (Get-StrixLogDir llm) "stage-nextgen-$Port.out") `
+              -RedirectStandardError  (Join-Path (Get-StrixLogDir llm) "stage-nextgen-$Port.err")
     $testPid = $proc.Id
 
     $up = $false

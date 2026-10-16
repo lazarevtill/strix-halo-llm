@@ -21,18 +21,18 @@
   stops restarting (logs and keeps watching) after -MaxRestartsPerHour.
 
   Runs in the interactive session, like the router (Vulkan/WDDM needs it) -- start it from the
-  same Startup-folder launcher. Logs to logs\router-watchdog.log.
+  same Startup-folder launcher. Logs to logs\llm\router-watchdog.log.
 
 .EXAMPLE
-  .\router-watchdog.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144
-  .\router-watchdog.ps1 -Models ornith15 -Bin .\bin-b11414 -Parallel 2 -PerSlotCtx 262144 -Once   # one probe, report, exit
+  .\router-watchdog.ps1 -Models ornith15 -Bin b11414 -Parallel 2 -PerSlotCtx 262144
+  .\router-watchdog.ps1 -Models ornith15 -Bin b11414 -Parallel 2 -PerSlotCtx 262144 -Once   # one probe, report, exit
 #>
 [CmdletBinding()]
 param(
     # The config to RESTART with -- must match the Startup-folder launcher, like stage-nextgen's
     # restore defaults. Passed straight through to run-router.ps1.
     [string[]] $Models     = @('ornith15'),
-    [string]   $Bin        = '.\bin-b11414',
+    [string]   $Bin        = 'b11414',      # engine build, resolved by paths.ps1
     [int]      $Parallel   = 2,
     [int]      $PerSlotCtx = 262144,
     [switch]   $NoSpec,
@@ -49,8 +49,9 @@ param(
     [switch]   $Once
 )
 $ErrorActionPreference = 'Continue'
-$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-$logDir = Join-Path $repoRoot 'logs'
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$repoRoot = $StrixRoot
+$logDir = Get-StrixLogDir llm
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir 'router-watchdog.log'
 

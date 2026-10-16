@@ -37,14 +37,14 @@
 
   NO DEFAULT MODEL, ON PURPOSE. This used to default to a path that existed only on the machine
   the repo was written on, so every other clone died with "Model not found" before printing
-  anything useful. With no -Model it lists the GGUFs in models\ and asks. Set $env:MODELS_DIR
+  anything useful. With no -Model it lists the GGUFs in models\llm\ and asks. Set $env:MODELS_DIR
   (same variable the bash fetchers honour) to point at a models directory somewhere else --
   which is what this box does, since its weights live on C:\ and D:\ rather than in the checkout.
 
 .EXAMPLE
   .\run-solo.ps1                                    # pick from models\ interactively
-  $env:MODELS_DIR = 'D:\llamacpp-vulkan\models'; .\run-solo.ps1
-  .\run-solo.ps1 -Model .\models\<big>.gguf -Ctx 131072
+  $env:MODELS_DIR = 'E:\elsewhere\models'; .\run-solo.ps1   # weights outside models\llm
+  .\run-solo.ps1 -Model .\models\llm\<big>.gguf -Ctx 131072 -Bin b11414
   .\run-solo.ps1 -Spec draft-mtp                    # if the GGUF carries an MTP head (+35%)
   .\run-solo.ps1 -Reasoning off                     # fast direct answers (router/tool-call use)
   .\run-solo.ps1 -DryRun                            # print the command line, launch nothing
@@ -52,6 +52,7 @@
 [CmdletBinding()]
 param(
     [string] $Model  = '',          # empty => pick interactively from models\ (see $env:MODELS_DIR)
+    [string] $Bin    = '',          # engine build (b11414, engines\llama.cpp\<build>, ...); '' = the pinned b10431
     [int]    $Ctx    = 262144,      # measured OK for Ornith Q5_K_M (29.93 GB total). Lower for bigger weights.
     [int]    $Port   = 8080,
     [int]    $Batch  = 2048,        # measured pp sweet spot on gfx1151
@@ -81,14 +82,15 @@ param(
     [switch] $Force                 # stop other servers even if they have a request in flight
 )
 $ErrorActionPreference = 'Stop'
-$repoRoot = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-$bin = "$repoRoot\bin\llama-server.exe"
+. (Join-Path $PSScriptRoot 'paths.ps1')          # engines\, models\, logs\: the one path resolver (paths.ps1)
+$repoRoot = $StrixRoot
+$bin = Join-Path (Get-StrixEngine $Bin) 'llama-server.exe'
 if (-not (Test-Path $bin))   { Write-Error "llama-server.exe not found: $bin"; exit 1 }
 
 # ---- 0) pick a model, if one was not named ------------------------------------------------------
 # Asked AFTER the binary check: no point choosing a model when there is nothing to serve it with.
 if (-not $Model) {
-    $modelsDir = if ($env:MODELS_DIR) { $env:MODELS_DIR } else { Join-Path $repoRoot 'models' }
+    $modelsDir = Get-StrixModelsDir llm
     $found = @(Get-ChildItem -LiteralPath $modelsDir -Filter *.gguf -File -EA SilentlyContinue | Sort-Object Name)
     if ($found.Count -eq 0) {
         Write-Error "No .gguf files in $modelsDir. Pass -Model, set `$env:MODELS_DIR, or fetch one with fetch-models.ps1."
