@@ -2,25 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **SINCE 2026-10-15 THE BOX SERVES IMAGES AND (2026-10-16) VIDEO, NOT AN LLM.** `:8080` runs
-> `scripts/windows/images-router.py` (supervised by `run-images.ps1`, started at logon): it serves **Image
-> Studio** at `/` (`scripts/windows/ui/`: index.html + studio.css + studio.js under a strict CSP -- never add
-> inline script/style) and starts one stable-diffusion.cpp `sd-server` (Vulkan) backend per model from the
-> data-only registry `image-models.json` -- Qwen-Image 2.1 Turbo (default) / full, **FLUX.3 Image Klein**
-> (gen + edit; needs the newer engine: `"engine": "bin-sd-master-968-8cd731e/..."`), **Z-Image Turbo**,
-> **Kroma**, **Anima**, and video: **Wan 2.2 TI2V-5B Turbo** (decoded with the tiny TAEHV decoder -- the full
-> Wan VAE takes 10+ min per clip here) and **Wan 2.2 I2V-A14B** -- several resident within an 88 GB budget,
-> routed by the `model` field (OpenAI `/v1/images/*`, native `/sdcpp/v1/img_gen|vid_gen`; job ids come back
-> as `<model>~<id>`). Every finished result is saved to `outputs\<day>\` (gitignored) and listed in the UI's
-> gallery. The router refuses cross-site POSTs and unknown Host names (no auth on the LAN). **＋ Add** in the UI pulls more models / LoRAs from
-> Hugging Face, civitai.com and civitai.red (`images_remote.py`: family detection, companion encoders,
-> sha256) into the LOCAL `<models>\image-models.local.json` -- never the tracked registry. CivitAI keys go
-> in `setx CIVITAI_TOKEN` on the box, never in chat. See **docs/IMAGES.md** for every measurement.
-> Traps: an `<sd_cpp_extra_args>` block in an EDIT request crashes sd-server (the router rejects it with
-> 400); `$PSScriptRoot` is EMPTY in PS 5.1 `param()` defaults under `-File`; the browser tool writes into
-> the repo (`.playwright-mcp/`, gitignored); Qwen-Image / Anima licences are non-commercial. The LLM
-> router, its watchdog and the `:9114` exporter are commented out in the Startup launcher
-> (`rem ROLLBACK-LLM:`); everything below about llama.cpp holds for when the LLM comes back.
+> **SINCE 2026-10-15 THE BOX SERVES IMAGES AND (2026-10-16) VIDEO, NOT AN LLM -- AND THAT WORK IS PRIVATE.**
+> Owner's rule (2026-10-16): the image/video serving code, its UI and every write-up about it are **never
+> published**. Only **numbers** (`docs/IMAGES.md`) and **configs** (`scripts/windows/image-models.json`, the
+> `fetch-models.ps1` labels) belong in this public repo. The code is a separate private git repo checked out at
+> `private/` (gitignored here); `private/CLAUDE.md` has its operating notes. Never copy code, feature or API
+> descriptions, screenshots or outputs from `private/` into this repo. `:8080` = `private\run-images.ps1`,
+> started by the Startup launcher. The LLM router, its watchdog and the `:9114` exporter are commented out
+> there (`rem ROLLBACK-LLM:`); everything below about llama.cpp holds for when the LLM comes back.
 
 Tuning + benchmarking stack for local LLM inference on **AMD Ryzen AI MAX+ 395 "Strix Halo" /
 Radeon 8060S (gfx1151)**, 128 GB unified LPDDR5X with **96 GB carved out as VRAM**. llama.cpp
@@ -64,10 +53,7 @@ scripts/windows/    PowerShell 5.1 — supported; every number came from here
                       llamacpp_child_restarts_total counts the crash+auto-reload failure mode,
                       llamacpp_child_responsive catches the FROZEN-child one
   router-watchdog.ps1 restarts the router when a loaded child stops answering /health (-NoAct to test)
-  run-images.ps1      ⭐ what :8080 runs since 2026-10-15: supervises images-router.py (-Single = one sd-server)
-  images-router.py    model router: Image Studio at /, one sd-server per model, LRU budget, freeze monitor, outputs
-  images_remote.py    "+ Add model": HF / CivitAI lookup, family detection, verified downloads, local registry
-  ui/                 Image Studio (index.html, studio.css, studio.js);  image-models.json  the registry (data only)
+  image-models.json   the image/video model registry (config); the serving code is private (private/, gitignored)
   bench-qwen38*.ps1   the sweeps behind docs/RESULTS.md (opt / ubatch / kquant / followup)
   legacy/             the superseded multi-model stack (run-server, run-qwen36, keep-resident)
 scripts/linux|macos/  bash DRAFTS — syntax-checked, never run on their own platform

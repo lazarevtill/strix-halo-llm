@@ -78,6 +78,11 @@ app (where it lives) still works out of the box without advertising anyone's net
   is the source of nearly every "secret-like" regex hit in a naive scan: library source code, not
   your secrets).
 - `.remember/` — private session/working logs.
+- `private/` — the image/video serving code: a **separate private repo** checked out inside this one.
+  Owner's rule (2026-10-16): that work is private; only its **numbers** (`docs/IMAGES.md`) and **configs**
+  (`scripts/windows/image-models.json`, the `fetch-models.ps1` labels) are published here.
+- `outputs/`, `*.part` — generated images / videos and partial downloads; `.playwright-mcp/` — browser-tool
+  snapshots and screenshots.
 - Raw benchmark dumps, eval results, transcripts, `*.bak` quarantine files, logs.
 
 ## Before you push — the checklist

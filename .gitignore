@@ -131,6 +131,9 @@ scripts/linux/router-models.generated.ini
 # Playwright MCP scratch output (browser snapshots/screenshots while testing the image UI)
 .playwright-mcp/
 
-# Image Studio results (images-router.py --outputs-dir): the owner's work, never published
+# Image/video work is PRIVATE (owner's rule, 2026-10-16): the serving code is its own repo checked out at
+# private/, and the results it saves land in outputs/. Only numbers (docs/IMAGES.md) and configs
+# (image-models.json, fetch-models.ps1) are published here.
+/private/
 outputs/
 *.part

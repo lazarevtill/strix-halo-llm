@@ -25,7 +25,7 @@ There is also a rendered report of the results at **<https://strix.lazarev.cloud
 | **[MULTI-USER.md](MULTI-USER.md)** | Real people are using the endpoint: saved chats, capacity, what a restart costs them | medium |
 | **[MULTI-BOX.md](MULTI-BOX.md)** | You have other GPUs on the LAN and want them to help (design, unmeasured) | short |
 | **[ROADMAP.md](ROADMAP.md)** | You want to know which new LLMs are staged and what blocks each | medium |
-| **[IMAGES.md](IMAGES.md)** | You want to know what `:8080` serves now (image generation + editing since 2026-10-15), its API and speed | short |
+| **[IMAGES.md](IMAGES.md)** | You want the measured numbers for what `:8080` serves now (images since 2026-10-15, video since 10-16) | short |
 | **[PUBLISHING.md](PUBLISHING.md)** | You're about to push this (or a fork) somewhere public | short |
 
 ## If you only read two pages

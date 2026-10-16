@@ -121,18 +121,11 @@ contrast is the useful part.
 
 ## Serving today
 
-**Since 2026-10-15 the box serves images (and since 2026-10-16 video), not text.** `:8080` runs a small
-router in front of stable-diffusion.cpp (Vulkan) with a web UI, **Image Studio**, for generating, editing,
-inpainting, image-to-image, text-to-video and image-to-video, with a model picker, a job queue and a
-gallery saved on the box: **Qwen-Image-2.1 Turbo** (the top open model for generation and editing on
-Artificial Analysis), its full-quality base, **FLUX.3 Image Klein** (added the day after its release),
-**Z-Image Turbo** (the fast option, Apache-2.0), **Kroma** (uncensored photoreal), **Anima** (uncensored
-anime), and **Wan 2.2** video (a 2-second 1280×704 clip in ~1.5 min on the 5B; the 27B A14B for quality). Several stay loaded at once; apps pick
-one with the OpenAI `model` field. About **1.5–2.5 minutes per 1024x1024 image** on the big models,
-**~53 s on Z-Image Turbo** (Anima: 44 s). More models and LoRAs — Illustrious, Pony, NoobAI, SDXL,
-FLUX, Chroma and the rest — can be added from Hugging Face or CivitAI straight from the web UI. Q8_0 weights ran 2.4x faster than bf16 on this
-driver at no visible quality cost. Licences differ per model — Qwen-Image and Anima are
-non-commercial. Details and every measurement: **[docs/IMAGES.md](docs/IMAGES.md)**.
+**Since 2026-10-15 the box serves images (and since 2026-10-16 video), not text.** The serving code for
+that is private; what is published is the numbers and the configs — model registry, download list, and
+every measurement (speed, memory, licences) in **[docs/IMAGES.md](docs/IMAGES.md)**. Headlines: Q8_0
+weights ran 2.4x faster than bf16 on this Vulkan driver at no visible quality cost; ~53 s for a 1024²
+image on Z-Image Turbo, 1.5–2.5 min on the big models; a 2-second 1280×704 video in ~1.5 min on Wan 2.2 5B.
 The LLM configuration below is what served `:8080` until then, and comes back with a one-line
 launcher swap. The tables above are the 2026-08 study of a dense 27B; each later step was measured,
 with the old result kept next to the new one:
@@ -326,7 +319,7 @@ strix-halo-llm/
 │   ├── OPTIMIZATION.md     the full tuning playbook (long -- a reference)
 │   ├── BENCHMARKS.md       ⭐ what to measure, how, and how not to fool yourself
 │   ├── MULTI-USER.md       serving real people: slots, capacity, restart cost, metrics
-│   ├── IMAGES.md           ⭐ what :8080 serves now: Qwen-Image-2.1 text-to-image + editing
+│   ├── IMAGES.md           what :8080 serves now (images + video): the measured numbers
 │   ├── MULTI-BOX.md        design: splitting work across several boxes over Ethernet
 │   ├── ROADMAP.md          pending models and engines, and what each is waiting on
 │   ├── PUBLISHING.md       what is safe to publish, and what must never be
@@ -339,8 +332,7 @@ strix-halo-llm/
 │   │   ├── run-router.ps1      router mode on :8080: per-model presets, -Parallel/-PerSlotCtx/-NoSpec
 │   │   ├── metrics-exporter.ps1  Prometheus exporter on a fixed :9114 (children use random ports)
 │   │   ├── router-watchdog.ps1   restarts the router when the model child freezes
-│   │   ├── run-images.ps1        ⭐ serves images on :8080: supervises the image router
-│   │   ├── images-router.py      model router (image-models.json) + Image Studio (ui/) + outputs gallery
+│   │   ├── image-models.json     the image/video model registry (config; the serving code is private)
 │   │   ├── fetch-models.ps1    resume-capable downloader, verifies byte counts
 │   │   ├── stage-nextgen.ps1   isolated test-load + Vulkan determinism gate for a new arch/engine
 │   │   ├── bench-big.ps1       depth-aware benchmark (-Bin A/Bs engines, -UBatch sweeps)

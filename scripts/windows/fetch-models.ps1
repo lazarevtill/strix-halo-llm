@@ -595,6 +595,89 @@ $REG = [ordered]@{
         )
         note  = 'FLUX.2 VAE -- used by FLUX.2 klein and FLUX.3 Image Klein.'
     }
+    # ---- Image extras (added 2026-10-16): ESRGAN upscalers, YOLOv8 detectors, IP-Adapter, LTX video -----------
+    # Sub-folders under the models dir: upscalers\ (ESRGAN) and detectors\ (YOLOv8, sd.cpp layout).
+    'upscalers' = @{
+        repo  = 'Comfy-Org/Real-ESRGAN_repackaged'
+        files = @(
+            @{ p='RealESRGAN_x4plus.safetensors'; b=66857836; as='upscalers\RealESRGAN_x4plus.safetensors' }   # BSD-3, photos
+        )
+        note  = 'RealESRGAN x4plus (4x photo upscaler, BSD-3) for Upscale and hires fix.'
+    }
+    'upscaler-anime' = @{
+        repo  = 'hlky/RealESRGAN_x4plus_anime_6B'
+        files = @(
+            @{ p='diffusion_pytorch_model.safetensors'; b=17888804; as='upscalers\RealESRGAN_x4plus_anime_6B.safetensors' }
+        )
+        note  = 'RealESRGAN x4plus anime 6B (4x, anime/illustration), safetensors repack.'
+    }
+    'upscaler-ultrasharp' = @{
+        repo  = 'Kim2091/UltraSharp'
+        files = @(
+            @{ p='4x-UltraSharp.safetensors'; b=66864028; as='upscalers\4x-UltraSharp.safetensors' }
+        )
+        note  = '4x-UltraSharp (detail-preserving 4x upscaler). LICENCE CC BY-NC-SA 4.0 (non-commercial).'
+    }
+    'adetailer' = @{
+        repo  = 'exeterminal/adetailer-yolov8-safetensors'
+        files = @(
+            @{ p='face_yolov8n.safetensors'; b=6033980;  as='detectors\face_yolov8n.safetensors' }
+            @{ p='face_yolov8s.safetensors'; b=22284028; as='detectors\face_yolov8s.safetensors' }
+            @{ p='hand_yolov8n.safetensors'; b=6033980;  as='detectors\hand_yolov8n.safetensors' }
+        )
+        # Bingsu's ADetailer YOLOv8 detectors, converted to sd.cpp's convert_yolov8_to_safetensors.py layout
+        # (the metadata yolov8.variant / names / reg_max match what that converter writes). AGPL-3.0 like YOLOv8.
+        note  = 'ADetailer face/hand detectors (YOLOv8, sd.cpp safetensors layout). AGPL-3.0.'
+    }
+    'ipadapter-sdxl' = @{
+        repo  = 'h94/IP-Adapter'
+        files = @(
+            @{ p='sdxl_models/ip-adapter_sdxl_vit-h.safetensors'; b=698391064 }
+        )
+        # The PLAIN adapter on purpose: ip-adapter-PLUS_sdxl_vit-h washed every colour out to near-greyscale
+        # on this box (WAI-illustrious, CFG 6, strengths 0.35-0.7, 2026-10-16); the plain one keeps full colour.
+        note  = 'IP-Adapter for SDXL (image prompt), ViT-H. Apache-2.0. Needs clip-vision-h.'
+    }
+    'clip-vision-h' = @{
+        repo  = 'Comfy-Org/Wan_2.1_ComfyUI_repackaged'
+        files = @(
+            @{ p='split_files/clip_vision/clip_vision_h.safetensors'; b=1264219396 }
+        )
+        note  = 'CLIP-Vision ViT-H/14 image encoder (IP-Adapter, Wan 2.1 I2V).'
+    }
+    'ltx23' = @{
+        repo  = 'unsloth/LTX-2.3-GGUF'
+        files = @(
+            @{ p='distilled-1.1/ltx-2.3-22b-distilled-1.1-Q8_0.gguf';                     b=22755540000 }
+            @{ p='text_encoders/ltx-2.3-22b-distilled_embeddings_connectors.safetensors'; b=2312144712 }
+            @{ p='vae/ltx-2.3-22b-distilled_video_vae.safetensors';                       b=1452256522 }
+            @{ p='vae/ltx-2.3-22b-distilled_audio_vae.safetensors';                       b=364853140 }
+        )
+        # LTX-2.3 distilled 1.1 (Lightricks, 22B): t2v / i2v / first+last frame, WITH AUDIO, 8 steps at CFG 1.
+        # LICENCE: LTX-2 Community License (free incl. commercial under $10M annual revenue).
+        note  = 'LTX-2.3 distilled-1.1 Q8_0 + connectors + video/audio VAE. Needs ltx23-te.'
+    }
+    'ltx23-te' = @{
+        repo  = 'unsloth/gemma-3-12b-it-GGUF'
+        files = @(
+            @{ p='gemma-3-12b-it-Q8_0.gguf'; b=12510212576 }
+        )
+        note  = 'Gemma 3 12B (Q8_0): the LTX-2.3 text encoder. Gemma terms of use.'
+    }
+    'minimax-h3' = @{
+        repo  = 'unsloth/MiniMax-H3-GGUF'
+        files = @(
+            @{ p='minimax_h3_fl2va_pruned-Q8_0.gguf';                 b=21437786208 }
+            @{ p='qwen3vl_32b_minimax_h3-Q4_K_M.gguf';                b=18218065024 }   # same bytes as leejet/MiniMax-H3-GGUF
+            @{ p='vae/minimax_h3_video_vae_fp16.safetensors';         b=5207808496 }    # same bytes as Comfy-Org/MiniMax-H3
+            @{ p='vae/minimax_h3_audio_vae_fp32.safetensors';         b=605254808 }
+        )
+        # MiniMax H3 (33B dense, pruned FL2VA): text->video and first/last-frame->video WITH STEREO SOUND, 24 fps.
+        # stable-diffusion.cpp supports it since ea7f0c8 (2026-08-04). LICENCE: MiniMax H3 Community License --
+        # its Applicable Territory EXCLUDES the EU, UK, US and South Korea; commercial use needs "MiniMax H3" shown
+        # in the UI and written authorisation above $20M revenue.
+        note  = 'MiniMax H3 FL2VA pruned Q8_0 + Qwen3-VL-32B (H3 variant) Q4_K_M + video/audio VAE. Licence excludes EU/UK/US/KR.'
+    }
     # ---- Video: Wan 2.2 (added 2026-10-15; all Apache-2.0, ungated) --------------------------------------
     # sd-server master-967 serves video on /sdcpp/v1/vid_gen (PR #1437). Byte counts from the HF tree API.
     'wan22-ti2v-turbo' = @{
@@ -766,6 +849,8 @@ foreach ($s in $sel) {
         $name = if ($f.as) { $f.as } else { [IO.Path]::GetFileName($f.p) }
         $out  = Join-Path $Dest $name
         $url  = "https://huggingface.co/$($m.repo)/resolve/main/$($f.p)"
+        # 'as' may name a sub-folder (upscalers\, detectors\): curl -o does not create it
+        New-Item -ItemType Directory -Force -Path (Split-Path $out -Parent) | Out-Null
 
         if ((Test-Path $out) -and $f.b -gt 0 -and (Get-Item $out).Length -eq $f.b) {
             Write-Host ("  [have] {0} ({1:N2} GiB)" -f $name, ($f.b/1GB)) -ForegroundColor DarkGreen

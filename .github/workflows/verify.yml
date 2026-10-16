@@ -61,13 +61,21 @@ jobs:
           python-version: '3.12'
 
       - name: py_compile
-        run: python -m py_compile evals/*.py evals/code/*.py scripts/windows/*.py
+        run: python -m py_compile evals/*.py evals/code/*.py
 
-      # Image Studio: the script must parse, and the page must stay CSP-clean (no inline script/style/handlers).
-      - name: Image Studio checks
+      # The image/video model registry (config): must parse, ids unique, every file named.
+      - name: image-models.json
         run: |
-          node --check scripts/windows/ui/studio.js
-          if grep -nE '<script>|<style|\sstyle=|\son[a-z]+=' scripts/windows/ui/index.html; then echo "inline script/style in ui/index.html breaks the CSP"; exit 1; fi
+          python - <<'EOF'
+          import json
+          r = json.load(open("scripts/windows/image-models.json", encoding="utf-8"))
+          ids = [m["id"] for m in r["models"]]
+          assert len(ids) == len(set(ids)), "duplicate model ids"
+          assert r["default"] in ids, "default is not a model"
+          for m in r["models"]:
+              assert m.get("files") and all(isinstance(v, str) and v for v in m["files"].values()), m["id"]
+          print(len(ids), "models ok")
+          EOF
 
       # A real self-test, not a smoke import: it asserts defines() and the
       # strict/rescued/best turn selection against the failure shapes that

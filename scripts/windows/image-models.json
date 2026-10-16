@@ -1,14 +1,12 @@
 {
   "_comment": [
-    "Model registry for images-router.py. Data only: adding a model = adding an entry here.",
-    "files: CLI flag (without --) -> file name under MODELS_DIR. args: extra sd-server flags (sampling defaults).",
+    "Image/video model registry (config). Data only: adding a model = adding an entry here.",
+    "files: sd-server CLI flag (without --) -> file name under MODELS_DIR. args: extra sd-server flags (sampling defaults).",
     "vram_gb: MEASURED 'total params memory size' from the backend's load log (not the file size);",
-    "the router reserves vram_gb + compute_gb per resident backend against its budget.",
-    "ui: what the web UI should offer for this model (edit = takes ref_images instructions;",
-    "fixed_steps = a --sigmas preset governs the step count, so a steps override is ignored).",
-    "family: the images_remote.FAMILIES recipe it belongs to -- decides which LoRAs fit (UI).",
-    "kind: 'image' (default) or 'video' -- video models take /sdcpp/v1/vid_gen jobs (frames, fps, init/end image) and",
-    "return a webm/webp/avi; compute_gb overrides the registry-wide headroom (video activations are far bigger).",
+    "compute_gb: GPU headroom reserved on top of vram_gb while the model is resident (video needs far more).",
+    "ui: the defaults offered for this model (edit = takes reference images; fixed_steps = a --sigmas preset",
+    "governs the step count; frame_step / frame_base = the frame-count grid of a video model).",
+    "family: which model family it belongs to -- decides which LoRAs fit. kind: 'image' (default) or 'video'.",
     "engine: optional sd-server path relative to the repo root, for a model the default build can't load."
   ],
   "default": "qwen-image-2.1-turbo",
@@ -321,6 +319,105 @@
         "width": 1024,
         "height": 1024,
         "note": "Distilled: 16 steps at CFG 1. Edit with up to 10 reference images (call them image 1, image 2...)."
+      }
+    },
+    {
+      "id": "ltx23",
+      "label": "LTX-2.3 (video with sound)",
+      "kind": "video",
+      "family": "ltx23",
+      "description": "Lightricks' 22B video model, distilled (8 steps), with a generated SOUNDTRACK: text->video, image->video, first + last frame. 2 s at 768x512 in ~3 min.",
+      "licence": "LTX-2 Community License (free incl. commercial under $10M revenue) + Gemma terms (text encoder)",
+      "nsfw": false,
+      "vram_gb": 38.4,
+      "compute_gb": 16,
+      "files": {
+        "diffusion-model": "ltx-2.3-22b-distilled-1.1-Q8_0.gguf",
+        "vae": "ltx-2.3-22b-distilled_video_vae.safetensors",
+        "audio-vae": "ltx-2.3-22b-distilled_audio_vae.safetensors",
+        "llm": "gemma-3-12b-it-Q8_0.gguf",
+        "embeddings-connectors": "ltx-2.3-22b-distilled_embeddings_connectors.safetensors"
+      },
+      "args": [
+        "--flash-attn",
+        "on",
+        "--temporal-tiling",
+        "--steps",
+        "8",
+        "--cfg-scale",
+        "1.0",
+        "--sampling-method",
+        "euler",
+        "--sigmas",
+        "1.0,0.99375,0.9875,0.98125,0.975,0.909375,0.725,0.421875,0.0",
+        "--video-frames",
+        "49",
+        "--fps",
+        "24"
+      ],
+      "ui": {
+        "video": true,
+        "t2v": true,
+        "i2v": true,
+        "end_image": true,
+        "audio": true,
+        "steps": 8,
+        "fixed_steps": 8,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 768,
+        "height": 512,
+        "frames": 49,
+        "fps": 24,
+        "max_frames": 121,
+        "frame_step": 8,
+        "note": "Distilled: 8 steps at CFG 1 (Lightricks' distilled sigma schedule). Frames are 8n+1 (49 = 2 s, 121 = 5 s at 24 fps); width and height multiples of 32. The video comes with generated sound."
+      }
+    },
+    {
+      "id": "minimax-h3",
+      "label": "MiniMax H3 (video with sound)",
+      "kind": "video",
+      "family": "minimax-h3",
+      "description": "MiniMax's 33B omni-modal video model (pruned FL2VA, Q8_0): text->video and first / last frame->video with stereo sound, 24 fps.",
+      "licence": "MiniMax H3 Community License: NOT licensed in the EU, UK, US or South Korea; commercial use must show \"MiniMax H3\"; written authorisation above $20M revenue",
+      "nsfw": false,
+      "vram_gb": 45.5,
+      "compute_gb": 16,
+      "files": {
+        "diffusion-model": "minimax_h3_fl2va_pruned-Q8_0.gguf",
+        "vae": "minimax_h3_video_vae_fp16.safetensors",
+        "audio-vae": "minimax_h3_audio_vae_fp32.safetensors",
+        "llm": "qwen3vl_32b_minimax_h3-Q4_K_M.gguf"
+      },
+      "args": [
+        "--flash-attn",
+        "on",
+        "--temporal-tiling",
+        "--cfg-scale",
+        "1.0",
+        "--fps",
+        "24",
+        "--video-frames",
+        "56"
+      ],
+      "ui": {
+        "video": true,
+        "t2v": true,
+        "i2v": true,
+        "end_image": true,
+        "audio": true,
+        "steps": 20,
+        "cfg": 1,
+        "sampler": "euler",
+        "width": 864,
+        "height": 480,
+        "frames": 56,
+        "fps": 24,
+        "max_frames": 124,
+        "frame_step": 17,
+        "frame_base": 5,
+        "note": "Frames sit on a 17k+5 grid (56 = 2.3 s, 124 = 5.2 s at 24 fps); always 24 fps; sizes multiples of 32. Describe the sound too: it renders stereo audio with the picture."
       }
     }
   ]
